@@ -7,5 +7,10 @@
   <name>java学习笔记</name>
   <modules>
   	<module>spring-learning</module>
+  	<module>mybatis-learning</module>
+  	<module>springmvc-learning</module>
+  	<module>struts2-learning</module>
+  	<module>hibernate-learning</module>
+  	<module>redis-learning</module>
   </modules>
 </project>
