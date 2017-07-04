@@ -1,0 +1,36 @@
+mybatis学习笔记(3)-mybatis入门程序
+
+## pom文件
+        
+         <properties>
+  			<mybatis.version>3.4.0</mybatis.version>
+  		</properties>
+        
+		<dependency>
+			<groupId>org.mybatis</groupId>
+			<artifactId>mybatis</artifactId>
+			<version>${mybatis.version}</version>
+		</dependency>
+
+## sqlMapConfig.xml 文件
+	
+
+
+## userMapper.xml 
+
+## Mybatistest.java
+
+
+## 结果
+
+DEBUG [com.java.mybatis.test2.dao.UserMapper.findUserById] - ==>  Preparing: SELECT * FROM user WHERE id=? 
+DEBUG [com.java.mybatis.test2.dao.UserMapper.findUserById] - ==> Parameters: 1(Integer)
+DEBUG [com.java.mybatis.test2.dao.UserMapper.findUserById] - <==      Total: 1
+User [id=1, username=admin, password=admin, birthday=Fri Jan 13 00:00:00 CST 1989, sex=1, address=北京市]
+
+
+DEBUG [com.java.mybatis.test2.dao.UserMapper.findUserByName] - ==>  Preparing: SELECT * FROM user WHERE username LIKE '%admin%' 
+[main] DEBUG [com.java.mybatis.test2.dao.UserMapper.findUserByName] - ==> Parameters: 
+[main] DEBUG [com.java.mybatis.test2.dao.UserMapper.findUserByName] - <==      Total: 1
+[User [id=1, username=admin, password=admin, birthday=Fri Jan 13 00:00:00 CST 1989, sex=1, address=北京市]]
+

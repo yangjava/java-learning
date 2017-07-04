@@ -8,4 +8,45 @@
   <artifactId>mybatis-learning</artifactId>
   <packaging>war</packaging>
   <name>mybatis学习笔记</name>
+  <properties>
+  <mybatis.version>3.4.0</mybatis.version>
+  <junit.version>4.12</junit.version>
+  <slf4j.version>1.7.21</slf4j.version>
+  <log4j.version>2.4.1</log4j.version>
+  </properties>
+  <dependencies>
+    <!-- mysql connector -->
+    	<dependency>
+			<groupId>mysql</groupId>
+			<artifactId>mysql-connector-java</artifactId>
+			<version>5.1.38</version>
+		</dependency>
+		
+		<!-- mybatis-->
+		<dependency>
+			<groupId>org.mybatis</groupId>
+			<artifactId>mybatis</artifactId>
+			<version>${mybatis.version}</version>
+		</dependency>
+
+		<dependency>
+			<groupId>log4j</groupId>
+			<artifactId>log4j</artifactId>
+			<version>1.2.17</version>
+		</dependency>
+
+		<!-- junit -->
+		<dependency>
+			<groupId>junit</groupId>
+			<artifactId>junit</artifactId>
+			<version>${junit.version}</version>
+		<!-- 	<scope>test</scope> -->
+		</dependency>	
+		
+		
+		
+		
+  </dependencies>
+
+  
 </project>
