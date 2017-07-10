@@ -11,7 +11,7 @@ import org.junit.Test;
 
 import com.java.mybatis.test1.model.User;
 
-public class MybatisTestOne {
+public class MybatisTest1 {
 	
 	
 	

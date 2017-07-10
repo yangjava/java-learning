@@ -2,6 +2,9 @@ package com.java.mybatis.test1.model;
 
 import java.util.Date;
 
+import org.apache.ibatis.type.Alias;
+
+@Alias("user")
 public class User {
     private Integer id;
 
@@ -11,7 +14,7 @@ public class User {
 
     private Date birthday;
 
-    private String sex;
+    private SexEnum sex;
 
     private String address;
 
@@ -47,11 +50,11 @@ public class User {
         this.birthday = birthday;
     }
 
-    public String getSex() {
+    public SexEnum getSex() {
         return sex;
     }
 
-    public void setSex(String sex) {
+    public void setSex(SexEnum sex) {
         this.sex = sex;
     }
 

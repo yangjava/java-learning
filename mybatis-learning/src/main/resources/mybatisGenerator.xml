@@ -20,9 +20,9 @@
 			userId="root"
 			password="root" />
 		<!-- java实体代码 -->
-		<javaModelGenerator targetPackage="com.java.mybatis.one.model" targetProject="mybatis-learning" />
-		<sqlMapGenerator targetPackage="sqlmap" targetProject="mybatis-learning" />
-		<javaClientGenerator targetPackage="com.java.mybatis.one.dao" type="XMLMAPPER" targetProject="mybatis-learning"/>
+ 	<javaModelGenerator targetPackage="com.java.mybatis.test4.model" targetProject="mybatis-learning" />
+		<sqlMapGenerator targetPackage="sqlmap" targetProject="mybatis-learning" /> 
+		<javaClientGenerator targetPackage="com.java.mybatis.test4.dao" type="XMLMAPPER" targetProject="mybatis-learning"/>
  <!-- 		<table schema="" tableName="user"
 		     enableCountByExample="true"
 			enableUpdateByExample="true" enableDeleteByExample="true"

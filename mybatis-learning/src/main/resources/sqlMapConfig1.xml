@@ -4,25 +4,33 @@
   "http://mybatis.org/dtd/mybatis-3-config.dtd">
 <configuration>
 
-   
-    
-    <environments default="development">
-        <environment id="development">
-            <!-- 使用jdbc事务管理，事务控制由mybatis-->
-            <transactionManager type="JDBC" />
-            <!-- 数据库连接池,由mybatis管理-->
-            <dataSource type="POOLED">
-                <property name="driver" value="com.mysql.jdbc.Driver" />
-                <property name="url" value="jdbc:mysql://localhost:3306/mybatistest?useSSL=false" />
-                <property name="username" value="root" />
-                <property name="password" value="root" />
-            </dataSource>
-        </environment>
-        
-    </environments>
-    
-		<mappers>
-    		<mapper resource="sqlmap/UserMapper1.xml"/>
-		</mappers>
-		
+	<!-- <typeAliases> <package name="com.java.mybatis.test1.model"/> </typeAliases> -->
+	<typeHandlers>
+		<typeHandler 
+			javaType="string" jdbcType="VARCHAR" handler="com.java.mybatis.test1.MyStringTypeHandler"/>
+			
+			<typeHandler 
+			javaType="com.java.mybatis.test1.model.SexEnum"  handler="org.apache.ibatis.type.EnumOrdinalTypeHandler"/>
+	</typeHandlers> 
+	<environments default="development">
+		<environment id="development">
+			<!-- 使用jdbc事务管理，事务控制由mybatis -->
+			<transactionManager type="JDBC" />
+			<!-- 数据库连接池,由mybatis管理 -->
+			<dataSource type="POOLED">
+				<property name="driver" value="com.mysql.jdbc.Driver" />
+				<property name="url"
+					value="jdbc:mysql://localhost:3306/mybatistest?useSSL=false" />
+				<property name="username" value="root" />
+				<property name="password" value="root" />
+			</dataSource>
+		</environment>
+	</environments>
+
+
+
+	<mappers>
+		<mapper resource="sqlmap/UserMapper1.xml" />
+	</mappers>
+
 </configuration>

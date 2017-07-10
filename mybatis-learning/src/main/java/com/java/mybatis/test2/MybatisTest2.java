@@ -12,7 +12,7 @@ import org.junit.Test;
 
 import com.java.mybatis.test2.model.User;
 
-public class MybatisTestTwo {
+public class MybatisTest2 {
 	
 	
 	
@@ -34,8 +34,10 @@ public class MybatisTestTwo {
         // 第二个参数：指定和映射文件中所匹配的parameterType类型的参数
         // sqlSession.selectOne结果 是与映射文件中所匹配的resultType类型的对象
         // selectOne查询出一条记录
-        User user = sqlSession.selectOne("com.java.mybatis.test2.dao.UserMapper.findUserById", 1);
-
+        
+//        User user = sqlSession.selectOne("com.java.mybatis.test2.dao.UserMapper.findUserById", 1);
+        //如果只存在一个 SQL ID 可以简写
+        User user = sqlSession.selectOne("findUserById", 1);
         System.out.println(user);
 
         // 释放资源
