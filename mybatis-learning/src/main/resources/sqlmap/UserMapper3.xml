@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.java.mybatis.test3.dao.UserMapper" >
+
+    <!-- 定义resultMap
+	将SELECT id id_,username username_ FROM USER 和User类中的属性作一个映射关系
+	
+	type：resultMap最终映射的java对象类型,可以使用别名
+	id：对resultMap的唯一标识
+	 -->
+	 <resultMap type="com.java.mybatis.test3.model.UserMap" id="userResultMap">
+	 	<!-- id表示查询结果集中唯一标识 
+	 	column：查询出来的列名
+	 	property：type指定的pojo类型中的属性名
+	 	最终resultMap对column和property作一个映射关系 （对应关系）
+	 	-->
+	 	<id column="id" property="userId"/>
+	 	<!-- 
+	 	result：对普通名映射定义
+	 	column：查询出来的列名
+	 	property：type指定的pojo类型中的属性名
+	 	最终resultMap对column和property作一个映射关系 （对应关系）
+	 	 -->
+	 	<result column="sex" property="userSex"/>
+	 </resultMap>
+
+
+      <select id="findUserById" parameterType="int" resultType="com.java.mybatis.test3.model.User">
+        SELECT * FROM  user  WHERE id=#{value}
+    </select>
+
+    <!-- 根据用户名称模糊查询用户信息，可能返回多条
+	resultType：指定就是单条记录所映射的java对象类型
+	${}:表示拼接sql串，将接收到参数的内容不加任何修饰拼接在sql中。
+	使用${}拼接sql，引起 sql注入
+	${value}：接收输入参数的内容，如果传入类型是简单类型，${}中只能使用value
+	 -->
+    <select id="findUserByName" parameterType="java.lang.String" resultType="com.java.mybatis.test3.model.User">
+        SELECT * FROM user WHERE username LIKE '%${value}%'
+    </select>
+    
+    <select id="findUserByUserQueryVoId" parameterType="com.java.mybatis.test3.model.UserQueryVo" resultType="com.java.mybatis.test3.model.User">
+        SELECT * FROM  user  WHERE id=#{user.id} and username like '%${user.username}%'
+    </select>
+    
+   <select id="findUserCount" parameterType="com.java.mybatis.test3.model.UserQueryVo" resultType="int">
+        SELECT count(*) FROM  user  WHERE id=#{user.id} and username like '%${user.username}%'
+    </select>
+    
+   <select id="findUserMap" parameterType="int" resultMap="userResultMap">
+        SELECT id AS userId,sex AS userSex FROM  user  WHERE id=#{value}
+    </select>
+    
+ <select id="findUserByIdAndName" parameterType="map" resultType="com.java.mybatis.test3.model.User">
+        SELECT * FROM  user  WHERE id=#{id}  AND username LIKE concat ('%',#{username},'%')
+    </select> 
+     <select id="findUserByIdAndNameParam"  resultType="com.java.mybatis.test3.model.User">
+        SELECT * FROM  user  WHERE id=#{id}  AND username LIKE concat ('%',#{username},'%')
+    </select> 
+    
+</mapper>
