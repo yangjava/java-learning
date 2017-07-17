@@ -57,5 +57,7 @@
      <select id="findUserByIdAndNameParam"  resultType="com.java.mybatis.test3.model.User">
         SELECT * FROM  user  WHERE id=#{id}  AND username LIKE concat ('%',#{username},'%')
     </select> 
-    
+    <select id="findAllUser"  resultType="com.java.mybatis.test3.model.User">
+       SELECT * FROM  user
+    </select>
 </mapper>

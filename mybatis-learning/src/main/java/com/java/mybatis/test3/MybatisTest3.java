@@ -199,4 +199,23 @@ public class MybatisTest3 {
 
     }
     
+    @Test
+    public void findAllUserTest() throws IOException{
+        // mybatis配置文件
+        String resource = "SqlMapConfig3.xml";
+        // 得到配置文件流
+        InputStream inputStream =  Resources.getResourceAsStream(resource);
+        //创建会话工厂，传入mybatis配置文件的信息
+        SqlSessionFactory sqlSessionFactory = new SqlSessionFactoryBuilder().build(inputStream);
+
+        // 通过工厂得到SqlSession
+        SqlSession sqlSession = sqlSessionFactory.openSession();
+        //通过Mapper 加载SQL信息
+        UserMapper userMapper=sqlSession.getMapper(UserMapper.class);
+        List<User> user=userMapper.findAllUser();
+        System.out.println(user);
+        // 释放资源
+        sqlSession.close();
+
+    }
 }

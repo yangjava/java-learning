@@ -41,8 +41,13 @@
 			<artifactId>junit</artifactId>
 			<version>${junit.version}</version>
 		<!-- 	<scope>test</scope> -->
-		</dependency>	
-		
+		</dependency>
+
+		<dependency>
+			<groupId>cglib</groupId>
+			<artifactId>cglib</artifactId>
+			<version>3.1</version>
+		</dependency>
 		
 		
 		

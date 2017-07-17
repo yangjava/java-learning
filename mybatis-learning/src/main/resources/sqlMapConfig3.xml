@@ -4,7 +4,12 @@
   "http://mybatis.org/dtd/mybatis-3-config.dtd">
 <configuration>
 
-   
+       	<plugins>
+		<plugin interceptor="com.java.mybatis.plugin.QueryLimitPlugin">
+		<property name="dbType" value="MYSQL"/>
+		<property name="limit" value="2"/>
+		</plugin>
+		</plugins>
     
     <environments default="development">
         <environment id="development">
@@ -21,8 +26,10 @@
         
     </environments>
     
+
+    
 		<mappers>
     		<mapper resource="sqlmap/UserMapper3.xml"/>
 		</mappers>
-		
+	
 </configuration>

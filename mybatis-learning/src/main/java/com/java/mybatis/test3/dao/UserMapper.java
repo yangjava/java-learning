@@ -29,4 +29,6 @@ public interface UserMapper {
     public int findUserCount(UserQueryVo userQueryVo);
     
     UserMap findUserMap(Integer id);
+    
+    List<User> findAllUser();
 }

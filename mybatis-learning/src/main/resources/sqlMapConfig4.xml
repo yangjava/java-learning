@@ -4,7 +4,11 @@
   "http://mybatis.org/dtd/mybatis-3-config.dtd">
 <configuration>
 
-   
+       <plugins>
+		<plugin interceptor="com.java.mybatis.plugin.UpdatePlugin">
+		<property name="dbType" value="MYSQL"/>
+		</plugin>
+		</plugins>
     
     <environments default="development">
         <environment id="development">
