@@ -12,5 +12,7 @@
   	<module>struts2-learning</module>
   	<module>hibernate-learning</module>
   	<module>redis-learning</module>
+  	<module>dbutils-learning</module>
+  	<module>c3p0-learning</module>
   </modules>
 </project>
