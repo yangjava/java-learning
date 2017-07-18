@@ -7,8 +7,6 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 
-import javax.sql.DataSource;
-
 import com.mchange.v2.c3p0.ComboPooledDataSource;
 
 public class C3p0DataSource3 {
