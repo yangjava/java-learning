@@ -70,4 +70,17 @@ public class DbutilsTest {
 	        System.out.println(batch.length);
 	    }
 	
+	    // 用户身份证   一对一关系 
+		@Test
+		public void testCard() throws SQLException{
+			QueryRunner queryRunner=new QueryRunner(DataSource.getDataSource());
+			String sql="select c.* from card c left join user u on u.id=c.id where u.id = ?";
+			Card card=(Card)queryRunner.query(sql, new BeanHandler<Card>(Card.class),"1");
+			System.out.println(card);
+		} 
+	    
+	    
+	    
+	    
+	    
 }

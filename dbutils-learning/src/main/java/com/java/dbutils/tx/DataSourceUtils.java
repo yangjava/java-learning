@@ -1,10 +1,10 @@
-package com.java.dbutils;
+package com.java.dbutils.tx;
 
 import java.sql.Connection;
 
 import com.mchange.v2.c3p0.ComboPooledDataSource;
 
-public class DataSource {
+public class DataSourceUtils {
 
 	
 	private static ComboPooledDataSource cpds;  
