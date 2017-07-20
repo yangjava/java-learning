@@ -1,0 +1,268 @@
+在阅读Javac源码的过程中，发现一个上下文对象Context。
+
+这个对象用来确保一次编译过程中的用到的类都只有一个实例，即实现我们经常提到的“单例模式”。
+
+今天，特意对这个上下文容器进行解析，主要是讲解上下文容器、单例模式和延迟创建。
+
+通过对OpenJDK和Javac源码的一点点解析，希望自己能够搞懂JDK和Javac的实现。
+
+1.OpenJDK源码示例
+
+a.上下文容器
+
+[java] view plain copy
+public class com.sun.tools.javac.util.Context{  
+  
+    //构造函数  
+  
+    public Context() {  
+    }  
+  
+  
+    /** 
+     * 客户端创建这个类的实例，用作key。 
+     */  
+    public static class Key<T> {  
+        // 注意: 我们从Object继承身份相等性。we inherit identity equality from Object.  
+    }  
+  
+    /** 
+     * 客户端注册这个工厂，实现实例的延迟创建。 
+     */  
+    public static interface Factory<T> {  
+        T make(Context c);  
+    };  
+    public <T> void put(Key<T> key, Factory<T> fac) {  
+        ft.put(key, fac); // cannot be duplicate if unique in ht  
+    }  
+    public <T> T get(Key<T> key) {  
+        Object o = ht.get(key);  
+        //如果通过key获取的是一个工厂类  
+        if (o instanceof Factory<?>) {  
+            Factory<?> fac = (Factory<?>) o;  
+            //根据工厂创建对象  
+            o = fac.make(this);  
+        }  
+  
+        //类型转换  
+        return Context.<T> uncheckedCast(o);  
+    }  
+  
+}  
+
+b.单例模式
+
+[java] view plain copy
+public class com.sun.tools.javac.util.Options{  
+  
+//如果上下文容器中存在，直接返回；否则，新创建一个对象，并且放到Context中。  
+  
+public static Options instance(Context context) {  
+        Options instance = context.get(optionsKey);  
+        if (instance == null){  
+            instance = new Options(context);  
+        }  
+        return instance;  
+    }  
+  
+}  
+
+c.延迟创建
+
+ 
+
+[java] view plain copy
+public static final Context.Key<Log> logKey = new Context.Key<Log>();  
+  
+ context.put(logKey, new Context.Factory<Log>();  
+  
+   
+
+这个时候，put放进去的不是一个对象，而是一个工厂。
+
+当我们通过context.get(logKey)去获得对象的时候，先是获得了工厂对象，然后再根据工厂去创建相应的对象。
+
+2.代码示例
+
+a.上下文容器
+
+[java] view plain copy
+package sample.context;  
+  
+import java.util.HashMap;  
+import java.util.Map;  
+  
+public class Context {  
+  
+    private Map<Key<?>, Object> map = new HashMap<Key<?>, Object>();  
+  
+    public Context() {  
+    }  
+  
+    /** 
+     * 客户端创建这个类的实例，用作key。 
+     */  
+    public static class Key<T> {  
+        // 注意: 我们从Object继承身份相等性。  
+    }  
+  
+    /** 
+     * 客户端注册这个工厂，实现实例的延迟创建。 
+     */  
+    public static interface Factory<T> {  
+        T make(Context c);  
+    };  
+  
+    public <T> void put(Key<T> key, Factory<T> fac) {  
+        map.put(key, fac);  
+    }  
+  
+    public <T> void put(Key<T> key, T data) {  
+        map.put(key, data);  
+    }  
+  
+    public <T> T get(Key<T> key) {  
+        Object o = map.get(key);  
+        // 如果通过key获取的是一个工厂类  
+        if (o instanceof Factory<?>) {  
+            Factory<?> fac = (Factory<?>) o;  
+            // 根据工厂创建对象  
+            o = fac.make(this);  
+            System.out.println("根据工厂延迟创建了一个对象,工厂类型：" + o.getClass());  
+        } else {  
+            if (o != null) {  
+                System.out.println("直接获得了一个对象，对象类型：" + o.getClass());  
+            }  
+        }  
+  
+        return (T) o;  
+    }  
+  
+}  
+
+b.用户
+
+[java] view plain copy
+package sample.context;  
+  
+import sample.context.Context.Key;  
+  
+public class User {  
+  
+    protected static final Key<User> userKey = new Key<User>();  
+  
+    private String name;  
+  
+    public User(Context context) {  
+        context.put(userKey, this);  
+    }  
+  
+    public static User instanceOf(Context context) {  
+        User user = context.get(userKey);  
+        if (user == null) {  
+            user = new User(context);  
+        }  
+        return user;  
+  
+    }  
+  
+    public String getName() {  
+        return name;  
+    }  
+  
+    public void setName(String name) {  
+        this.name = name;  
+    }  
+  
+    public String toString() {  
+        return "User";  
+    }  
+  
+}  
+
+c.博客
+
+[java] view plain copy
+package sample.context;  
+  
+import sample.context.Context.Key;  
+  
+public class Blog {  
+    protected static final Key<Blog> blogKey = new Key<Blog>();  
+  
+    private String title;  
+  
+    public Blog(Context context) {  
+        context.put(blogKey, this);  
+    }  
+  
+    public static Blog instanceOf(Context context) {  
+        Blog blog = context.get(blogKey);  
+        if (blog == null) {  
+            return new Blog(context);  
+        }  
+        return blog;  
+  
+    }  
+  
+    public static void preRegister(Context context) {  
+        context.put(blogKey, new Context.Factory<Blog>() {  
+            public Blog make(Context c) {  
+                return new Blog(c);  
+            }  
+        });  
+    }  
+  
+    public String getTitle() {  
+        return title;  
+    }  
+  
+    public void setTitle(String title) {  
+        this.title = title;  
+    }  
+  
+    public String toString() {  
+        return "Blog";  
+    }  
+  
+}  
+
+d.应用例子
+
+[java] view plain copy
+package sample.context;  
+  
+/** 
+ * OpenJDK源码研究笔记(十三):Javac编译过程中的上下文容器(Context)、单例(Singleton)和延迟创建(LazyCreation)3种模式 
+ * 
+ * @author LeiWen@FansUnion.cn 
+ * 
+ */  
+public class ContextExample {  
+  
+    public static void main(String[] args) {  
+        // 构造上下文容器  
+        Context context = new Context();  
+        // 预注册一个Blog工厂  
+        Blog.preRegister(context);  
+        // 获得一个User对象  
+        User user = User.instanceOf(context);  
+        user.setName("FansUnion");  
+  
+        User user2 = User.instanceOf(context);  
+        //验证是否为单例  
+        if (user == user2) {  
+            System.out.println("user和user2是同一个对象，name:" + user2.getName());  
+        }  
+        // 获得一个Blog对象  
+        Blog blog = Blog.instanceOf(context);  
+  
+    }  
+  
+}  
+
+e.程序输出
+
+直接获得了一个对象，对象类型：class sample.context.User
+user和user2是同一个对象，name:FansUnion
+根据工厂延迟创建了一个对象,工厂类型：class sample.context.Blog

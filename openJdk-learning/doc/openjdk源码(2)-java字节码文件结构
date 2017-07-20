@@ -1,0 +1,103 @@
+参考JVM规范第2版(英文原版)，特意整理下。
+
+JVM规范中定义的类文件的结构
+
+注：使用是类似于C语言的表示方法
+
+u1: unsigned one-byte  无符号一个字节
+
+u2: unsigned two-byte  无符号两个字节
+
+u4: unsigned four-byte 无符号四个字节
+
+ClassFiel{
+
+ //魔法数字
+
+ u4 magic;
+
+ //次版本号
+
+ u2 minor_version;
+
+ //主版本号
+
+ u2 major_version;
+
+//常量池中常量的个数
+
+ u2 constant_pool_count;
+
+ //常量池数组
+
+cp_info_constant_pool[constant_pool_count-1];
+
+ //类或接口的访问标识符
+
+ u2 access_flag;
+
+ //这个类在常量池中的下标
+
+ u2 this_class;
+
+//这个类的父类在常量池中的下标
+
+u2 super_class;
+
+//父接口的数量
+
+u2 interfaces_count;
+
+//父接口的数组
+
+u2 interfaces[interfaces_count];
+
+//字段的个数
+
+u2 fields_count;
+
+//字段的信息
+
+field_info fields[fields_count];
+
+//方法的个数
+
+u2 methods_count;
+
+//方法的信息
+
+method_info methods[methods_count];
+
+//属性的个数（不是字段）
+
+u2 attributes_count;
+
+//属性的信息,attribute_info是一种用来表示信息的结构
+
+attribute_info attributes[attributes_count];
+
+ }
+
+OpenJDK中定义的类文件的结构
+
+public class ClassFile {
+
+    public final int magic;
+    public final int minor_version;
+    public final int major_version;
+    public final ConstantPool constant_pool;
+    public final AccessFlags access_flags;
+    public final int this_class;
+    public final int super_class;
+    public final int[] interfaces;
+    public final Field[] fields;
+    public final Method[] methods;
+    public final Attributes attributes;
+
+}
+
+定义异同点
+
+OpenJDK中的定义和JVM规范中的定义，是等同的。
+
+区别就是表示方法不一样，前者是Java语言表示方式，后者是类似于c语言的表示方式。

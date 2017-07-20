@@ -1,0 +1,453 @@
+java.lang.Object.clone()分析
+
+　　
+
+　　首先，看一下源码：
+
+1 public class Object  {
+2     protected native Object clone() throws CloneNotSupportedException;
+3 }
+　　由源代码我们会发现：
+
+　　第一：Object类的clone()方法是一个native方法，native方法的效率一般来说都是远高于Java中的非native方法。这也解释了为什么要用Object中clone()方法而不是先new一个类，然后把原始对象中的信息复制到新对象中，虽然这也实现了clone功能。（JNI是Java Native Interface的 缩写。从Java 1.1开始，Java Native Interface (JNI)标准成为java平台的一部分，它允许Java代码和其他语言写的代码进行交互。JNI一开始是为了本地已编译语言，尤其是C和C++而设计的，但是它并不妨碍你使用其他语言，只要调用约定受支持就可以了。使用java与本地已编译的代码交互，通常会丧失平台可移植性。但是，有些情况下这样做是可以接受的，甚至是必须的，比如，使用一些旧的库，与硬件、操作系统进行交互，或者为了提高程序的性能。JNI标准至少保证本地代码能工作在任何Java 虚拟机实现下。）
+
+　　第二：Object类中的 clone()方法被protected修饰符修饰。这也意味着如果要应用 clone()方 法，必须继承Object类，在 Java中所有的类是缺省继承 Object类的，也就不用关心这点了。然后重载 clone()方法。还有一点要考虑的是为了让其它类能调用这个 clone类的 clone()方法，重载之后要把 clone()方法的属性设置为 public。
+
+　　第三：Object.clone()方法返回一个Object对象。我们必须进行强制类型转换才能得到我们需要的类型。
+
+ 
+
+　　浅层复制与深层复制概念：
+
+　　浅层复制： 被复制的对象的所有成员属性都有与原来的对象相同的值，而所有的对其他对象的引用仍然指向原来的对象。换言之，浅层复制仅仅复制所考虑的对象，而不复制它所引用的对象。（概念不好理解，请结合下文的示例去理解）
+
+　　深层复制：被复制对象的所有变量都含有与原来的对象相同的值，除去那些引用其他对象的变量。那些引用其他对象的变量将指向被复制过的新对象，而不是原有的那些被引用的对象。换言之，深层复制要复制的对象引用的对象都复制一遍。
+
+ 
+
+　　Java中对象的克隆
+
+　　1）在派生类中实现Cloneable借口。
+
+　　2）为了获取对象的一份拷贝，我们可以利用Object类的clone方法。
+
+　　3）在派生类中覆盖积累的clone方法，声明为public。
+
+　　4）在派生类的clone方法中，调用super.clone()。
+
+ 
+
+　　实现Cloneable接口 
+
+　　首先，看一下源码：　　
+
+1 public interface Cloneable { 
+2 }
+　　我们奇怪的发现Cloneable竟然是空的，那么我们为什么要实现Cloneable接口呢？其实Cloneable接口仅仅是一个标志，而且这个标志也仅仅是针对 Object类中 clone()方法的，如果 clone 类没有实现 Cloneable 接口，并调用了 Object 的 clone() 方法（也就是调用了 super.Clone() 方法），那么Object 的 clone() 方法就会抛出 CloneNotSupportedException 异常。
+
+ 
+
+　　程序示例分析：
+
+ 
+
+复制代码
+ 1 public class Person {
+ 2     private String name;
+ 3     private int age;
+ 4     public Person(){}
+ 5     public Person(String name,int age){
+ 6         this.name=name;
+ 7         this.age=age;
+ 8     }
+ 9     public Object clone(){
+10         Object o=null;
+11         try {
+12             o=super.clone();
+13         } catch (CloneNotSupportedException e) {
+14             e.printStackTrace();
+15         }
+16         return o;
+17     }
+18     public String getName() {
+19         return name;
+20     }
+21     public void setName(String name) {
+22         this.name = name;
+23     }
+24     public int getAge() {
+25         return age;
+26     }
+27     public void setAge(int age) {
+28         this.age = age;
+29     }
+30 }
+复制代码
+复制代码
+ 1 public class PersonTest {
+ 2     public static void main(String[] args) {
+ 3         Person p1=new Person("zhangsan",18);
+ 4         Person p2=(Person)p1.clone();
+ 5         p2.setName("lis");
+ 6         p2.setAge(20);
+ 7         System.out.println("name="
+ 8             +p1.getName()+",age="+p1.getAge());
+ 9         //修改p2后，没有对p1产生影响。
+10     }
+11 }
+复制代码
+　　说明：
+
+　　1）为什么我们在派生类中覆盖Object的clone()方法时，一定要调用super.clone()呢？在运行时刻，Object中的clone()识别你要复制的是哪一个对象，然后为此对象分配空间，并进行对象的复制，将原始对象的内容一一复制到新对象的存储空间中。
+
+　　2）继承自java.lang.Object.clone()方法是浅层复制。一下代码可以证明之：
+
+复制代码
+ 1 public class Student implements Cloneable {
+ 2     private String name;
+ 3     private int age;
+ 4     private Professor pro;
+ 5     public Student(){}
+ 6     public Student(String name,int age,Professor pro){
+ 7         this.name=name;
+ 8         this.age=age;
+ 9         this.pro=pro;
+10     }
+11     public Object clone(){
+12         Object o=null;
+13         try {
+14             //Object中的clone()识别出你要复制的是哪一个对象。
+15             o=super.clone();
+16         } catch (CloneNotSupportedException e) {
+17             System.out.println(e.toString());
+18         }
+19         return o;
+20     }
+21     public String getName() {
+22         return name;
+23     }
+24     public void setName(String name) {
+25         this.name = name;
+26     }
+27     public int getAge() {
+28         return age;
+29     }
+30     public void setAge(int age) {
+31         this.age = age;
+32     }
+33     public Professor getPro() {
+34         return pro;
+35     }
+36     public void setPro(Professor pro) {
+37         this.pro = pro;
+38     }
+39 }
+40 class Professor{
+41     private String name;
+42     private int age;
+43     public Professor(){}
+44     public Professor(String name,int age){
+45         this.name=name;
+46         this.age=age;
+47     }
+48     public String getName() {
+49         return name;
+50     }
+51     public void setName(String name) {
+52         this.name = name;
+53     }
+54     public int getAge() {
+55         return age;
+56     }
+57     public void setAge(int age) {
+58         this.age = age;
+59     }
+60 }
+复制代码
+复制代码
+ 1 public class StudentTest {
+ 2     public static void main(String[] args) {
+ 3         Professor p=new Professor("wangwu",50);
+ 4         Student s1=new Student("zhangsan",18,p);
+ 5         Student s2=(Student)s1.clone();
+ 6         s2.getPro().setName("maer");
+ 7         s2.getPro().setAge(40);
+ 8         System.out.println("name="+s1.getPro().getName()
+ 9                 +",age="+s1.getPro().getAge());
+10         //name=maer,age=40
+11     }
+12 }
+复制代码
+　　那么我们如何实现深层复制的克隆，即在修改s2.Professor时不影响s1.Professor？代码改进如下：
+
+复制代码
+ 1 public class Student implements Cloneable {
+ 2     private String name;
+ 3     private int age;
+ 4     Professor pro;
+ 5     public Student(){}
+ 6     public Student(String name,int age,Professor pro){
+ 7         this.name=name;
+ 8         this.age=age;
+ 9         this.pro=pro;
+10     }
+11     public Object clone(){
+12         Student o=null;
+13         try {
+14             //Object中的clone()识别出你要复制的是哪一个对象。
+15             o=(Student)super.clone();
+16         } catch (CloneNotSupportedException e) {
+17             System.out.println(e.toString());
+18         }
+19         o.pro=(Professor)pro.clone();
+20         return o;
+21     }
+22     public String getName() {
+23         return name;
+24     }
+25     public void setName(String name) {
+26         this.name = name;
+27     }
+28     public int getAge() {
+29         return age;
+30     }
+31     public void setAge(int age) {
+32         this.age = age;
+33     }
+34     public Professor getPro() {
+35         return pro;
+36     }
+37     public void setPro(Professor pro) {
+38         this.pro = pro;
+39     }
+40 }
+41 class Professor implements Cloneable{
+42     private String name;
+43     private int age;
+44     public Professor(){}
+45     public Professor(String name,int age){
+46         this.name=name;
+47         this.age=age;
+48     }
+49     public Object clone(){
+50         Object o=null;
+51         try {
+52             o=super.clone();
+53         } catch (CloneNotSupportedException e) {
+54             e.printStackTrace();
+55         }
+56         return o;
+57     }
+58     public String getName() {
+59         return name;
+60     }
+61     public void setName(String name) {
+62         this.name = name;
+63     }
+64     public int getAge() {
+65         return age;
+66     }
+67     public void setAge(int age) {
+68         this.age = age;
+69     }
+70 }
+复制代码
+复制代码
+public class StudentTest {
+    public static void main(String[] args) {
+        Professor p=new Professor("wangwu",50);
+        Student s1=new Student("zhangsan",18,p);
+        Student s2=(Student)s1.clone();
+        s2.getPro().setName("maer");
+        s2.getPro().setAge(40);
+        System.out.println("name="+s1.getPro().getName()
+                +",age="+s1.getPro().getAge());
+        //name=wangwu,age=50
+    }
+}
+复制代码
+ 
+
+　　利用串行化来实现深层复制
+
+　　把对象写到流中的过程是串行化(Serilization)过程，而把对象从流中读出来是并行化(Deserialization)过程。应当指出的是，写在流中的是对象的一个拷贝，而原来对象仍然存在JVM里面。
+
+　　在Java语言里深层复制一个对象，常常可以先使对象实现Serializable接口，然后把对象（实际上只是对象的一个拷贝）写到一个流中，再从流中读出来，便可以重建对象。
+
+　　这样做的前提是对象以及对象内部所有引用到的对象都是可串行化的，否则，就需要仔细考察那些不可串行化的对象是否设成transient，从而将之排除在复制过程之外。代码改进如下：
+
+复制代码
+ 1 public class Student implements Serializable {
+ 2     private String name;
+ 3     private int age;
+ 4     Professor pro;
+ 5     public Student(){}
+ 6     public Student(String name,int age,Professor pro){
+ 7         this.name=name;
+ 8         this.age=age;
+ 9         this.pro=pro;
+10     }
+11     public Object deepClone() throws IOException, ClassNotFoundException{
+12         //将对象写到流中
+13         ByteArrayOutputStream bo=new ByteArrayOutputStream();
+14         ObjectOutputStream oo=new ObjectOutputStream(bo);
+15         oo.writeObject(this);
+16         //从流中读出来
+17         ByteArrayInputStream bi=new ByteArrayInputStream(bo.toByteArray());
+18         ObjectInputStream oi=new ObjectInputStream(bi);
+19         return oi.readObject();
+20     }
+21     public String getName() {
+22         return name;
+23     }
+24     public void setName(String name) {
+25         this.name = name;
+26     }
+27     public int getAge() {
+28         return age;
+29     }
+30     public void setAge(int age) {
+31         this.age = age;
+32     }
+33     public Professor getPro() {
+34         return pro;
+35     }
+36     public void setPro(Professor pro) {
+37         this.pro = pro;
+38     }
+39 }
+40 class Professor implements Serializable{
+41     private String name;
+42     private int age;
+43     public Professor(){}
+44     public Professor(String name,int age){
+45         this.name=name;
+46         this.age=age;
+47     }
+48     public String getName() {
+49         return name;
+50     }
+51     public void setName(String name) {
+52         this.name = name;
+53     }
+54     public int getAge() {
+55         return age;
+56     }
+57     public void setAge(int age) {
+58         this.age = age;
+59     }
+60 }
+复制代码
+复制代码
+ 1 public class StudentTest {
+ 2     public static void main(String[] args) throws IOException, ClassNotFoundException {
+ 3         Professor p=new Professor("wangwu",50);
+ 4         Student s1=new Student("zhangsan",18,p);
+ 5         Student s2=(Student)s1.deepClone();
+ 6         s2.getPro().setName("maer");
+ 7         s2.getPro().setAge(40);
+ 8         System.out.println("name="+s1.getPro().getName()
+ 9                 +",age="+s1.getPro().getAge());
+10         //name=wangwu,age=50
+11     }
+12 }
+复制代码
+ 
+
+ 
+
+　　继续深究：｛一下是个人未能想明白的一些问题，网络上也没能给出很好的解释｝
+　　1、数组：(以int[]为例)：
+
+复制代码
+ 1 public class ArrayClone {
+ 2     public static void main(String[] args) {
+ 3         int[] a1={1,2,3,4};
+ 4         int[] a2=a1.clone();
+ 5         System.out.println(Arrays.toString(a2));
+ 6         //[1, 2, 3, 4]
+ 7         String[] s1={"hello","china"};
+ 8         String[] s2=s1.clone();
+ 9         System.out.println(Arrays.toString(s2));
+10         //[hello, china]
+11         Object[] o1={new Object(),new Object()};
+12         Object[] o2=o1.clone();
+13         System.out.println(Arrays.toString(o2));
+14         //[java.lang.Object@1fc4bec, java.lang.Object@dc8569]
+15     }
+16 }
+复制代码
+　　我们发现Java数组有clone()方法，而且不需要我们去进行强制类型转换，Java底层是怎样实现数据结构这个功能的？
+
+复制代码
+ 1 public class ArrayClone {
+ 2     public static void main(String[] args) {
+ 3         Person p1=new Person("wangwu",18);
+ 4         Person p2=new Person("lisi",28);
+ 5         Person[] ps1={p1,p2};
+ 6         Person[] ps2=ps1.clone();
+ 7         ps2[0].setName("wanghao");
+ 8         ps2[0].setAge(22);
+ 9         System.out.println("name="+p1.getName()+",age="+p1.getAge());
+10         //name=wanghao,age=22
+11     }
+12 }
+复制代码
+　　由测试可知，Java数组只具备浅层复制的功能。
+
+　　2、String类
+
+复制代码
+1 public class StringClone {
+2     public static void main(String[] args) {
+3         String str1="wang";
+4         //String str2=(String)str1.clone();
+5         //编译错误，String类没有clone方法
+6     }
+7 }
+复制代码
+　　查看源代码，我们可知，String类并没有重载Object类的clone方法。虽然，String和Object都在java.lang包中，但是我们的测试类StringClone不在java.lang包中，因此，str.clone()时会出现编译错误。继续进行：
+
+复制代码
+ 1 public class Dog {
+ 2     private String name;
+ 3     private int age;
+ 4     public Dog(){}
+ 5     public Dog(String name,int age){
+ 6         this.name=name;
+ 7         this.age=age;
+ 8     }
+ 9     public static void main(String[] args) {
+10         Dog dog1=new Dog("dog1",5);
+11         Dog dog2=null;
+12         try {
+13             dog2=(Dog)dog1.clone();
+14         } catch (CloneNotSupportedException e) {
+15             // TODO Auto-generated catch block
+16             e.printStackTrace();
+17         }
+18         System.out.println(dog2.getName()+","+dog2.getAge());
+19     }
+20     public String getName() {
+21         return name;
+22     }
+23     public void setName(String name) {
+24         this.name = name;
+25     }
+26     public int getAge() {
+27         return age;
+28     }
+29     public void setAge(int age) {
+30         this.age = age;
+31     }
+32 }
+复制代码
+　　我们惊奇的发现，dog1.clone();并没有出现变异错误，我们随便创建的类具有clone方法，这又是怎么回事？
+
+　　虽然没编译错误，但是运行时出错，如下所示：
+
+1 java.lang.CloneNotSupportedException: com.clone.Dog
+2     at java.lang.Object.clone(Native Method)
+3     at com.clone.Dog.main(Dog.java:15)
+4 Exception in thread "main" java.lang.NullPointerException
+5     at com.clone.Dog.main(Dog.java:20)

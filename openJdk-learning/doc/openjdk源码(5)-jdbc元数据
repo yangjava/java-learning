@@ -1,0 +1,200 @@
+元数据最本质、最抽象的定义为：data about data （关于数据的数据）。它是一种广泛存在的现象，在许多领域有其具体的定义和应用。
+JDBC中的元数据,有数据库元数据(DatabaseMetaData),参数元数据(ParameterMetaData),结果集元数据(ResultSetMetaData)
+
+分别封装了数据库产品名字等数据库信息、查询参数的个数等参数信息、结果集的列数等结果集信息。
+
+
+
+数据库元数据
+
+[java] view plain copy
+/** 
+ *数据库的整体综合信息。 
+ 
+ */  
+  
+public interface DatabaseMetaData extends Wrapper {  
+  
+    /** 
+     * 查询数据库产品的名字 
+     */  
+    String getDatabaseProductName() throws SQLException;  
+  
+    /** 
+     * 查询数据库产品的版本号。 
+     */  
+    String getDatabaseProductVersion() throws SQLException;  
+  
+}  
+  
+   
+  
+/** 
+ * 一个被用来获得每一个参数的类型和属性的对象 
+ 
+*/  
+  
+public interface ParameterMetaData extends Wrapper {  
+  
+    /** 
+     * 查询参数的个数。 
+     */  
+    int getParameterCount() throws SQLException;  
+  
+}  
+  
+   
+  
+/** 
+ * 一个被用来获得ResultSet中的列的类型和属性的对象。 
+ 
+ */  
+  
+public interface ResultSetMetaData extends Wrapper {  
+  
+    /** 
+     * 返回结果集中的列数。 
+     */  
+    int getColumnCount() throws SQLException;  
+  
+}  
+
+
+上述不完整源码，摘自OpenJDK源码java.sql包，完整源码请参考OpenJDK源码，完整用法请参考JDK API文档。
+小试牛刀
+
+[java] view plain copy
+package cn.fansunion.project;  
+  
+import java.sql.Connection;  
+import java.sql.DatabaseMetaData;  
+import java.sql.DriverManager;  
+import java.sql.ParameterMetaData;  
+import java.sql.PreparedStatement;  
+import java.sql.ResultSet;  
+import java.sql.ResultSetMetaData;  
+import java.sql.SQLException;  
+  
+/** 
+ * 
+ * OpenJDK源码研究笔记(十二):JDBC中的元数据,数据库元数据(DatabaseMetaData),参数元数据(ParameterMetaData) 
+ * ,结果集元数据(ResultSetMetaData) 
+ * 
+ * @author LeiWen@FansUnion.cn 2013年11月2日 
+ * 
+ */  
+public class JDBCMetadataExample {  
+  
+    public static void main(String[] args) throws ClassNotFoundException,  
+            SQLException {  
+        Connection con = getOneConnection();  
+        // 数据库元数据  
+        DatabaseMetaData dbmd = con.getMetaData();  
+        displayDatabaseMetaData(dbmd);  
+  
+        println("\n");  
+  
+        // Password是密文，Windows数据库表名不区分大小写  
+        String sql = "select User,Password,Host from mysql.user where User=? and Host = ?";  
+        PreparedStatement ps = con.prepareStatement(sql);  
+        ps.setString(1, "root");  
+        ps.setString(2, "localhost");  
+        ResultSet userResultSet = ps.executeQuery();  
+        // 参数元数据  
+        ParameterMetaData pmd = ps.getParameterMetaData();  
+        displayParameterMedata(pmd);  
+        println();  
+          
+        // 结果集元数据  
+        ResultSetMetaData rsmd = userResultSet.getMetaData();  
+        displayResultSetMetaData(rsmd);  
+  
+        println("查询的用户列表：");  
+        while (userResultSet.next()) {  
+            print(userResultSet.getString("User") + "\t");  
+            print(userResultSet.getString("Password") + "\t");  
+            println(userResultSet.getString("Host"));  
+        }  
+    }  
+  
+    // 获得一个数据库连接  
+    private static Connection getOneConnection() throws ClassNotFoundException,  
+            SQLException {  
+        // 加载MySQL数据库驱动  
+        Class.forName("com.mysql.jdbc.Driver");  
+        // 根据3个参数构造数据库连接  
+        String url = "jdbc:mysql://localhost:3306";  
+        String name = "root";  
+        String password = "123456";  
+        Connection con = DriverManager.getConnection(url, name, password);  
+        return con;  
+    }  
+  
+    // 工具方法：打印数据库的元数据。如果想打印更多信息，只要扩展这个方法即可，不需要修改代码结构。  
+    private static void displayDatabaseMetaData(DatabaseMetaData dbmd)  
+            throws SQLException {  
+        // 元数据信息  
+        println("驱动的名字：" + dbmd.getDriverName());  
+        println("驱动的版本号:" + dbmd.getDriverVersion());  
+        println("数据库产品名字:" + dbmd.getDatabaseProductName());  
+        println("数据库产品版本号：" + dbmd.getDatabaseProductVersion());  
+        println("数据库主版本号:" + dbmd.getDatabaseMajorVersion());  
+        println("数据库次版本号:" + dbmd.getDatabaseMinorVersion());  
+  
+        println("JDBC主版本号:" + dbmd.getJDBCMajorVersion());  
+        println("JDBC次版本号:" + dbmd.getJDBCMinorVersion());  
+        // 元数据获得的数据库名字结果集  
+        ResultSet dbResultSet = dbmd.getCatalogs();  
+        // 打印所有数据库的名字  
+        while (dbResultSet.next()) {  
+            print(dbResultSet.getString(1) + "\t");  
+        }  
+    }  
+  
+    // 工具方法：打印结果集的元数据。如果想打印更多信息，只要扩展这个方法即可，不需要代码结构。  
+    private static void displayResultSetMetaData(ResultSetMetaData rsmd)  
+            throws SQLException {  
+        int columnCount = rsmd.getColumnCount();  
+        println("查询的列数:" + columnCount);  
+    }  
+  
+    // 工具方法：打印参数的元数据。如果想打印更多信息，只要扩展这个方法即可，不需要修改代码结构。  
+    private static void displayParameterMedata(ParameterMetaData pmd)  
+            throws SQLException {  
+        int parameterCount = pmd.getParameterCount();  
+        println("参数的个数:" + parameterCount);  
+    }  
+  
+    // 工具方法：简化打印输出  
+    private static void println() {  
+        System.out.println();  
+    }  
+  
+    private static void println(Object o) {  
+        System.out.println(o);  
+    }  
+  
+    private static void print(Object o) {  
+        System.out.print(o);  
+    }  
+  
+}  
+ 
+
+有模有样
+
+驱动的名字：MySQL-AB JDBC Driver
+驱动的版本号:mysql-connector-Java-5.1.22 ( Revision: ${bzr.revision-id} )
+数据库产品名字:MySQL
+数据库产品版本号：5.5.17
+数据库主版本号:5
+数据库次版本号:5
+JDBC主版本号:4
+JDBC次版本号:0
+information_schema     mysql 
+
+参数的个数:2
+
+查询的列数:3
+查询的用户列表：
+root    *6BB4837EB74329105EE4568DDA7DC67ED2CA2AD9    localhost
