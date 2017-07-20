@@ -14,5 +14,8 @@
   	<module>redis-learning</module>
   	<module>dbutils-learning</module>
   	<module>c3p0-learning</module>
+  	<module>jdk-learning</module>
+  	<module>jvm-learning</module>
+  	<module>openJdk-learning</module>
   </modules>
 </project>
