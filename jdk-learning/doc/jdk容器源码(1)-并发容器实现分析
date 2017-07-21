@@ -1,0 +1,902 @@
+并发容器
+
+JDK中提供了两类线程安全的容器，一类是Vector、Hashtable、Stack这样原生的容器类和经过Collections.synchronized方法包装的容器类，它们都使用了synchronized对方法进行了同步，称之为同步容器。另一类是在J.U.C提供的对并发环境做了优化处理的容器，称为并发容器。
+
+相较并发容器，同步容器存在的问题：
+
+一些复合操作还是需要开发者进行额外的同步处理，比如经常会使用的一个典型场景，判断容器中是否包含元素，不包含就添加。
+没有对并发环境做优化，所有访问都使用synchronized进行了串行化，严重降低了吞吐量。
+并发容器在并发环境下的优化措施：
+
+非阻塞算法:CAS。
+不可变对象:Copy-On-Write。
+分拆锁:分段加锁。
+
+同步容器
+
+
+并发容器
+Queue
+
+J.U.C中分为阻塞队里和非阻塞队列。阻塞队列在满时进行入列操作会被阻塞，空时进行出列操作会被阻塞，很适合并发编程中最常见的生产者-消费者模式。非阻塞队使用CAS无锁算法避免锁竞争，相比同步方式实现的队列，提高了吞吐量。
+
+阻塞队列：
+
+ArrayBlockingQueue基于数组实现的有界阻塞队列。
+LinkedBlockingQueue基于链表实现的有界阻塞队列。
+PriorityBlockingQueue基于数组实现的，支持优先级排序的无界阻塞队列。
+LinkedBlockingDeque基于链表实现的双端阻塞队列。
+SynchronousQueue不存储元素的阻塞队列。
+LinkedTransferQueue基于链表实现的无界阻塞队列。
+非阻塞队列：
+
+ConcurrentLinkedQueue基于链表实现的无界非阻塞队列。
+ConcurrentLinkedDeque基于链表实现的无界非阻塞双端队列。
+队列的入列、出列方法及处理方式(阻塞和超时只适用于阻塞队列)：
+
+方法\处理方式	异常	特殊值	阻塞	超时
+入列方法	add(e)	offer(e)	put(e)	offer(e, time, unit)
+出列方法	remove()	poll()	take	poll(time, unit)
+查看方法	element()	peek()	无	无
+ArrayBlockingQueue
+
+基于数组实现的有界阻塞队列，内部构造：
+
+public class ArrayBlockingQueue<E> extends AbstractQueue<E>
+        implements BlockingQueue<E>, java.io.Serializable {
+    /** 数组容器 */
+    final Object[] items;
+    /** 出列下标 */
+    int takeIndex;
+    /** 入列下标 */
+    int putIndex;
+    /** 元素个数 */
+    int count;
+    /** 重入锁 */
+    final ReentrantLock lock;
+    /** Condition for waiting takes */
+    private final Condition notEmpty;
+    /** Condition for waiting puts */
+    private final Condition notFull;
+
+    public ArrayBlockingQueue(int capacity) {}
+    public ArrayBlockingQueue(int capacity, boolean fair) {}
+    public ArrayBlockingQueue(int capacity, boolean fair,
+                              Collection<? extends E> c) {}
+    ... ...    
+}
+ArrayBlockingQueue没有默认长度，初始化的时候必须指定。fair参是用来设置重入锁lock的公平性，重入锁默认是非公平锁所以不能保证线程公平的访问队列。可以通过fair将重入锁设置为公平锁，但是会降低部分吞吐量。生产者线程和消费者线程线程的协调工作是由两个Condition完成的。
+
+入列操作：
+
+public void put(E e) throws InterruptedException {
+    checkNotNull(e);//元素为空抛异常
+    final ReentrantLock lock = this.lock;
+    //加锁，锁响应中断
+    lock.lockInterruptibly();
+    try {
+        //队列已满，入列线程在notFull上等待
+        while (count == items.length){
+            notFull.await();
+        }
+        //插入元素
+        insert(e);
+    } finally {
+        lock.unlock();//释放锁
+    }
+}
+private void insert(E x) {
+    //加入到数组
+    items[putIndex] = x;
+    //inc() putIndex下标等于capacity如果等于队列长度返回0
+    putIndex = inc(putIndex);
+    ++count;//元素数量递增
+    //唤醒在notEmpty上等待的出列线程
+    notEmpty.signal();
+}
+出列操作：
+
+public E take() throws InterruptedException {
+    final ReentrantLock lock = this.lock;
+    lock.lockInterruptibly();//加锁，响应中断
+    try {
+        //队列已空，出列线程在notEmpty上等待
+        while (count == 0){
+            notEmpty.await();
+        }
+        //出列
+        return extract();
+    } finally {
+        lock.unlock();//解锁
+    }
+}
+private E extract() {
+    //数组
+    final Object[] items = this.items;
+    //元素类型泛型转换
+    E x = this.<E>cast(items[takeIndex]);
+    //置空下标为takeIndex的元素
+    items[takeIndex] = null;
+    //inc() putIndex下标等于capacity如果等于队列长度返回0
+    takeIndex = inc(takeIndex);
+    --count;//元素个数递减
+    //唤醒在notFull上等待的入列线程
+    notFull.signal();
+    return x;
+}
+当队列满时，入列的线程会阻塞在notFull上，当有出列操作时唤醒notFull上等待的线程，队列空时出列线程会阻塞在notEmpty上，当有入列操作时唤醒在notEmpty上等待的线程，典型的生产者消费者逻辑，关键点在于线程的协调。
+
+LinkedBlockingQueue
+
+基于单向链表实现的有界阻塞队列，内部构造：
+
+public class LinkedBlockingQueue<E> extends AbstractQueue<E>
+        implements BlockingQueue<E>, java.io.Serializable{
+    /** 内部类 节点 */
+    static class Node<E> {}
+    /** 容量 */
+    private final int capacity;
+    /** 元素数量 计数器 */
+    private final AtomicInteger count = new AtomicInteger(0);
+    /** 头节点 */
+    private transient Node<E> head;
+    /** 尾节点 */
+    private transient Node<E> last;
+    /** 出列锁 */
+    private final ReentrantLock takeLock = new ReentrantLock();
+    /** takeLock->condition */
+    private final Condition notEmpty = takeLock.newCondition();
+    /** 入列锁 */
+    private final ReentrantLock putLock = new ReentrantLock();
+    /** putLock->condition */
+    private final Condition notFull = putLock.newCondition();
+    public LinkedBlockingQueue() {
+        this(Integer.MAX_VALUE);
+    }
+    public LinkedBlockingQueue(int capacity) {}
+    public LinkedBlockingQueue(Collection<? extends E> c) {}
+    ... ...
+}
+LinkedBlockingQueue在初始化时可以不指定长度，默认长为整数的最大值 2147483647 。 使用了两把锁对对出列和入列进行了锁分离，takeLock出列锁、putLock入列锁。LinkedBlockingQueue没有公平性设置，只能使用非公平锁。
+
+入列操作：
+
+public void put(E e) throws InterruptedException {
+    if (e == null)//入列元素不能为空
+        throw new NullPointerException();
+    int c = -1;//计数
+    Node<E> node = new Node(e);//构造节点
+    //入列锁
+    final ReentrantLock putLock = this.putLock;
+    //元素数量
+    final AtomicInteger count = this.count;
+    putLock.lockInterruptibly();//加锁，响应中断
+    try {
+        //队列已满,入列线程在notFull上等待
+        while (count.get() == capacity) {
+            notFull.await();
+        }
+        //入列，在尾节点后链入node
+        enqueue(node);
+        //获取元素数量 后加1
+        c = count.getAndIncrement();
+        //如果队列还没满
+        //唤醒在notFull等待的入列线程，表示可继续入列
+        if (c + 1 < capacity)
+            notFull.signal();
+    } finally {
+        putLock.unlock();//解锁
+    }
+    //原本为空的队列，即使加入一个元素
+    //唤醒在notEmpty上等待的出列线程
+    if (c == 0)
+        signalNotEmpty();
+    }
+//链入尾节点
+private void enqueue(Node<E> node) {
+    last = last.next = node;
+}
+//唤醒在notEmpty上等待的出列线程
+private void signalNotEmpty() {
+    //出列锁
+    final ReentrantLock takeLock = this.takeLock;
+    takeLock.lock();
+    try {
+        //唤醒
+        notEmpty.signal();
+    } finally {
+        takeLock.unlock();
+    }
+}
+出列操作：
+
+public E take() throws InterruptedException {
+    E x;
+    int c = -1;
+    //元素数量
+    final AtomicInteger count = this.count;
+    //出列锁
+    final ReentrantLock takeLock = this.takeLock;
+    takeLock.lockInterruptibly();//加锁，响应中断
+    try {
+        //队列为空，出列线程在notEmpty上等待
+        while (count.get() == 0) {
+            notEmpty.await();
+        }
+        //出列
+        x = dequeue();
+        //获取元素数量 后减1
+        c = count.getAndDecrement();
+        //出列之后，队列还没空，表示可继续出列
+        //唤醒在notEmpty等待的出列线程
+        if (c > 1)
+            notEmpty.signal();
+    } finally {
+        takeLock.unlock();
+    }
+    //队列有一个空位，唤醒入列线程
+    if (c == capacity)
+        signalNotFull();
+    return x;
+}
+//唤醒入列线程
+private void signalNotFull() {
+    //入列锁
+    final ReentrantLock putLock = this.putLock;
+    putLock.lock();
+    try {
+        notFull.signal();
+    } finally {
+        putLock.unlock();
+    }
+}
+当队列满时，入列的线程会阻塞在notFull上，当有出列操作时唤醒notFull上等待的线程，队列空时出列线程会阻塞在notEmpty上，当有入列操作时唤醒在notEmpty上等待的线程，入列和出列使用了两把锁，唤醒notFull时要在putLock监视范围，唤醒notEmpty要做takeLock的监视范围。
+
+ArrayBlockingQueue和LinkedBlockingQueue的差异
+
+ArrayBlockingQueue使用循环数组必须指定容量，LinkedBlockingQueue使用链表可以不指定容量，能预判队列容量使用ArrayBlockingQueue可以更有效的利用内存。LinkedBlockingQueue如果没有指定容量，过快大批量的入列有可能会导致内存溢出。
+ArrayBlockingQueue可以设置为公平锁，使得线程能够公平地访问队列。
+LinkedBlockingQueue使用锁分离，入列和出列使用不同的锁，之间互不干扰，减少了锁争用的次数，吞吐量比ArrayBlockingQueue更高。
+PriorityBlockingQueue
+
+基于数组实现的无界阻塞队列，因为是无界队列当数组长度不够时会自动扩容所以put方法不会阻塞，但是队列空时进行take会阻塞。
+
+PriorityBlockingQueue不再是FIFO，而是根据元素的排序来确定元素出列的优先级，元素必须实现Comparable接口。
+
+LinkedBlockingDeque
+
+基于链表实现的组成的双向阻塞队列，同时支持FIFO和FILO两种操作方式。
+
+SynchronousQueue
+
+SynchronousQueue是一个没有容器的队列，所谓没有容器就是指它不能存储任何元素。不像ArrayBlockingQueue或LinkedBlockingQueue如果队列没有满，生产线程入列之后就返回了，而SynchronousQueue不同，因为它没有缓冲存储区所以生产者线程入列之后会一直阻塞，直到有消费线程取走数据。
+
+就像一手交钱一手交货的过程，卖方拿着货物不松手，直到买房把钱给他，买方也是一样的拿着钱不松手，直到卖方把货物给他。所以SynchronousQueue从线程的角度看是一个配对的过程一个生成线程必须匹配一个消费线程，一个消费线程必须匹配一个生成线程，从数据的角度看是一个数据传递的过程生成线程将数据传递给消费线程。
+SynchronousQueue内部布局：
+
+public class SynchronousQueue<E> extends AbstractQueue<E>
+    implements BlockingQueue<E>, java.io.Serializable{
+    /** Transferer */
+    abstract static class Transferer {
+        abstract Object transfer(Object e, boolean timed, long nanos);
+    }
+    /** Transferer子类 栈 */
+    static final class TransferStack extends Transferer {}
+        /** Transferer子类 队列 */
+    static final class TransferQueue extends Transferer {}
+        /** transferer实例 */
+    private transient volatile Transferer transferer;
+        /** 默认构造 */
+    public SynchronousQueue() {
+        this(false);
+    }
+        /** fair 公平性参数 */
+    public SynchronousQueue(boolean fair) {
+         transferer = fair ? new TransferQueue() : new TransferStack();
+    }
+    ... ...
+}
+SynchronousQueue可以设置公平性策略，默认是非公平队列。Transferer是核心设置，实现线程数据传递的基础，公平性队列用TransferQueue新入列的节点会在队尾或者和队头节点批量，非公平队列用TransferStack新入列的节点会在栈顶进行匹配。因为没有缓冲存储所以容器类的常用方法size()、contains(Object o)、remove(Object o)等对其来说根本没用。
+
+TransferStack内部布局：
+
+static final class TransferStack extends Transferer {
+    /** 消费端 consumer */
+    static final int REQUEST = 0;
+    /** 生成端 producer */
+    static final int DATA = 1;
+    /** 匹配 */
+    static final int FULFILLING = 2;
+    /** true 匹配中 */
+    static boolean isFulfilling(int m) {
+        return (m & FULFILLING) != 0;
+    }
+    /** TransferStacks节点 */
+    static final class SNode {}
+    /** 栈顶节点 */
+    volatile SNode head;
+    /** CAS设置栈顶 */
+    boolean casHead(SNode h, SNode nh) {}
+    /** 构造节点 */
+    static SNode snode(SNode s, Object e, SNode next, int mode) {}
+    /** 交换方法 */
+    Object transfer(Object e, boolean timed, long nanos) {}
+    /** 线程等待 */
+    SNode awaitFulfill(SNode s, boolean timed, long nanos){}
+    /** 是否自旋 */
+    boolean shouldSpin(SNode s){}
+    /** 将节点从栈清除 */
+    void clean(SNode s){}
+    //Unsafe 相关初始化 ... ..
+}
+TransferStack的节点内部布局：
+
+static final class SNode {
+    volatile SNode next; //后继节点
+    volatile SNode match; //匹配节点
+    volatile Thread waiter; //等待线程
+    Object item; //生产端：data;消费端：null
+    int mode;//模式:DATA/REQUEST/FULFILLING
+    SNode(Object item) {
+        this.item = item;
+    }
+    /** CAS设置后继节点 */
+    boolean casNext(SNode cmp, SNode val) {
+        return cmp == next 
+            && UNSAFE.compareAndSwapObject(this, nextOffset, cmp, val);
+    }
+    /** 当前节点和s节点匹配，匹配成功唤醒当前节点等待的线程 */
+    boolean tryMatch(SNode s) {
+        //当前节点的match设置为s
+        if (match == null  
+        &&UNSAFE.compareAndSwapObject(this, matchOffset, null, s)) {
+            Thread w = waiter;
+            if (w != null) { //waiter不为空 唤醒。
+                waiter = null;
+                LockSupport.unpark(w);
+            }
+            return true;
+        }
+        //如果match == s则说明已经匹配成功
+        return match == s;
+    }
+    //取消 将match设置为自身
+    void tryCancel() {
+        UNSAFE.compareAndSwapObject(this, matchOffset, null, this);
+    }
+    //是否已取消
+    boolean isCancelled() {
+        return match == this;
+    }
+    // Unsafe mechanics ... ...
+}
+TransferStack的transfer方法：
+
+/** Puts 和 takes 数据交换 */
+Object transfer(Object e, boolean timed, long nanos) {
+    SNode s = null;
+    // 0消费端，1生产端
+    int mode = (e == null) ? REQUEST : DATA;
+    for (;;) {
+        SNode h = head;// 头节点
+        // 栈为空,当前线程进入等待
+        // 或者栈不为空，但是栈顶元素模式与当前线程模式相同
+        // 即同为生成着或消费者，比如线程put线程
+        // 当前线程进入等待
+        if (h == null || h.mode == mode) {
+            if (timed && nanos <= 0) { // 不等待
+                //h不为空并被取消
+                if (h != null && h.isCancelled())
+                    //出栈
+                    casHead(h, h.next);
+                else
+                    return null;
+            // 压栈 更新栈顶为s
+            } else if (casHead(h, s = snode(s, e, h, mode))) {
+                // 进入等待，等待一个互补的节点进行匹配
+                SNode m = awaitFulfill(s, timed, nanos);
+                // 取消的时候将match设置成了this
+                // 所以m==s即被取消，清除，返回。
+                if (m == s) {
+                    clean(s);
+                    return null;
+                }
+                //已经完成了批量
+                if ((h = head) != null && h.next == s) {
+                    casHead(h, s.next);
+                }
+                // 如果是消费者则返回生成值的值
+                // 如果是生产者返回自身的值
+                return (mode == REQUEST) ? m.item : s.item;
+            }
+        // 栈顶和当前节点互补即模式不同，进入匹配逻辑
+        } else if (!isFulfilling(h.mode)) {
+            if (h.isCancelled()) {// 已取消，出栈，置换栈顶为h.next
+                casHead(h, h.next);
+            //构造当前“正在匹配"状态的节点s
+            } else if (casHead(h, s = snode(s, e, h, FULFILLING | mode))) {
+                for (;;) { // 循环直到找到一个可以匹配的节点
+                    SNode m = s.next; // m即与s匹配的节点
+                    //m==null说明栈s之后无元素，可能被其他线程匹配了。
+                    //s出栈，s置空，进行最外层的循环.
+                    if (m == null) { 
+                        casHead(s, null); 
+                        s = null; 
+                        break; 
+                    }
+                    //mn为后备的栈顶
+                    //匹配成功，将s和m同时出栈，mn为栈顶
+                    SNode mn = m.next;
+                    if (m.tryMatch(s)) {
+                        //匹配成功，mn设置为栈顶
+                        casHead(s, mn);
+                        // 如果是消费者则返回生成值的值
+                        // 如果是生产者返回自身的值
+                        return (mode == REQUEST) ? m.item : s.item;
+                    } else
+                        // 设置匹配失败，则说明m已经被其他节点匹配了
+                        s.casNext(m, mn); // help unlink
+                }
+            }
+        } else { // 非栈顶匹配，逻辑与栈顶匹配一致
+            SNode m = h.next; // m is h's match
+            if (m == null) // waiter is gone
+                casHead(h, null); // pop fulfilling node
+            else {
+                SNode mn = m.next;
+                if (m.tryMatch(h)) // help match
+                    casHead(h, mn); // pop both h and m
+                else // lost match
+                    h.casNext(m, mn); // help unlink
+            }
+        }
+    }
+}
+// 等待
+SNode awaitFulfill(SNode s, boolean timed, long nanos) {
+    long lastTime = timed ? System.nanoTime() : 0;
+    // 当前线程
+    Thread w = Thread.currentThread();
+    // 头节点
+    SNode h = head;
+    // 自旋次数
+    int spins = (shouldSpin(s) ? 
+        (timed ? maxTimedSpins : maxUntimedSpins) : 0);
+    for (;;) {
+        if (w.isInterrupted()) {// 当前线程中断
+            s.tryCancel();//取消节点
+        }
+        SNode m = s.match;
+        if (m != null) {//匹配成功，返回匹配的节点
+            return m;
+        }
+        // 超时
+        if (timed) {
+            long now = System.nanoTime();
+            nanos -= now - lastTime;
+            lastTime = now;
+            if (nanos <= 0) {
+                s.tryCancel();//取消
+                continue;
+            }
+        }
+        // 自旋，直到spins==0，进入等待，自旋的目的是为了减少线程挂起的次数
+        // 如果线程挂起前，匹配线程来了，则线程不需要挂起
+        if (spins > 0) {
+            spins = shouldSpin(s) ? (spins - 1) : 0;
+        }
+        // 设置节点的等待线程
+        else if (s.waiter == null) {
+            s.waiter = w; // establish waiter so can park next iter
+        }
+        // 挂起操作
+        else if (!timed) {
+            LockSupport.park(this);
+        } else if (nanos > spinForTimeoutThreshold) {
+            LockSupport.parkNanos(this, nanos);
+        }
+    }
+}
+TransferStack的transfer大致逻辑是：线程A进行put(A)，此时栈为空，将节点A入栈，线程A挂起，栈顶为节点A。线程B进行put(B),和节点A模式一样，同为DATA,将节点B入栈线程B挂起，栈顶为节点B。线程C进行take(),和栈顶B模式互补，将节点C的状态设置为FULFILLING入栈，开始进行匹配操作，匹配成则线程B被唤醒、节点B和节点C出栈，并返回节点B的值。
+
+如果节点B和节点C正在匹配中，即栈顶节点的状态为ULFILLING，线程D进行take(),那么线程D将帮助节点B和节点C完成匹配和出栈，自己在留在下一轮循环中匹配。
+
+线程A是先入栈的反而后匹配，所以TransferStack的匹配过程是非公平的。TransferQueue则是在队尾入列，从队列头匹配，能保证先入列的线程可以尽早的得到匹配，阻塞和匹配逻辑和上述差不多，只是入列过程不一样，不再赘述。
+
+SynchronousQueue不能使用在缓冲场景，但是非常适合用在传递场景，由于其阻塞过程没有锁的竞争吞吐量高于ArrayBlockingQueue和LinkedBlockingQueue。
+
+LinkedTransferQueue
+
+LinkedTransferQueue基于链表的无界阻塞队列。同时它还实现了TransferQueue接口，这是一个在JDK1.7中新增的接口，接口中的transfer系列方法会使生产者一直阻塞直到所添加到队列的元素被某一个消费者所消费。和SynchronousQueue中实现的TransferQue意思差不多。
+
+与SynchronousQueue相比LinkedTransferQueue的应用更广泛，可以使用put/take方法用作缓冲，还可以使用transfer方法用作传递，可以看做是ConcurrentLinkedQueue、SynchronousQueue（公平模式）和LinkedBlockingQueue的超集。
+
+ConcurrentLinkedQueue
+
+使用单向链表构造的无界非阻塞队列，内部构造：
+
+public class ConcurrentLinkedQueue<E> extends AbstractQueue<E>
+      implements Queue<E>, java.io.Serializable {
+    //内部类 节点
+    private static class Node<E> {
+        volatile E item;
+        volatile Node<E> next;
+        ... ...
+    }
+    //头节点
+    private transient volatile Node<E> head;
+    //尾节点
+    private transient volatile Node<E> tail;
+    public ConcurrentLinkedQueue() {
+        head = tail = new Node<E>(null);
+    }
+    public ConcurrentLinkedQueue(Collection<? extends E> c){}
+    ... ...
+}
+入列操作：
+
+public boolean offer(E e) {
+    checkNotNull(e);// 检查e是否为空，为空直接抛异常
+    // 构造新节点
+    final Node<E> newNode = new Node<E>(e);
+    // 循环，移动p节点、确保CAS操作成功
+    for (Node<E> t = tail, p = t;;) {
+        Node<E> q = p.next;// p的后继节点
+        if (q == null) {// q为空，说明p为尾节点
+            // CAS更新p的next节点为新入节点
+            if (p.casNext(null, newNode)) {
+                // 当p为尾节点时只进行了p.casNext()操作，
+                // 并没有移动尾节点。p和t中间至少隔了一个节点。
+                if (p != t) {
+                    // CAS 更新尾节点
+                    casTail(t, newNode);
+                }
+                return true;
+            }
+        } else if (p == q) {// 尾节点被出列
+            p = (t != (t = tail)) ? t : head;
+        } else {// p节点后移
+            p = (p != t && t != (t = tail)) ? t : q;
+        }
+    }
+}
+出列操作：
+
+public E poll() {
+    restartFromHead: for (;;) {//循环体，移动p节点、确保CAS成功
+        for (Node<E> h = head, p = h, q;;) {
+            E item = p.item;
+            // 头节点的内容不为空，将其置空
+            if (item != null && p.casItem(item, null)) {
+                // 出列时，进行了p.casItem()但并没有移动头节点
+                // p节点和h节点中间至少隔了一个节点
+                if (p != h) {
+                    // 设置头节点
+                    updateHead(h, ((q = p.next) 
+                                    != null) ? q : p);
+                }
+                return item;
+            } else if ((q = p.next) == null) {//空队为空
+                updateHead(h, p);
+                return null;
+            } else if (p == q) {//从队列头重新开始
+                continue restartFromHead;
+            } else {// p后移
+                p = q;
+            }
+        }
+    }
+}
+入列操作offer(E e)只做了两件事情，第一是将新节点链到队列尾部，第二是定位尾节点将其指向新入列的节点，这两个操作都是使用CAS方式，出列poll()操作也类似。入列和出列都只需要动用一个节点，并且是无锁的，所以ConcurrentLinkedQueue在并发环境下出列和入列效率极高。
+
+获取长度的方法，需要遍历整个链表，效率极低，所以慎用。如果想实时获取列表长度，不妨使用一个AtomicInteger在入列和出列时记录下，好过整表遍历。
+
+public int size() {
+    int count = 0;
+    //从头节点开始遍历，p!=null说明p还没到队列尾
+    for (Node<E> p = first(); p != null; p = succ(p))
+        if (p.item != null)
+            // Collection.size() spec says to max out
+            if (++count == Integer.MAX_VALUE)
+            break;
+    return count;
+}
+ConcurrentLinkedDeque
+
+使用双向链表构造的无界非阻塞双端队列，双端队列中的元素可以从两端弹出，入列和出列操作可以在表的两端进行，支持FIFO和FILO两种出列模式。
+
+尽管看起来比队列更灵活，但实际上在应用中远不及队列有用。
+
+list
+
+并发容器中实现List接口的只有CopyOnWriteArrayList。
+
+CopyOnWriteArrayList
+
+Copy-On-Write简称COW，中文叫做写时拷贝。之前提到过保证线程安全的几种方式加锁、不共享状态、不可变对象等。COW就是采用不可变对象来保证线程安全，它的基本思路是多个线程都共享容器中内容，当某个线程要修改内容时先拷贝出一个新容器供修改，修改完毕后，再将原容器的引用指向新容器。
+
+CopyOnWriteArrayList 内部布局：
+
+public class CopyOnWriteArrayList<E>
+    implements List<E>, RandomAccess, Cloneable, java.io.Serializable {
+    /** 锁 */
+    transient final ReentrantLock lock = new ReentrantLock();
+    /** 数组 volatile 可见性 */
+    private volatile transient Object[] array;
+    /** 获取数组 */
+    final Object[] getArray() {
+        return array;
+    }
+    /** 设置数组 */
+    final void setArray(Object[] a) {
+        array = a;
+    }
+    /** 空list */
+    public CopyOnWriteArrayList() {
+        setArray(new Object[0]);
+    }
+    /** 基于集合创建list */
+    public CopyOnWriteArrayList(Collection<? extends E> c) {}
+    /** 基于数组创建list */
+    public CopyOnWriteArrayList(E[] toCopyIn) {
+        setArray(Arrays.copyOf(toCopyIn, toCopyIn.length, Object[].class));
+    }
+    ... ...
+}
+add操作：
+
+public boolean add(E e) {
+    final ReentrantLock lock = this.lock;
+    lock.lock();//加锁
+    try {
+        Object[] elements = getArray();//获取数组
+        int len = elements.length;//数组长度
+        //copy一个新数组
+        Object[] newElements = Arrays.copyOf(elements, len + 1);
+        //元素加入新数组
+        newElements[len] = e;
+        //array指向新数组，array是volatile休息的
+        //单次操作能保证其原子性和可见性
+        setArray(newElements);
+        return true;
+    } finally {
+        lock.unlock();//解锁
+    }
+}
+删除操作和添加操作都是新建一个数组，操作完毕，将array重新指向新的数组，在这些修改的操作中会加锁，所有的读操作都不会加锁，也是一种读写分离的思想。
+
+用复制操作耗费高昂的内存和计算资源为代价，换来的是读读不互斥，读写不互斥，所以CopyOnWriteArrayList适用于读多写极少的场景下，比如黑名单、配置属性等等。
+
+CopyOnWriteArrayList只能保证最终一致性，不能保证实时一致性。因为读写是在两个容器进行的，只有当写操作执行完毕引入指向新容器后，读才能感知到容器的变化。
+
+Map
+
+实现Map接口的并容器有ConcurrentHashMap和ConcurrentSkipListMap。
+
+ConcurrentHashMap
+
+ConcurrentHashMap是并发容器中锁分拆的一个经典设计。
+
+ConcurrentHashMap 内部布局：
+
+public class MyConcurrentHashMap<K, V> extends AbstractMap<K, V> 
+            implements ConcurrentMap<K, V>, Serializable {
+    /**  数据段初始容量为16，默认为 16 个数据段 */
+    static final int DEFAULT_INITIAL_CAPACITY = 16;
+    /**  默认装载因子为 */
+    static final float DEFAULT_LOAD_FACTOR = 0.75f;
+    /**  默认并发级别为 16 */
+    static final int DEFAULT_CONCURRENCY_LEVEL = 16;
+    /** 数据段table的最小容量，避免next使用时，需要立即扩容 */
+    static final int MIN_SEGMENT_TABLE_CAPACITY = 2;
+    /** 最数据段段数量 65536 */
+    static final int MAX_SEGMENTS = 1 << 16; // slightly conservative
+    /** hash掩码*/
+    final int segmentMask;
+    /** 偏移量,与segmentMask一起定位数据段 */
+    final int segmentShift;
+    /** 数据段 */
+    final Segment<K, V>[] segments;
+    transient Set<K> keySet;// Key集合
+    transient Set<Map.Entry<K, V>> entrySet;// entry集合
+    transient Collection<V> values;// value集合
+    /** 元素 k-v键值对 */
+    static final class HashEntry<K, V> {... ...}
+    /** 数据段,继承自ReentrantLock简化加锁*/
+    static final class Segment<K, V> 
+        extends ReentrantLock implements Serializable {... ...}
+    ... ...
+}
+ConcurrentHashMap默认是分为16个数据段，每个数据段在在添加或修改数据时会各自加锁，意味着在理想的情况下可以由16个线程同时写一个ConcurrentHashMap。内部类HashEntry和Segment是两个最重要的基础设施，HashEntry内部布局：
+
+static final class HashEntry<K, V> {
+    final int hash;// hash码 不可变
+    final K key;// 键 不可变
+    volatile V value;// 值 可见行
+    volatile HashEntry<K, V> next;// 后继实体 可见性
+    // 构造方法
+    HashEntry(int hash, K key, V value, HashEntry<K, V> next) {
+        this.hash = hash;
+        this.key = key;
+        this.value = value;
+        this.next = next;
+    }
+    // 设置后继实体next
+    final void setNext(HashEntry<K, V> n) {
+        UNSAFE.putOrderedObject(this, nextOffset, n);
+    }
+    ... ...        
+}
+Segment内部布局：
+
+static final class Segment<K, V> extends 
+                            ReentrantLock implements Serializable {
+    /** 元素数组*/
+    transient volatile HashEntry<K, V>[] table;
+    /** 元素个数*/
+    transient int count;
+    /** 修改次数*/
+    transient int modCount;
+    /**rehash临界值,
+     * 当 table 中包含的 HashEntry 元素的个数超过本变量值时，
+     * 触发 table 的再散列*/
+    transient int threshold;
+    /** 负载因子*/
+    final float loadFactor;
+    /**  构造Segment，负载因子，临界条件，table  */
+    Segment(float lf, int threshold, HashEntry<K, V>[] tab) 
+    /** put方法*/
+    final V put(K key, int hash, V value, boolean onlyIfAbsent) 
+    /** 再散列*/
+    private void rehash(HashEntry<K, V> node) 
+    /** 删除元素*/
+    final V remove(Object key, int hash, Object value) 
+    /** 替换元素值*/
+    final boolean replace(K key, int hash, V oldValue, V newValue) 
+    ... ...
+}
+HashEntry就是Map中的元素，也就通常说的键值对。Segment是数据段实际存放HashEntry的地方，HashEntry放在table中。HashEntry是单向链表的结构，由于HASH算法是将一个大集合映射到一个小集合，所以存在多个元素映射到同一个元素的情况，这种情况叫做“hash碰撞”，也就是hash值相同，将所有hash值相同的HashEntry放到这个链表中形成一个“hash桶”。Segment中的put、remove就是元素的实际修改方法，对ConcurrentHashMap的put、remove操作会委托到这里。
+
+put操作：
+
+public V put(K key, V value) {
+    Segment<K, V> s;// 数据段
+    if (value == null)// 空值检测
+        throw new NullPointerException();
+        // 取hash值，如果key为空，这里会抛异常
+    int hash = hash(key);
+    // 根据hash码 取段定位
+    int j = (hash >>> segmentShift) & segmentMask;
+    // 从segments拿到数据段，如果段为空，进入ensureSegment 会新建一个段出来
+    if ((s = (Segment<K, V>) 
+            UNSAFE.getObject(segments, (j << SSHIFT) + SBASE)) == null) {
+        s = ensureSegment(j);
+    }
+    return s.put(key, hash, value, false);
+}
+首先根据key的hash码取得分段的定位，拿到分段，如果没有hash码定位的分段则新建，然后将put操作委托给分段Segment。
+
+Segment put操作：
+
+final V put(K key, int hash, V value, boolean onlyIfAbsent) {
+    // 尝试获取锁，获取成功返回node为null，
+    //否则说明有其他线程对此数据段进行更新操作
+    // 进入scanAndLockForPut，进行重试，
+    //如果重试重试次数大于MAX_SCAN_RETRIES进行lock
+    // 阻塞加锁，否则一直自旋，获得锁后返回。
+    HashEntry<K, V> node = tryLock() ? 
+                        null : scanAndLockForPut(key, hash, value);
+    V oldValue;
+    try {
+        HashEntry<K, V>[] tab = table;
+        // 获取table索引
+        int index = (tab.length - 1) & hash;
+        // 获取table索引为index的第一个HashEntry
+        HashEntry<K, V> first = entryAt(tab, index);
+        // 遍历table[index]上的HashEntry链
+        for (HashEntry<K, V> e = first;;) {
+            if (e != null) { // 如果HashEntry不为null
+                K k;
+                if ((k = e.key) == key 
+                            || (e.hash == hash && key.equals(k))) {
+                    oldValue = e.value;
+                    if (!onlyIfAbsent) {
+                        // 如果存在key且hash相等，
+                        // onlyIfAbsent为false，则更新旧值为value
+                        e.value = value;
+                        ++modCount;// 修改数+1
+                    }
+                    break;
+                }
+                e = e.next;
+            } else {
+                // 节点不为null，
+                // 将node放在table[index]的HashEntry链的头部
+                if (node != null) {
+                    node.setNext(first);
+                // 节点为null，
+                // 建新的HashEntry，放在链头，next指向链的原始头部
+                } else {
+                    node = new HashEntry<K, V>(hash, key, value, first);
+                }
+                //元素数量
+                int c = count + 1;
+                //元素数量大于临界条件，且小于最大容量，
+                //对HashTable扩容，创建2倍原始容量的Hashable
+                if (c > threshold && tab.length < MAXIMUM_CAPACITY)
+                    rehash(node);
+                else
+                    // 添加node到table
+                    setEntryAt(tab, index, node);
+                ++modCount;
+                count = c;
+                oldValue = null;
+                break;
+            }
+        }
+    } finally {
+        unlock();
+    }
+    return oldValue;
+}
+首先尝试获取锁，如果获取锁失败，在scanAndLockForPut()中哈希桶遍历如找不到key对应的HashEntry,则创建一个新的HashEntry，一直重试MAX_SCAN_RETRIES次还没有获取锁则放弃自旋使用阻塞方式获取锁。如果在桶中找到KEY相同的节点，进行值变更，否则将新节点插入当前链表头。如果元素数量大于rehash临界值，进行重新hash新建一个为当前容器容量两倍的容器，将 table 指向新容器。
+
+get操作：
+
+public V get(Object key) {  
+    Segment<K,V> s;//数据段 
+        HashEntry<K,V>[] tab;//数据段中hash表
+        int h = hash(key.hashCode());//获取hash码
+        long u = (((h >>> segmentShift) & 
+                segmentMask) << SSHIFT) + SBASE;  
+        if ((s = (Segment<K,V>)UNSAFE.getObjectVolatile(segments, u)) 
+            //段不为空且hash表不为空
+            != null &&   (tab = s.table) != null) {
+            for (HashEntry<K,V> e = (HashEntry<K,V>) 
+            UNSAFE.getObjectVolatile(tab, ((long)(((tab.length - 1) & h)) 
+                                                    << TSHIFT) + TBASE);  
+                 e != null; e = e.next) {//遍历hash桶
+                K k;  
+                if ((k = e.key) == key || (e.hash == h && key.equals(k)))  
+                    return e.value;  
+            }  
+        }  
+        return null;  
+}
+先用hash定位段，再用hash定位段中的table，如果HashEntry不存在hash桶，只需要两步就能取出非常高效。而且过程不需要加锁，put/remove都是针对HashEntry内的变量和指针进行原子性的赋值操作。getObjectVolatile方法以Volatile方式获取变量，能确保变量的可见性，取出的都是最新值。
+
+ConcurrentHashMap的并发性主要体现在锁分拆上，分段加锁使ConcurrentHashMap具有更高的吞吐量，落在每把锁上的请求频率、持有时间会降低。
+
+ConcurrentSkipListMap
+
+SkipList跳表是一种随机化的数据结构，基于并联的链表，其效率可比拟于二叉查找树。
+图
+跳表中的节点具有右向与下向指针。从第一层开始遍历，如果右端的值比期望的大，那就往下走一层，继续往前走，所以在列表中的查找可以快速的跳过部分列表，并因此得名。
+
+ConcurrentSkipListMap就是基于SkipList结构实现的map,在理论上能够在O（log（n））时间内完成查找、插入、删除操作。能像ConcurrentHashMap一样在并发环境下使用，又能像TreeMap一样使Key按照的自然顺序排序或者按照compareTo方法排序。
+
+在并发环境下ConcurrentSkipListMap的性能比加锁的TreeMap高，逊于ConcurrentHashMap。调用ConcurrentSkipListMap的size时，由于多个线程可以同时对映射表进行操作，所以映射表需要遍历整个链表才能返回元素个数，这个方法慎用。
+
+Set
+
+并发容器中实现Set接口有CopyOnWriteArraySet和ConcurrentSkipListSet。
+
+CopyOnWriteArraySet
+
+内部维护一个CopyOnWriteArrayList实例，所有的方法都是委托给这个实例实现，添加方法调用的是addIfAbsent以保证无重复数据。
+
+ConcurrentSkipListSet
+
+内部维护一个ConcurrentSkipListMap实例，所有的方法都是委托给这个实例实现。
+
+添加操作：
+
+public boolean add(E e) {
+    return m.putIfAbsent(e, Boolean.TRUE) == null;
+}
+调用putIfAbsent保证元素不重复，键为元素e,值为Boolean.TRUE。
+
+作者：wangjie2016
+链接：http://www.jianshu.com/p/be9298b272e7
+來源：简书
+著作权归作者所有。商业转载请联系作者获得授权，非商业转载请注明出处。

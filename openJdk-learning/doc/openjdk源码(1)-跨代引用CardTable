@@ -1,0 +1,71 @@
+在上篇文章《JVM源码分析之YGC的来龙去脉》中提到了跨代引用dirty card，不过只是一带而过，细心的同学表示对这一块不理解，当时也是考虑到短篇幅内无法讲清楚跨代引用中的细节，所以准备在本文中进行分析，不过这篇文章涉及的内容过于冷门，估计感兴趣的同学不会很多。
+
+思考
+
+先思考一个问题，在进行YGC时，如果young generation的Y对象被old generation中O对象引用，那么称O对象存在跨代引用，而且Y对象应该在本次垃圾回收中存活下来，所以old generation的对象在YGC时也是Strong root的一部分，如果每次YGC都去扫描old generation中所有对象的话，肯定会非常耗时，那么有什么好的解决方案呢？
+
+如果只扫描那些有young generation对象引用的对象，是不是效率可以达到最高，不过使用这种方式，需要有一个地方保存这些对象的引用，是一个不小的内存开销，所以Hotspot实现中，并没采用这样方式，而是使用一个GenRemSet数据结构，记录包含这些对象的内存区域是clean or dirty状态。
+
+
+CardTable
+
+CardTable是GenRemSet的一种实现，类似于一个数组，每个元素对应着堆内存的一块区域是否存在跨代引用的对象，如果存在，该Card为dirty状态。
+
+GenRemSet随着堆内存一起初始化，通过具体的垃圾收集策略进行创建，比如CMS和G1是不一样的，其中CMS对应的是CardTable。
+
+
+CardTableRS 实例化过程如下：
+
+
+其核心实现都在CardTableModRefBSForCTRS中，有点复杂。
+
+接上文中YGC遍历old generation的逻辑
+rem_set()->younger_refs_iterate(_gens[i], older_gens);
+
+这里rem_set()方法返回的就是已经初始化的CardTableRS对象，调用younger_refs_iterate，传入的参数分别是old generation的引用和负责遍历old generation对象的回调函数FastScanClosure，一步一步调用下去，最终调用到ClearNoncleanCardWrapper::do_MemRegion方法
+
+
+其中参数MemRegion相当于堆内存的一块区域，这里指向old generation从_bottom 到 _top的区间。
+
+红色框的代码分析：
+
+_ct->byte_for(mr.last()) 计算old generation最大地址对应的Card cur_entry
+_ct->byte_for(mr.start())计算old generation最小地址对应的Card limit
+
+byte_for函数实现如下：
+
+
+其中card_shift为9，相当于整个地址大小除以 512，可以看成一个Card对应512字节大小。
+
+绿色框的代码分析：
+
+从最大的Card开始，一直遍历到最小的Card
+
+    HeapWord* cur_hw = _ct->addr_for(cur_entry);
+    if ((*cur_entry != CardTableRS::clean_card_val()) && clear_card(cur_entry)) {
+      // Continue the dirty range by opening the
+      // dirty window one card to the left.
+      start_of_non_clean = cur_hw;
+    }
+如果当前的Card不是clean_card状态，说明该Card对应的内存区域至少有一个对象引用着young generation的对象，通过clear_card方法先设置该Card为clean_card状态，然后记录当前的内存区域的开始地址到start_of_non_clean字段，说明从start_of_non_clean开始到上次记录的 end_of_non_clean之间的对象都需要扫描；
+
+黄色框的代码分析：
+
+if (start_of_non_clean < end_of_non_clean) {
+  const MemRegion mrd(start_of_non_clean, end_of_non_clean);
+  _dirty_card_closure->do_MemRegion(mrd);
+}
+在while循环中，如果遇到一个clean_card，则先处理已经找到的dirty card，扫描start_of_non_clean到end_of_non_clean之间的对象，整个扫描过程和扫描to-space的逻辑差不多，只有一个区别，主要体现在_gc_barrier变量
+
+
+扫描old generation对象时的回调函数FastScanClosure，_gc_barrier初始化时候为 true，每次都会触发do_barrier方法，实现如下：
+
+
+如果拷贝之后的对象还在young generation，则执行inline_write_ref_field_gc重新把对应的Card设置为dirty。
+
+每次的动作是先清除Card的dirty状态，对象拷贝完成再判断是否要设置为dirty，即非clean。
+
+作者：占小狼
+链接：http://www.jianshu.com/p/5037459097ee
+來源：简书
+著作权归作者所有。商业转载请联系作者获得授权，非商业转载请注明出处。

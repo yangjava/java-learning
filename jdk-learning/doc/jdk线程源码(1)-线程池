@@ -693,3 +693,213 @@ shutdownNow() 和 shutdown()的大体流程相似，差别是：
             }
         }
 需要注意的是，对于运行中的线程调用Thread.interrupt()并不能保证线程被终止.
+
+
+
+
+
+
+
+
+
+
+
+
+
+关于线程池的实现，jdk本身已经提供了四种线程池的实现，根据前面讲到的内容，我们这里可以整合前面的内容真正的理jdk线程池及相关的使用。
+
+jdk自身线程池的实现主要有如下四种，主要是通过Executors工程来创建：
+
+    1，newCachedThreadPool，可理解为无边界线程池，如果有任务提交过来，线程池中没有空余则直接创建线程来执行任务。
+
+    2，newFixedThreadPool，指定容量的线程池，如果提交新任务过来，线程池没有达到指定容量且没有空余则创建新线程并执行任务，如果线程池已经达到指定容量则进入队列等待状态。
+
+    3，newSingleThreadExecutor，单线程的线程池，该线程重复使用，保证提交到该线程池的任务按照先进先出等队列进行执行。
+
+    4，newScheduledThreadPool，任务调度线程池，创建一个定长的线程池，保证任务的定期及周期性执行。
+
+下面将分别讲解上面jdk提供的线程池的实现，将各个线程池的实现时我们先看下线程池创建的主工厂方法的源码：
+
+public class Executors {
+
+    public static ExecutorService newFixedThreadPool(int nThreads) {
+        return new ThreadPoolExecutor(nThreads, nThreads,
+                                      0L, TimeUnit.MILLISECONDS,
+                                      new LinkedBlockingQueue<Runnable>());
+    }
+
+    public static ExecutorService newFixedThreadPool(int nThreads, ThreadFactory threadFactory) {
+        return new ThreadPoolExecutor(nThreads, nThreads,
+                                      0L, TimeUnit.MILLISECONDS,
+                                      new LinkedBlockingQueue<Runnable>(),
+                                      threadFactory);
+    }
+
+    public static ExecutorService newSingleThreadExecutor() {
+        return new FinalizableDelegatedExecutorService
+            (new ThreadPoolExecutor(1, 1,
+                                    0L, TimeUnit.MILLISECONDS,
+                                    new LinkedBlockingQueue<Runnable>()));
+    }
+
+  
+    public static ExecutorService newSingleThreadExecutor(ThreadFactory threadFactory) {
+        return new FinalizableDelegatedExecutorService
+            (new ThreadPoolExecutor(1, 1,
+                                    0L, TimeUnit.MILLISECONDS,
+                                    new LinkedBlockingQueue<Runnable>(),
+                                    threadFactory));
+    }
+
+    public static ExecutorService newCachedThreadPool() {
+        return new ThreadPoolExecutor(0, Integer.MAX_VALUE,
+                                      60L, TimeUnit.SECONDS,
+                                      new SynchronousQueue<Runnable>());
+    }
+
+    public static ExecutorService newCachedThreadPool(ThreadFactory threadFactory) {
+        return new ThreadPoolExecutor(0, Integer.MAX_VALUE,
+                                      60L, TimeUnit.SECONDS,
+                                      new SynchronousQueue<Runnable>(),
+                                      threadFactory);
+    }
+
+    public static ScheduledExecutorService newSingleThreadScheduledExecutor() {
+        return new DelegatedScheduledExecutorService
+            (new ScheduledThreadPoolExecutor(1));
+    }
+
+    public static ScheduledExecutorService newSingleThreadScheduledExecutor(ThreadFactory threadFactory) {
+        return new DelegatedScheduledExecutorService
+            (new ScheduledThreadPoolExecutor(1, threadFactory));
+    }
+
+    public static ScheduledExecutorService newScheduledThreadPool(int corePoolSize) {
+        return new ScheduledThreadPoolExecutor(corePoolSize);
+    }
+
+    public static ScheduledExecutorService newScheduledThreadPool(
+            int corePoolSize, ThreadFactory threadFactory) {
+        return new ScheduledThreadPoolExecutor(corePoolSize, threadFactory);
+    }
+
+    /** Cannot instantiate. */
+    private Executors() {}
+}
+只是提取了部分源码，可以看出每个线程池的实现都不是很复杂，并且内容已经实现了很多功能及组件。那下面我们将分别介绍四种不同的线程池：
+
+一，ExecutorService service = Executors.newCachedThreadPool()；无边界线程池，源码中是这样提现
+
+public static ExecutorService newCachedThreadPool() {
+        return new ThreadPoolExecutor(0, Integer.MAX_VALUE,
+                                      60L, TimeUnit.SECONDS,
+                                      new SynchronousQueue<Runnable>());
+    }
+可以看出无边界的最大值是Integer.MAX_VALUE，线程池等待队列是SynchronousQueue容量为1的队列，提交过来的任务会直接运行或者阻塞等待。
+
+List<Future<String>> list = new ArrayList<Future<String>>();
+		ExecutorService service = Executors.newCachedThreadPool();
+		for(int i = 0; i < 10; i++) {
+			final int index = i;
+			service.execute(new Runnable() {
+				@Override
+				public void run() {
+					System.out.println("execute pool" + index);
+				}
+			});
+			
+			Future<String> future = service.submit(new Callable<String>() {
+
+				@Override
+				public String call() throws Exception {
+					// TODO Auto-generated method stub
+					return "submit pool" + index;
+				}
+			});
+			list.add(future);
+		}
+		
+		for (Future<String> future : list) {
+			System.out.println(future.get());
+		}
+		
+		
+		service.shutdown();
+二，ExecutorService service = Executors.newFixedThreadPool(10);源码上可以体现，使用的最小，最大线程数量都是初始化的数值，并且使用的阻塞队列是LinkedBlockingQueue，链表的阻塞队列。
+
+List<Future<String>> list = new ArrayList<Future<String>>();
+		ExecutorService service = Executors.newFixedThreadPool(10);
+		for(int i = 0; i < 10; i++) {
+			final int index = i;
+			service.execute(new Runnable() {
+				@Override
+				public void run() {
+					try {
+						Thread.sleep(5000);
+					} catch (InterruptedException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+					System.out.println("execute pool" + index);
+				}
+			});
+			
+			Future<String> future = service.submit(new Callable<String>() {
+
+				@Override
+				public String call() throws Exception {
+					// TODO Auto-generated method stub
+					return "submit pool" + index;
+				}
+			});
+			list.add(future);
+		}
+		
+		for (Future<String> future : list) {
+			System.out.println(future.get());
+		}
+		
+		
+		service.shutdown();
+从代码的运行就可以看出来，后面的10个线程执行会有一个线程等待的时间。
+
+三，ExecutorService serviceSingle = Executors.newSingleThreadExecutor();从源码上可以体现该线程池的最小，最大都是1，并且使用的是LinkedBlockingQueue的链表阻塞队列，每次只能有一个线程任务在执行。
+
+ExecutorService serviceSingle = Executors.newSingleThreadExecutor();
+		for(int i = 0; i < 10; i++) {
+			final int index = i;
+			serviceSingle.execute(new Runnable() {
+				@Override
+				public void run() {
+					try {
+						Thread.sleep(5000);
+					} catch (InterruptedException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+					System.out.println("execute pool" + index);
+				}
+			});
+		}
+		
+		serviceSingle.shutdown();
+从代码运行结果上可以很明显的看出。
+
+四，ScheduledExecutorService service = Executors.newScheduledThreadPool(1);从源码上可以看出，初始大小是指定的大小，最大值是Integer.MAX_VALUE，并且使用的阻塞队列是DelayedWorkQueue。
+
+ScheduledExecutorService service = Executors.newScheduledThreadPool(1);
+		for(int i = 0; i < 10; i++) {
+			final int index = i;
+			service.schedule(new Runnable() {
+				
+				@Override
+				public void run() {
+					System.out.println("Scheduled pool" + index);
+					
+				}
+			}, 5, TimeUnit.SECONDS);
+			
+		}
+		
+		service.shutdown();
+从代码的运行结果上可以看出任务调度线程池的特点

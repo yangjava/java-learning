@@ -1,0 +1,269 @@
+ThreadLocal的官方API解释为：
+
+"该类提供了线程局部 (thread-local) 变量。这些变量不同于它们的普通对应物，因为访问某个变量（通过其 get 或 set 方法）的每个线程都有自己的局部变量，它独立于变量的初始化副本。ThreadLocal 实例通常是类中的 private static 字段，它们希望将状态与某一个线程（例如，用户 ID 或事务 ID）相关联。"
+
+大概的意思有两点：
+
+ThreadLocal提供了一种访问某个变量的特殊方式：访问到的变量属于当前线程，即保证每个线程的变量不一样，而同一个线程在任何地方拿到的变量都是一致的，这就是所谓的线程隔离。
+如果要使用ThreadLocal，通常定义为private static类型，在我看来最好是定义为private static final类型。
+应用场景
+
+    ThreadLocal通常用来共享数据，当你想在多个方法中使用某个变量，这个变量是当前线程的状态，其它线程不依赖这个变量，你第一时间想到的就是把变量定义在方法内部，然后再方法之间传递参数来使用，这个方法能解决问题，但是有个烦人的地方就是，每个方法都需要声明形参，多处声明，多处调用。影响代码的美观和维护。有没有一种方法能将变量像private static形式来访问呢？这样在类的任何一处地方就都能使用。这个时候ThreadLocal大显身手了。 
+
+实践
+
+我们首先来看一段代码
+
+package com.test1;
+
+import java.util.HashMap;
+import java.util.Map;
+
+public class Test1 implements Runnable {
+    private final static Map map = new HashMap();
+    int id;
+    /*static ThreadLocal<HashMap> threadLocal = new ThreadLocal<HashMap>(){
+
+        @Override
+
+        protected HashMap initialValue() {
+
+        System.out.println(Thread.currentThread().getName()+"initialValue");
+
+        return new HashMap();
+
+        }
+
+        };*/
+    public Test1(int id) {
+        super();
+        this.id = id;
+    }
+    
+    @Override
+    public void run() {
+        //Map map = threadLocal.get();
+        for (int i = 0; i < 20; i++) {
+            map.put(i, i + id * 100);
+            try {
+                Thread.sleep(100);
+            } catch (Exception ex) {
+            }
+        }
+        System.out.println(Thread.currentThread().getName() + "# map.size()="
+                + map.size() + " # " + map);
+    }
+
+    public static void main(String[] args) {
+        Thread[] runs = new Thread[15];
+        Test1 t = new Test1(1);
+        for (int i = 0; i < runs.length; i++) {
+            runs[i] = new Thread(t);
+        }
+        for (int i = 0; i < runs.length; i++) {
+            runs[i].start();
+        }
+    }
+}
+这段程序的本意是，启动15个线程，线程向map中写入20个整型值，然后输出map。运行该程序，观察结果，我们会发现，map中压根就不止20个元素，这说明程序产生了线程安全问题。
+
+我们都知道HashMap是非线程安全的，程序启动了15个线程，他们共享了同一个map，15个线程都往map写对象，这势必引起线程安全问题。
+
+我们有两种方法解决这个问题：
+
+将map的声明放到run方法中，这样map就成了方法内部变量，每个线程都有一份new HashMap()，无论多少个线程执行run方法，都不会有线程安全问题。这个方法也正如应用场景中提到的，如果有多处地方使用到map，传值是个烦人的地方。
+将HashMap换成Hashtable。用线程同步来解决问题，然而我们的程序只是想向一个map中写入20个整型的KEY-VALUE而已，并不需要线程同步，同步势必影响性能，得不偿失。
+ThreadLocal提供另外一种解决方案，即在解决方案a上边，将new HashMap()得到的实例变量，绑定到当前线程中。之后从任何地方，都可以通过ThreadLocal获取到该变量。将程序中的注释代码恢复，再将 private final static Map map = new HashMap();注释掉，运行程序，结果就是我们想要的。
+实现原理
+
+程序调用了get()方法，我们来看一下该方法的源码：
+
+public T get() {
+
+Thread t = Thread.currentThread();
+
+ThreadLocalMap map = getMap(t);
+
+if (map != null) {
+
+ThreadLocalMap.Entry e = map.getEntry(this);
+
+if (e != null)
+
+return (T)e.value;
+
+}
+
+return setInitialValue();
+
+}
+ getMap方法的源码：
+
+ThreadLocalMap getMap(Thread t) {
+
+return t.threadLocals;
+
+}
+该方法返回的是当前线程中的ThreadLocalMap实例。阅读Thread的源码我们发现Thread中有如下变量声明：
+
+/* ThreadLocal values pertaining to this thread. This map is maintained
+
+* by the ThreadLocal class. */
+
+ThreadLocal.ThreadLocalMap threadLocals = null;
+我们暂时可以将ThreadLocalMap理解为一个类似Map的这么个类，之后再讲解它。
+
+get()方法的大致意思就是从当前线程中拿到ThreadLocalMap的实例threadLocals，如果threadLocals不为空，那么就以当前ThreadLocal实例为KEY从threadLocals中拿到对应的VALUE。如果不为空，那么就调用 setInitialValue()方法初始化threadLocals，最终返回的是initialValue()方法的返回值。下面是 setInitialValue()方法的源码
+
+private T setInitialValue() {
+
+T value = initialValue();
+
+Thread t = Thread.currentThread();
+
+ThreadLocalMap map = getMap(t);
+
+if (map != null)
+
+map.set(this, value);
+
+else
+
+createMap(t, value);
+
+return value;
+
+}
+我们看到map.set(this, value);这句代码将ThreadLocalMap的实例作为KEY，将initialValue()的返回值作为VALUE，set到了threadLocals中。
+
+程序在声明ThreadLocal实例的时候覆写了initialValue()，返回了VALUE，当然我们可以直接调用set(T t)方法来设置VALUE。下面是set(T t)方法的源码：
+
+public void set(T value) {
+
+Thread t = Thread.currentThread();
+
+ThreadLocalMap map = getMap(t);
+
+if (map != null)
+
+map.set(this, value);
+
+else
+
+createMap(t, value);
+
+}
+我们看到它比setInitialValue()方法就少了个return语句。这两种方式都能达到初始化ThreadLocalMap实例的效果。
+
+我们再来看一下ThreadLocal类的结构。
+
+ThreadLocal类只有三个属性，如下：
+
+/*ThreadLocal的hash值，map用它来存储值*/
+
+private final int threadLocalHashCode = nextHashCode();
+
+/*改类能以原子的方式更新int值，这里主要是在产生新的ThreadLocal实例时用来产生一个新的hash值，map用该值来存储对象*/
+
+private static AtomicInteger nextHashCode =
+
+new AtomicInteger();
+
+/*该变量标识每次产生新的ThreadLocal实例时，hash值的增量*/
+
+private static final int HASH_INCREMENT = 0x61c88647;
+剩下的就是一些方法。最关键的地方就是ThreadLocal定义了一个静态内部类ThreadLocalMap。我们在下一章节再来分析这个类。从ThreadLocal的类结构，我们可以看到，实际上问题的关键先生是ThreadLocalMap，ThreadLocal只是提供了管理的功能，我们也可以说ThreadLocal只是代理了ThreadLocalMap而已。
+
+ThreadLocalMap源码分析
+
+既然ThreadLocalMap实现了类似map的功能，那我们首先来看看它的set方法源码：
+
+private void set(ThreadLocal key, Object value) {
+
+ 
+
+// We don’t use a fast path as with get() because it is at
+
+// least as common to use set() to create new entries as
+
+// it is to replace existing ones, in which case, a fast
+
+// path would fail more often than not.
+
+ 
+
+Entry[] tab = table;
+
+int len = tab.length;
+
+int i = key.threadLocalHashCode & (len-1);
+
+ 
+
+for (Entry e = tab[i];
+
+e != null;
+
+e = tab[i = nextIndex(i, len)]) {
+
+ThreadLocal k = e.get();
+
+ 
+
+if (k == key) {
+
+e.value = value;
+
+return;
+
+}
+
+ 
+
+if (k == null) {
+
+replaceStaleEntry(key, value, i);
+
+return;
+
+}
+
+}
+
+ 
+
+tab[i] = new Entry(key, value);
+
+int sz = ++size;
+
+if (!cleanSomeSlots(i, sz) && sz >= threshold)
+
+rehash();
+
+}
+这个方法的主要功能就是讲KEY-VALUE存储到ThreadLocalMap中，这里至少我们看到KEY实际上是 key.threadLocalHashCode，ThreadLocalMap同样维护着Entry数组，这个Entry我们在下一节会讲解。这里涉及到了Hash冲突的处理，这里并不会向HashMap一样冲突了以链表的形式往后添加。如果对这个Hash冲突解决方案有兴趣，可以再进一步研究源码。
+
+既然ThreadLocalMap也是用Entry来存储对象，那我们来看看Entry类的声明，Entry被定义在ThreadLocalMap的内部：
+
+static class Entry extends WeakReference<ThreadLocal> {
+
+/** The value associated with this ThreadLocal. */
+
+Object value;
+
+ 
+
+Entry(ThreadLocal k, Object v) {
+
+super(k);
+
+value = v;
+
+}
+
+}
+这里我们看到Entry集成了WeakReference类，泛型声明了ThreadLocal，即每一个Entry对象都保留了对 ThreadLocal实例的弱引用，之所以这么干的原因是，线程在结束之后需要将ThreadLocal实例从map中remove调，以便回收内存空间。
+
+总结
+
+首先，ThreadLocalMap并不是为了解决线程安全问题，而是提供了一种将实例绑定到当前线程的机制，类似于隔离的效果，实际上自己在方法中new出来变量也能达到类似的效果。ThreadLocalMap跟线程安全基本不搭边，绑定上去的实例也不是多线程公用的，而是每个线程new一份，这个实例肯定不是共用的，如果共用了，那就会引发线程安全问题。ThreadLocalMap最大的用处就是用来把实例变量共享成全局变量，在程序的任何方法中都可以访问到该实例变量而已。网上很多人说ThreadLocalMap是解决了线程安全问题，其实是望文生义，两者不是同类问题。

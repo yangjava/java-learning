@@ -19,5 +19,8 @@
   	<module>openJdk-learning</module>
   	<module>Data-Structure</module>
   	<module>zookeeper-learning</module>
+  	<module>dubbo-learning</module>
+  	<module>mysql-learning</module>
+  	<module>InternetFinance-learning</module>
   </modules>
 </project>

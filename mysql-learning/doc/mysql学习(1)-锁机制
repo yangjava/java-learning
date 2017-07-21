@@ -1,0 +1,157 @@
+MySQL的锁一般分为三种
+
+行锁
+表锁
+页锁
+表锁
+
+偏向MyISAM储存引擎，开销小，加锁快；无死锁；锁定粒度大，发生锁冲突的概率最高，并发度最低
+
+MyISAM在执行查询语句（SELECT）前，会自动给涉及的所有表加读锁，在执行增删改操作前，会自动给设计的表加写锁。
+
+对MyISAM表的读操作（加读锁），不会阻塞其他进程对同一表的写请求，只有当读锁释放后，才会执行其他进程的写操作
+
+举例说明
+
+首先创建一个MyISAM引擎的表
+
+create table mylock(
+    id int not null primary key auto_increment，
+    name varchar(255)
+)engine MyISAM;
+session1加读锁
+
+lock table mylock  read;
+session1可以查看（SELECT），session2也可以查看
+session1不可以查看其他表，不可以更改该锁表
+session2可以查看锁表和其他表，更改锁表时会阻塞，session1解锁后执行
+session2修改锁表
+
+update mylock set name='a3' where id = 1;/*会阻塞*/
+session1解锁，session2修改语句执行
+
+unlock tables;
+对MyISAM表的写操作（加写锁），会阻塞其他进程对同一表的读和写操作，只有写锁释放后，才会执行其他进程的读写操作
+session1加写锁
+
+lock table mylock  write;
+session1不能查看其他表
+session2查看锁表会阻塞，等session1解锁后执行
+
+简而言之，就是读锁会阻塞写，但是不会阻塞读，而写锁会把读和写都阻塞
+
+查看哪些表被加锁
+
+show open tables;
+也可以通过下面命令，检查Table_locks_waited和Table_locks_immediate状态量来分析系统上的表锁定
+
+show status like 'table%';
+Table_locks_waited:出现表级锁定争用而发生等待的次数（不能立即获取锁的次数，每等待一次锁值加1），此值高则说明存在较高的表级锁争用情况
+Table_locks_immediate:产生表级锁定的次数，表示可以立即获取锁的查询次数，魅力及获取锁值加1
+
+此外，MyISAM的读写锁调度是写优先，这也是MyISAM不适合做写为主表的引擎，因为写锁以后，其他线程不能做任何操作，大量的更新会使查询难得到锁，从而造成永远阻塞
+
+行锁
+
+偏向InnoDB储存引擎，开销大，加锁慢；会出现死锁；锁定粒度最小，发生锁冲突的概率最低，并发度最高
+
+InnoDB与MyISAM的最大不同有两点
+
+支持事务（TRANSCTION）
+采用行级锁
+并发事务带来的问题
+
+更新丢失（A，B同时修改，其中一人的被覆盖）
+脏读（B读到A修改但未提交的数据，若A事务回滚，则B读到的数据无效）
+不可重复读（事务A读到事务B已经提交的数据）
+幻读（B读到A新增但未提交的数据，若A事务回滚，则B读到的数据无效）
+隔离级别
+
+“脏读”，“不可重复读”和“幻读”，其实都是数据库读一致性问题，必须由数据库提供一定的事务隔离机制来解决
+| 隔离级别 | 读数据一致性 | 脏读 | 不可重复读 | 幻读 |
+| ------------- |:-------------| -----|
+| 未提交读（Read Uncommitted） | 最低级别，只能保证不读取物理上损坏的数据 | 是 | 是 | 是 |
+| 已提交读（Read Committed） | 语句级 | 否 | 是 | 是 |
+| 可重复读（Repeatable read） | 事务级 | 否 | 否 | 是 |
+| 可序列化（Serializable） | 最高级别，事务级 | 否 | 否 | 否 |
+
+数据库的事务隔离越严格，并发的副作用越小，但付出的代价就越大，因为事务实质上就是事务在一定程度上“串行化”进行，这杏眼与“并发”是矛盾的，同事，不同的应用对读一致性和事务隔离程度的要求也是不同的，比如许多应用对“不可重复读”和“幻读”并不敏感，可能更关心数据访问的能力。
+
+查看隔离级别
+
+show variables like 'tx_ioslation';
+举例说明
+
+首先创建一个InnoDB引擎的表
+
+create table linelock(
+    id int（11），
+    name varchar(255)
+)engine InnoDB;
+创建索引，根据索引锁定行
+
+create index id_ind on linelock(id);
+create index name_ind on linelock(name);
+session1和session2把自动提交关闭
+
+set autocommit = 0;
+双方commit之前，session只能读自己所更改的，若autocommit=1则可立即读到其他session commit的数据
+
+若同时修改同一行的数据，后修改的会被阻塞，等前者coommit后才执行，后者也要commit使改变生效，后者会覆盖前者
+
+索引失效导致行锁变成表锁
+
+session1执行索引失效的语句
+
+update linelcok set id = 10 where name= jack;/*varchar没加单引号使索引失效，行锁变表锁*/
+session2执行其他行的更新语句会被阻塞，session1 commit之后执行
+
+update linelcok set id = 9 where name= 'mike';/*会阻塞*/
+间隙锁产生危害
+
+当我们用范围条件而不是相等条件检索数据，并请求共享或排他锁时，InnoDB会给符合条件的已有数据记录的索引加锁；对于键值在条件范围内但并不存在的记录叫做“间隙（GAP）”
+InnoDB会对这个“间隙”加锁，这种锁的机制就是所谓的间隙锁（Next-Key Lock）
+间隙锁会使不存在的键值被无辜地锁定，而造成在锁定时无法插入锁定键值范围内的任何数据。在某些场景下可能会对性能造成很大的危害
+
+举例说明
+
+linelock表中数据
+| id | name |
+| :------------- |:-------------|
+| 1 | jack |
+| 3 | mike |
+| 4 | john |
+
+session1执行范围更新
+
+update linelock set name ='may' where id>1 and id <5;
+session2执行间隙更新，要session1 commit之后才会执行
+
+update linelock set name ='amy' where id=2;/*会阻塞*/
+查看行锁状态
+
+show status like 'innodb_row_lock%';
+各状态量说明如下：
+Innodb_row_lock_current_waits:当前正在等待锁定的数量；
+Innodb_row_lock_time:从系统启动到现在锁定总时间长度；
+Innodb_row_lock_time_avg:每次等待所花的平均时间；
+Innodb_row_lock_time_max:从系统启动到现在等待最长的一次所花的时间；
+Innodb_row_lock_waits:系统启动后到现在总共等待的次数；
+
+当等待次数很高，而且每次等待时长也不小的时候，我们需要分析系统为何有如此多的等待，然后制定优化计划。
+
+优化建议
+
+尽可能让所有数据检索都通过索引来完成，避免无索引行锁升级为表锁
+合理设计索引，尽量缩小锁的范围
+尽可能较少检索条件，避免间隙锁
+尽量控制事务大小，较少锁定资源量和时间长度
+尽可能低级别事务隔离
+页锁
+
+开销和加锁时间界于表锁和行锁之间；会出现死锁；锁定粒度界于表锁和行锁之间，并发度一般。
+
+作者：饥渴计科极客杰铿
+链接：http://www.jianshu.com/p/fc56761d74bd
+來源：简书
+著作权归作者所有。商业转载请联系作者获得授权，非商业转载请注明出处。

@@ -1,0 +1,172 @@
+今天来学习Hashtable的源码
+
+==============================================
+
+ public synchronized V put(K key, V value) {
+        // Make sure the value is not null
+        if (value == null) {
+            throw new NullPointerException();
+        }
+
+        // Makes sure the key is not already in the hashtable.
+        Entry<?,?> tab[] = table;
+        int hash = key.hashCode();
+        int index = (hash & 0x7FFFFFFF) % tab.length;
+        @SuppressWarnings("unchecked")
+        Entry<K,V> entry = (Entry<K,V>)tab[index];
+        for(; entry != null ; entry = entry.next) {
+            if ((entry.hash == hash) && entry.key.equals(key)) {
+                V old = entry.value;
+                entry.value = value;
+                return old;
+            }
+        }
+
+        addEntry(hash, key, value, index);
+        return null;
+    }
+1)判断相等的条件又变了
+
+if ((entry.hash == hash) && entry.key.equals(key)) {
+哈希值相等，并且equals相等(这里没有==的判断)
+
+2）key&value都不可以为null
+
+3)方法是同步的
+
+4)迁移
+
+还是全部迁移，继续傻逼了。
+
+
+
+Hashtable的应用非常广泛，HashMap是新框架中用来代替Hashtable的类，也就是说建议使用HashMap，不要使用Hashtable。可能你觉得Hashtable很好用，为什么不用呢？这里简单分析他们的区别。
+
+1.Hashtable的方法是同步的，HashMap未经同步，所以在多线程场合要手动同步HashMap这个区别就像Vector和ArrayList一样。
+
+查看Hashtable的源代码就可以发现，除构造函数外，Hashtable的所有 public 方法声明中都有 synchronized 关键字，而HashMap的源代码中则连 synchronized 的影子都没有，当然，注释除外。
+
+2.Hashtable不允许 null 值(key 和 value 都不可以)，HashMap允许 null 值(key和value都可以)。
+
+先看个Hashtable正常输出的示例：
+
+Hashtable table = new Hashtable();
+table.put("a-key", "a-value");
+table.put("b-key", "b-value");
+table.put("c-key", "c-value");
+输出如下：
+
+table.put(null, "a-value");
+运行之后异常如下：
+
+Exception in thread "main" java.lang.NullPointerException
+at java.util.Hashtable.put(Hashtable.java:399)
+at com.darkmi.sandbox.HashtableTest.main(HashtableTest.java:20)
+HashMap示例：
+
+HashMap map = new HashMap();
+map.put(null, "a-value");
+map.put("b-key", null);
+map.put("c-key", null);
+运行之后，输出如下：
+
+b-key - null
+null - a-value
+c-key - null
+PS:从上面的示例我们倒是可以发现Hashtable与HashMap相同的一点：无序存放。
+
+3.两者的遍历方式大同小异，Hashtable仅仅比HashMap多一个elements方法。
+
+Enumeration em = table.elements();
+while (em.hasMoreElements()) {
+String obj = (String) em.nextElement();
+System.out.println(obj); 
+}
+Hashtable 和 HashMap 都能通过values()方法返回一个 Collection ，然后进行遍历处理：
+
+Collection coll = map.values();
+Iterator it = coll.iterator();
+while (it.hasNext()) {
+String obj = (String) it.next();
+System.out.println(obj);
+}
+
+4.HashTable使用Enumeration，HashMap使用Iterator
+
+ 
+
+以下这两点是从内部实现机制上来进行比较，
+
+了解即可：
+
+5.哈希值的使用不同，Hashtable直接使用对象的hashCode，代码是这样的：
+
+int hash = key.hashCode();
+int index = (hash & 0x7FFFFFFF) % tab.length;
+而HashMap重新计算hash值，而且用与代替求模：
+
+int hash = hash(k);
+int i = indexFor(hash, table.length);
+
+static int hash(Object x) {
+　　int h = x.hashCode();
+
+　　h += ~(h << 9);
+　　h ^= (h >>> 14);
+　　h += (h << 4);
+　　h ^= (h >>> 10);
+　　return h;
+}
+
+static int indexFor(int h， int length) {
+　　return h & (length-1);
+6.Hashtable中hash数组默认大小是11，增加的方式是 old*2+1。HashMap中hash数组的默认大小是16，而且一定是2的指数。
+
+********************************************
+
+HashMap补充
+
+Map是java中的接口，Map.Entry是Map的一个内部接口。
+
+Map提供了一些常用方法，如keySet()、entrySet()等方法。
+
+keySet()方法返回值是Map中key值的集合；entrySet()的返回值也是返回一个Set集合，此集合的类型为Map.Entry。
+
+Map.Entry是Map声明的一个内部接口，此接口为泛型，定义为Entry<K,V>。它表示Map中的一个实体（一个key-value对）。接口中有getKey(),getValue方法。
+
+         
+
+//遍历Map的常用方法：
+//第一种:效率相对高
+            Map map = new HashMap();
+           Irerator iterator = map.entrySet().iterator();
+           while(iterator.hasNext()) {
+                   Map.Entry entry = iterator.next();
+                   Object key = entry.getKey();
+                   //
+           }        
+// 第一种方法另外一种简洁写法:froeach和显示调用Iterrator性能差不多
+           Map<String, String> map = new HashMap<String, String>();
+            for (Entry<String, String> entry : map.entrySet()) {
+	        entry.getKey();
+	        entry.getValue();
+            }
+           
+//第二中遍历  效率比第一种低,推荐使用第一种
+//此方法同样适用于table遍历
+       Map map = new HashMap(); 
+           Set  keySet= map.keySet();
+           Irerator iterator = keySet.iterator;
+           while(iterator.hasNext()) {
+                   Object key = iterator.next();
+                   Object value = map.get(key);
+                   //
+           }
+/*单纯的遍历value值，Map有一个values方法，返回的是value的Collection集合
+。通过遍历collection也可以遍历value,如*/
+ Map map = new HashMap();
+      Collection c = map.values();
+      Iterator iterator = c.iterator();
+      while(iterator.hasNext()) {
+             Object value = iterator.next(); 
+     }

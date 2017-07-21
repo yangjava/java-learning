@@ -1,0 +1,115 @@
+Java中引用级别详解介绍
+
+在Java中操作对象都需要用到引用类似于C++中的指针，可以说在Java语言中无时无刻不在和引用打交道在Java 1.2版本中就加入了四种不同级别的引用供开发人员使用，分别是强应用 软引用 弱引用 幽灵引用 强度从高到低。
+
+引用级别作用
+
+引用级别的高低起到了JVM在内存不足的时候，进行GC操作是否需要回收这个对象的作用。
+
+强引用
+
+强引用在开发中是使用最为普遍的引用级别，当使用new obj关键字创建了对象后，这个对象就属于强引用了。 如果JVM在内存不足情况下进行垃圾回收操作时遇到了强引用的对象，JVM就算抛出OutOfMemoryError错误导致程序终止，也不会去回收一个具有强引用级别的对象来解决内存不足的问题。
+
+创建一个DataTest类覆盖object的finalize方法，finalize是当GC回收当前对象的时候会调用，但是不一定每次都会调用。
+
+    class DataTest extends Object {
+
+            @Override
+            protected void finalize() throws Throwable {
+                super.finalize();
+                System.out.println("--------obj is gc--------");
+            }
+        }
+模拟大量消耗内存
+
+    public static void drainMemory() {
+            String[] array = new String[1024 * 10];
+            for(int i = 0; i < 1024 * 10; i++) {
+                for(int j = 'a'; j <= 'z'; j++) {
+                    array[i] += (char)j;
+                }
+            }
+        }
+测试
+
+      @Test
+      public void onRTre() {
+          DataTest dataTest = new DataTest();
+          drainMemory();
+      }
+运行结果: 消耗了大量内存也没有回收对象
+无任何输入
+
+把引用赋为null
+
+      @Test
+       public void onRTre() {
+           DataTest dataTest = new DataTest();
+           dataTest=null;
+           drainMemory();
+
+       }
+运行结果: 隐式GC消耗大量内存导致内存不足，回收了无引用对象
+--------obj is gc--------
+
+ @Test
+       public void onRTre() {
+           DataTest dataTest = new DataTest();
+           dataTest=null;
+           System.gc();
+
+       }
+运行结果: 显式GC操作，虽然内存足够也回收了无引用对象。
+--------obj is gc--------
+
+软引用
+
+具有软引用的对象，当JVM内存足够的情况下是不会回收它，当内存不足情况下GC操作JVM就会回收具有软引用的对象，软引用可以用来做那些需要缓存的操作，当JVM内存不足的时候这些缓存可以被GC掉。
+
+       @Test
+       public void onRTre() {
+          SoftReference reference = new SoftReference(new DataTest());
+          drainMemory();
+
+       }
+运行结果:运行五次，有一次输出。说明GC遇到软引用的时候是由JVM运行情况决定，是否需要回收软引用对象，内存不足有可能会回收也有可能不会被回收。如果当前对象被GC对象就不能被使用了，否则可以继续使用。
+--------obj is gc--------
+
+弱引用
+
+弱引用级别的对象，只有JVM进行GC操作的时候遇到是弱引用级别，不管内存是否足够都会把对象GC掉。不过由于GC是在一个级别很低的线程，所以不一定能马上发现那些弱引用的对象。
+
+       @Test
+        public void onRTre() {
+            WeakReference reference = new WeakReference(new DataTest());
+            System.gc();
+
+        }
+运行结果:有输出
+进行GC操作虽然内存足够，但是对象也被回收了。
+--------obj is gc--------
+
+虚引用
+
+这个级别的引用是最低的，具有这个级别的引用和没被引用一样，随时都有可能被GC掉。虚引用必须和引用队列 （ReferenceQueue）联合使用。当垃圾回收器准备回收一个对象时，如果发现它还有虚引用，就会在回收对象的内存之前，把这个虚引用加入到与之 关联的引用队列中。
+
+       @Test
+       public void onRTre() {
+            PhantomReference reference = new PhantomReference(new DataTest(),new ReferenceQueue());
+            System.gc();
+
+        }
+运行结果:有输出进行GC操作虽然内存足够，但是对象也被回收了。
+--------obj is gc--------
+
+总结
+
+根据上面的实验结果可以得出下面的区别
+
+级别	回收时机	用途	存活时间
+强引用	从来不会	一般使用	JVM终止时
+软引用	在内存不足时	一般时候或者缓存	内存不足时
+弱引用	垃圾回收时	一般使用或者对象缓存	GC操作时终止
+虚引用	未知	未知	未知
+ Java笔记
+

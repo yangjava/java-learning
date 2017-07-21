@@ -1,0 +1,201 @@
+本文将借助HSDB工具分析HotSpot VM的运行时数据，运行的java环境为jdk1.8。
+
+class Test {
+    static String version = "1.0";
+    String name;
+    int id;
+    Test(String name, int id) {
+        this.name = name;
+        this.id = id;
+    }
+    static void fn() {}
+    void fn2(){}
+}
+
+public class Main {
+    static Test t1 = new Test("java", 1);
+    private Test t2 = new Test("java", 2);
+
+    public void fn() {
+        Test t3 = new Test("java", 3);
+    }
+
+    public static void main(String[] args) {
+        new Main().fn();
+    }
+}
+运行上述代码，会在Java堆中生成3个Test对象，变量t1，t2，t3分别存储在方法区、实例字段和局部变量表中，那么Test对象的内存是如何布局的呢？
+
+在查看运行时数据之前，需要让程序刚好执行完new Main().fn();并暂停，平时可能习惯了在Eclipse、IntelliJ IDEA、NetBeans等Java IDE里使用Java层调试器，但为了减少对外部工具的依赖，本文将使用Oracle JDK自带的jdb工具来完成此任务。
+
+jdb使用步骤如下：
+1、jdb -XX:+UseSerialGC -Xmx10m命令启动jdb；
+2、stop in Main.fn命令指定在方法入口设置断点；
+3、run Main命令指令主类，启动java程序；
+4、next命令可以向前执行一步；
+
+
+采用jps命令查看目前调试java程序的PID
+
+
+采用命令java -cp sa-jdi.jar sun.jvm.hotspot.HSDB启动HSDB工具，并连接到目标进程上，注意：Windows上Oracle JDK7才可以用HSDB。
+
+
+
+连接上之后
+
+
+
+默认窗口是Java Threads，显示当前进程的线程列表，双击线程打开一个Oop Inspector窗口，显示该线程在HotSpot VM的对象。
+
+在菜单里选择Windows -> Console，打开HSDB里的控制台，用命令查看更多信息。
+1、命令universe查看GC堆的大小、地址范围和使用情况；
+
+hsdb> universe
+Heap Parameters:
+Gen 0:   eden [0x00000000ff600000,0x00000000ff6d50a0,0x00000000ff8b0000) space capacity = 2818048, 30.964980014534884 used
+  from [0x00000000ff8b0000,0x00000000ff8b0000,0x00000000ff900000) space capacity = 327680, 0.0 used
+  to   [0x00000000ff900000,0x00000000ff900000,0x00000000ff950000) space capacity = 327680, 0.0 usedInvocations: 0
+
+Gen 1:   old  [0x00000000ff950000,0x00000000ff950000,0x0000000100000000) space capacity = 7012352, 0.0 usedInvocations: 0
+可以发现HotSpot在1.8的Java堆中，已经去除了Perm gen区，由youyoung gen和old gen组成。
+
+2、命令scanoops查看指定类型的实例对象，接受两个必选参数和一个可选参数：必选参数是要扫描的地址范围，一个是起始地址一个是结束地址；可选参数用于指定要扫描什么类型的实例对象；
+
+hsdb> scanoops 0x00000000ff600000 0x0000000100000000 Test
+0x00000000ff6caf08 Test
+0x00000000ff6caf40 Test
+0x00000000ff6caf58 Test
+通过执行结果可以看出，Java堆上的确有3个Test实例对象，对象的开始地址分别为0x00000000ff6caf08、0x00000000ff6caf40和0x00000000ff6caf58。
+
+3、命令whatis可以查看指定内存地址所在的区域；
+
+hsdb> whatis 0x00000000ff6caf08
+Address 0x00000000ff6caf08: In thread-local allocation buffer for thread "main" (1)  
+[0x00000000ff6c7448,0x00000000ff6caf70,0x00000000ff6d5090,{0x00000000ff6d50a0})
+
+hsdb> whatis 0x00000000ff6caf40
+Address 0x00000000ff6caf40: In thread-local allocation buffer for thread "main" (1)  
+[0x00000000ff6c7448,0x00000000ff6caf70,0x00000000ff6d5090,{0x00000000ff6d50a0})
+
+hsdb> whatis 0x00000000ff6caf58
+Address 0x00000000ff6caf58: In thread-local allocation buffer for thread "main" (1)  
+[0x00000000ff6c7448,0x00000000ff6caf70,0x00000000ff6d5090,{0x00000000ff6d50a0})
+上述结果可以发现3个Test实例对象都在分配给main线程的thread-local allocation buffer (TLAB)中。
+
+4、命令inspect可以查看对象的内容；
+
+hsdb> inspect 0x00000000ff6caf08
+instance of Oop for Test @ 0x00000000ff6caf08 @ 0x00000000ff6caf08 (size = 24) 
+_mark: 1
+_metadata._compressed_klass: InstanceKlass for Test
+name: "java" @ 0x00000000ff6644a8 Oop for java/lang/String @ 0x00000000ff6644a8
+id: 1
+instance of Oop for Test：表明该地址代表的对象是Test类的实例
+_mark：对象头的第一个字段，记录该对象的状态
+_metadata._compressed_klass：指向描述Test类信息的对象
+name：实例的字段
+id：实例的对象
+
+可以发现_metadata._compressed_klass并没有显示内存地址，是因为该对象在java8中并非在堆中进行分配。
+
+5、命令mem可以看更直接的数据，接受的两个参数，起始地址和以字宽为单位的“长度”；
+
+hsdb> mem 0x00000000ff6caf08 4
+0x00000000ff6caf08: 0x0000000000000001  //_mark
+0x00000000ff6caf10: 0x0000000111c10228  //_metadata._compressed_klass
+0x00000000ff6caf18: 0x00000000ff6644a8  //name
+0x00000000ff6caf20: 0x0000000000000001  //id
+可以发现_metadata._compressed_klass所指向的地址0x0000000111c10228已经超出了Java堆的最大地址，所以通过执行inspect 0x0000000111c10228并不会返回对象内容。
+
+不过_metadata._compressed_klass的内容，可以通过在Inspector窗口中输入Test实例对象的开始地址进行查看。
+
+
+InstanceKlass是类的描述对象，存储着Java类型名称、继承关系、接口、字段信息、方法信息、虚方法表和接口方法表等数据，不过InstanceKlass是给VM内部使用的，并不直接暴露给用户；
+InstanceKlass中维护了一个字段_java_mirror，指向类的Class对象，所以当使用obj.getClass()获取Class对象时，是通过obj -> _klass -> _java_mirror的过程进行获取的；
+在jdk7之前，HotSpot把类的静态字段保存在InstanceKlass中；从jdk7开始，为了配合perm gem的移除工作，静态字段被移动到Class对象中，如Test类中的version变量，存放在_java_mirror所指向的Class对象中。
+6、命令revptrs可以找出反向指针（如果变量a指向对象b，那么可以从b对象出发找到变量a）;
+
+查看第一个Test实例
+
+hsdb> revptrs 0x00000000ff6caf08
+Computing reverse pointers...
+Done.
+null
+Oop for java/lang/Class @ 0x00000000ff6c9928
+这个变量在Class对象中，其实是Main类的Class对象，所以该变量为t1；
+通过whatis命令查看该Class对象的分配位置
+
+hsdb> whatis 0x00000000ff6c9928
+Address 0x00000000ff6c9928: In thread-local allocation buffer for thread "main" (1)  
+[0x00000000ff6c7448,0x00000000ff6caf70,0x00000000ff6d5090,{0x00000000ff6d50a0})
+这个Class对象也是在eden里，具体来说在main线程的TLAB中，这个Class对象如何引用到Test类的实例？
+通过inspect命令查看Class对象的内容
+
+hsdb> inspect 0x00000000ff6c9928
+instance of Oop for java/lang/Class @ 0x00000000ff6c9928 @ 0x00000000ff6c9928 (size = 104)
+<<Reverse pointers>>: 
+t1: Oop for Test @ 0x00000000ff6caf08 Oop for Test @ 0x00000000ff6caf08
+可以发现Main类的Class对象中存储了字段t1指向Test类的实例，该实例的起始地址正好是0x00000000ff6caf08。
+JVM规范中并没明确规定静态变量的存放位置，通常应该放在“方法区”中，不过在jdk7的HtoSpot实现中，静态变量被保存在了Java堆中；
+前面也提到过，在JDK7之前的HotSpot实现中，静态变量被保存在InstanceKlass里，并放在PermGen中；
+
+查看下一个Test实例
+
+hsdb> revptrs 0x00000000ff6caf40 
+Computing reverse pointers...
+Done.
+Oop for Main @ 0x00000000ff6caf30
+这个变量在Main类一个实例中，为t2；
+通过inspect命令查看Main实例的内容
+
+hsdb> inspect 0x00000000ff6caf30
+instance of Oop for Main @ 0x00000000ff6caf30 @ 0x00000000ff6caf30 (size = 16)
+<<Reverse pointers>>: 
+_mark: 1
+_metadata._compressed_klass: InstanceKlass for Main
+t2: Oop for Test @ 0x00000000ff6caf40 Oop for Test @ 0x00000000ff6caf40
+在该实例中，的确存在字段t2指向起始地址为0x00000000ff6caf40的Test实例。
+
+查看最后一个Test实例
+
+revptrs 0x00000000ff6caf58 
+Computing reverse pointers...
+Done.
+null
+结果null，说明没有找到...
+排除了前面两个Test实例，说明这个实例对应的变量应该为t3，该变量t3被保存在Main.fn方法调用栈中。
+
+
+
+选择main线程，并点击图示的按钮，打开Stack Memory窗口如下：
+
+
+Stack Memory窗口中，包含Main.fn()和Main.main()方法调用对应的栈帧，其中红色框框中对应Main.fn()的栈帧
+第1列为内存地址，该地址指虚拟内存意义上的地址，而非物理地址；
+第2列为该地址上的数据，以字宽为单位；
+第3列是对数据的注释；
+
+先看看栈帧的结构，一个栈帧从上到下，分别包含了操作数栈、栈帧信息和局部变量表。
+
+
+通过inspect查看局部变量表数据，局部变量表第0位置slot[0] = "this"，指向 Main实例
+
+hsdb> inspect 0x00000000ff6caf30
+instance of Oop for Main @ 0x00000000ff6caf30 @ 0x00000000ff6caf30 (size = 16)
+_mark: 1
+_metadata._compressed_klass: InstanceKlass for Main
+t2: Oop for Test @ 0x00000000ff6caf40 Oop for Test @ 0x00000000ff6caf40
+局部变量表第1位置slot[1] = "t3"，指向Test实例，该实例正好是最后一个Test实例
+
+hsdb> inspect 0x00000000ff6caf58
+instance of Oop for Test @ 0x00000000ff6caf58 @ 0x00000000ff6caf58 (size = 24)
+_mark: 1
+_metadata._compressed_klass: InstanceKlass for Test
+name: "java" @ 0x00000000ff6644a8 Oop for java/lang/String @ 0x00000000ff6644a8
+id: 3
+
+作者：占小狼
+链接：http://www.jianshu.com/p/a28ae76ac3b4
+來源：简书
+著作权归作者所有。商业转载请联系作者获得授权，非商业转载请注明出处。

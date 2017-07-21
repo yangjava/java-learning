@@ -1,0 +1,16 @@
+
+
+ System.out.println("    我可能用了假的trim　　　".trim());
+结果是，trim用了跟没用一样。难道是我眼花了，看到了假的空格？还是我用了假的trim？
+
+然后看了下jdk源码，发现我用的是真的trim！！java的trim能去掉的字符是unicode 小于32的字符，包括了换行，tab键等，但是有些看起来像空格的，比如：全角空格（unicode = 12288 ），不间断空格（unicode=160），用trim去不掉。
+
+我们可以先将其替换
+
+replace((char) 12288, ' ')
+然后在trim，就可以了。
+
+后来看了下js是怎么trim的，js中字符串trim居然可以去掉上面的“空格”，js的trim用正则实现如下
+
+replace(/^[\s\uFEFF\xA0]+|[\s\uFEFF\xA0]+$/g, '')
+java里面当然也可以直接用上面的正则来去，只是写法比js麻烦。

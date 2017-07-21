@@ -1,0 +1,46 @@
+在java中，启动线程有两种方法，一种是继承Thread类，第二种是实现Runnable的接口。 继承Thread类如下
+
+class ThreadA extends Thread {
+    @Override
+    public void run() {
+        ......
+    }
+}
+实现接口的方式
+
+class ThreadB implements Runnable {
+    @Override
+    public void run() {
+         ......
+    }
+}
+下面是Thread的run方法的源码.
+
+public void run() {
+        if (target != null) {
+            target.run();
+        }
+    }
+target是Thread类里面Runnable的成员变量，如下
+
+/* What will be run. */
+    private Runnable target;
+也就是说，线程在运行run方法的时候，会判断在new 一个Thread的时候，你没有传入Runnable的参数，如果传了，线程直接运行target自己的run方法，这也就说明了，为什么实现Runnable的接口，就必须实现run方法，而继承的线程，就必须自己手写run方法。
+
+这就是通过继承和实现接口来启动线程不同的地方。还有一个需要说明一下，由于JDK1.8引用的Java lambda的新特性，所以还可以通过 Lambda来实现接口方式的线程，代码如下
+
+ new Thread(() -> {
+            for (int i = 0; i < 100; i++) {
+                System.out.println("thread Lambda : " + i);
+            }
+        }).start();
+补充一下，线程里还有一个方法叫
+
+private static synchronized int nextThreadNum() {
+        return threadInitNumber++;
+    }
+这个方法加锁了，是用于给线程起名字，如果你默认不传名字的话，程序会自动给当前线程赋一个默认的名字，名字规则如代码所示
+
+ public Thread() {
+        init(null, null, **"Thread-" + nextThreadNum()**, 0);
+    }

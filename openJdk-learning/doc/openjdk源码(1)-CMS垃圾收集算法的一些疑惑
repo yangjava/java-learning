@@ -1,0 +1,248 @@
+对于CMS垃圾收集算法，一直有一些疑惑：
+1、cms gc 和 full gc 有什么区别 ？
+2、cms gc 和 full gc 如何触发的 ？
+3、什么场景下会发生 concurrent model failure ？
+4、full gc 每次都会进行compact么？
+5、...(如果有疑惑继续更新)
+
+虽然CMS算法已经被遗弃了，但考虑到目前还有很大一部分应用跑在该算法之下，是时候读一遍源码来加深理解了，不过最近得了一种一看源码就头疼的病，所以这部分源码断断续续看了好几天，然后趁这个机会好好的梳理一下，如果期间存在问题，欢迎指出。
+
+cms gc 状态
+
+当触发 cms gc 对老年代进行垃圾收集时，算法中会使用_collectorState变量记录执行状态，整个周期分成以下几个状态：
+
+Idling：一次 cms gc 生命周期的初始化状态。
+InitialMarking：根据 gc roots，标记出直接可达的活跃对象，这个过程需要stw的。
+Marking：根据 InitialMarking 阶段标记出的活跃对象，并发迭代遍历所有的活跃对象，这个过程可以和用户线程并发执行。
+Precleaning：并发预清理。
+AbortablePreclean：因为某些原因终止预清理。
+FinalMarking：由于marking阶段是和用户线程并发执行的，该过程中可能有用户线程修改某些活跃对象的字段，指向了一个非标记过的对象，在这个阶段需要重新标记出这些遗漏的对象，防止在下一阶段被清理掉，这个过程也是需要stw的。
+Sweeping：并发清理掉未标记的对象。
+Resizing：如果有需要，重新调整堆大小。
+Resetting：重置数据，为下一次的 cms gc 做准备。
+cms gc 和 full gc 的区别
+
+CMS算法中实现了cms gc 和 full gc，姑且这么认为吧，算法实现都位于文件concurrentMarkSweepGeneration.cpp中。
+
+cms gc 通过一个后台线程触发，触发机制是默认每隔2秒判断一下当前老年代的内存使用率是否达到阈值，当然具体的触发条件没有这么简单，如果是则触发一次cms gc，在该过程中只会标记出存活对象，然后清除死亡对象，期间会产生碎片空间。
+
+full gc 是通过 vm thread 执行的，整个过程是 stop-the-world，在该过程中会判断当前 gc 是否需要进行compact，即把存活对象移动到内存的一端，可以有效的消除cms gc产生的碎片空间。
+
+cms gc 如何触发
+
+对于 cms gc 来说，触发条件很简单，实现位于 ConcurrentMarkSweepThread 类中，相当于Java 中的Thread，该线程随着堆一起初始化，在该类的 run 方法中有这么一段逻辑：
+
+while (!_should_terminate) {
+    sleepBeforeNextCycle();
+    if (_should_terminate) break;
+    GCCause::Cause cause = _collector->_full_gc_requested ?
+      _collector->_full_gc_cause : GCCause::_cms_concurrent_mark;
+    _collector->collect_in_background(false, cause);
+}
+sleepBeforeNextCycle()保证了最晚每 2 秒（-XX:CMSWaitDuration）进行一次判断，实现如下：
+
+void ConcurrentMarkSweepThread::sleepBeforeNextCycle() {
+  while (!_should_terminate) {
+    if (CMSIncrementalMode) {
+      icms_wait();
+      return;
+    } else {
+      // Wait until the next synchronous GC, a concurrent full gc
+      // request or a timeout, whichever is earlier.
+      wait_on_cms_lock(CMSWaitDuration);
+    }
+    // Check if we should start a CMS collection cycle
+    if (_collector->shouldConcurrentCollect()) {
+      return;
+    }
+    // .. collection criterion not yet met, let's go back
+    // and wait some more
+  }
+}
+其中shouldConcurrentCollect()方法决定了是否可以触发本次 cms gc，分为以下几种情况：
+
+1、如果_full_gc_requested为真，说明有明确的需求要进行gc，比如调用System.gc();
+
+2、CMS 默认采用 jvm 运行时的统计数据判断是否需要触发 cms gc，如果需要根据 CMSInitiatingOccupancyFraction 的值进行判断，需要设置参数-XX:+UseCMSInitiatingOccupancyOnly
+
+3、如果开启了UseCMSInitiatingOccupancyOnly参数，判断当前老年代使用率是否大于阈值，则触发 cms gc，该阈值可以通过参数-XX:CMSInitiatingOccupancyFraction进行设置，如果没有设置，默认为92%；
+
+4、如果之前的 ygc 失败过，或则下次新生代执行 ygc 可能失败，这两种情况下都需要触发 cms gc；
+
+5、CMS 默认不会对永久代进行垃圾收集，如果希望对永久代进行垃圾收集，需要设置参数-XX:+CMSClassUnloadingEnabled，如果开启了CMSClassUnloadingEnabled，根据永久带的内存使用率判断是否触发 cms gc；
+
+6、...还有一些其它情况
+
+如果有上述几种情况，说明需要执行一次 cms gc，通过调用_collector->collect_in_background(false, cause) 进行触发，注意这个方法名中的in_background
+
+full gc 如何触发
+
+触发 full gc 的主要原因是在eden区为对象或TLAB分配内存失败，导致一次 ygc，在 GenCollectorPolicy 类的satisfy_failed_allocation()方法中有这么一段逻辑：
+
+if (!gch->incremental_collection_will_fail(false /* don't consult_young */)) {
+    // Do an incremental collection.
+    gch->do_collection(false            /* full */,
+                       false            /* clear_all_soft_refs */,
+                       size             /* size */,
+                       is_tlab          /* is_tlab */,
+                       number_of_generations() - 1 /* max_level */);
+  } else {
+    if (Verbose && PrintGCDetails) {
+      gclog_or_tty->print(" :: Trying full because partial may fail :: ");
+    }
+    // Try a full collection; see delta for bug id 6266275
+    // for the original code and why this has been simplified
+    // with from-space allocation criteria modified and
+    // such allocation moved out of the safepoint path.
+    gch->do_collection(true             /* full */,
+                       false            /* clear_all_soft_refs */,
+                       size             /* size */,
+                       is_tlab          /* is_tlab */,
+                       number_of_generations() - 1 /* max_level */);
+  }
+该方法是由 vm thread 执行的，整个过程都是 stop-the-world，如果当前incremental_collection_will_fail方法返回 false，则会放弃本次的 ygc，直接触发一次 full gc，incremental_collection_will_fail实现如下：
+
+bool incremental_collection_will_fail(bool consult_young) {
+    // Assumes a 2-generation system; the first disjunct remembers if an
+    // incremental collection failed, even when we thought (second disjunct)
+    // that it would not.
+    assert(heap()->collector_policy()->is_two_generation_policy(),
+           "the following definition may not be suitable for an n(>2)-generation system");
+    return incremental_collection_failed() ||
+           (consult_young && !get_gen(0)->collection_attempt_is_safe());
+  }
+其中参数 consult_young 为 false，如果incremental_collection_failed()返回 true，会导致执行很慢很慢很慢的full gc，如果上一次 ygc 过程中发生 promotion failure 时，会设置 _incremental_collection_failed为 true，即方法incremental_collection_failed()返回 true，相当于触发了 full gc。
+
+其实不管执行 ygc 还是 full gc，都是执行 GenCollectedHeap 的do_collection()方法，最终执行CMS算法的 full gc 实现位于CMSCollector::collect()方法中，当然了，执行 full gc 的逻辑和 cms gc 不是同一条路径，只是实现在同一个文件不同方法中，而且 full gc 是单线程的，完全 stw，而cms gc 是多线程，部分过程是stw的。
+
+还有一种情况是，当发生ygc之后，还是没有足够的内存进行分配，这时会继续触发 full gc，实现如下：
+
+// If we reach this point, we're really out of memory. Try every trick
+  // we can to reclaim memory. Force collection of soft references. Force
+  // a complete compaction of the heap. Any additional methods for finding
+  // free memory should be here, especially if they are expensive. If this
+  // attempt fails, an OOM exception will be thrown.
+  {
+    IntFlagSetting flag_change(MarkSweepAlwaysCompactCount, 1); // Make sure the heap is fully compacted
+
+    gch->do_collection(true             /* full */,
+                       true             /* clear_all_soft_refs */,
+                       size             /* size */,
+                       is_tlab          /* is_tlab */,
+                       number_of_generations() - 1 /* max_level */);
+  }
+concurrent model failure？
+
+在CMS中，full gc 也叫 The foreground collector，对应的 cms gc 叫 The background collector，在真正执行 full gc 之前会判断一下 cms gc 的执行状态，如果 cms gc 正处于执行状态，调用report_concurrent_mode_interruption()方法，通知事件 concurrent mode failure，具体实现如下：
+
+CollectorState first_state = _collectorState;
+if (first_state > Idling) {
+    report_concurrent_mode_interruption();
+}
+// 
+void CMSCollector::report_concurrent_mode_interruption() {
+  if (is_external_interruption()) {
+    if (PrintGCDetails) {
+      gclog_or_tty->print(" (concurrent mode interrupted)");
+    }
+  } else {
+    if (PrintGCDetails) {
+      gclog_or_tty->print(" (concurrent mode failure)");
+    }
+    _gc_tracer_cm->report_concurrent_mode_failure();
+  }
+}
+这里可以发现是 full gc 导致了concurrent mode failure，而不是因为concurrent mode failure 错误导致触发 full gc，真正触发 full gc 的原因可能是 ygc 时发生的promotion failure。
+
+其实这里还有concurrent mode interrupted，这是由于外部因素触发了 full gc，比如执行了System.gc()，导致了这个原因。
+
+full gc中的compact
+
+每次触发 full gc，会根据should_compact 标识进行判断是否需要执行 compact ，判断实现如下：
+
+*should_compact =
+    UseCMSCompactAtFullCollection &&
+    ((_full_gcs_since_conc_gc >= CMSFullGCsBeforeCompaction) ||
+     GCCause::is_user_requested_gc(gch->gc_cause()) ||
+     gch->incremental_collection_will_fail(true /* consult_young */));
+UseCMSCompactAtFullCollection默认开启，但是否要进行 compact，还得看后面的条件：
+1、最近一次cms gc 以来发生 full gc 的次数_full_gcs_since_conc_gc（这个值每次执行完 cms gc 的sweeping 阶段就会设置为0）达到阈值CMSFullGCsBeforeCompaction 。(但是阈值默认为0，哪里有设置它的地方，不会每次 full gc 都是compact吧？)
+2、用户强制执行了gc，如System.gc()。
+3、上一次 ygc 已经失败（发生了promotion failure），或预测下一次 ygc 不会成功。
+
+如果上述条件都不满足，是否就一直不进行 compact，这样碎片问题就得不到缓解了，幸好还有补救的机会，实现如下：
+
+if (clear_all_soft_refs && !*should_compact) {
+    // We are about to do a last ditch collection attempt
+    // so it would normally make sense to do a compaction
+    // to reclaim as much space as possible.
+    if (CMSCompactWhenClearAllSoftRefs) {
+      // Default: The rationale is that in this case either
+      // we are past the final marking phase, in which case
+      // we'd have to start over, or so little has been done
+      // that there's little point in saving that work. Compaction
+      // appears to be the sensible choice in either case.
+      *should_compact = true;
+    } else {
+      // We have been asked to clear all soft refs, but not to
+      // compact. Make sure that we aren't past the final checkpoint
+      // phase, for that is where we process soft refs. If we are already
+      // past that phase, we'll need to redo the refs discovery phase and
+      // if necessary clear soft refs that weren't previously
+      // cleared. We do so by remembering the phase in which
+      // we came in, and if we are past the refs processing
+      // phase, we'll choose to just redo the mark-sweep
+      // collection from scratch.
+      if (_collectorState > FinalMarking) {
+        // We are past the refs processing phase;
+        // start over and do a fresh synchronous CMS cycle
+        _collectorState = Resetting; // skip to reset to start new cycle
+        reset(false /* == !asynch */);
+        *should_start_over = true;
+      } // else we can continue a possibly ongoing current cycle
+    }
+普通的 full gc，参数clear_all_soft_refs为 false，不会清理软引用，如果在执行完 full gc，空间还是不足的话，会执行一次彻底的 full gc，尝试清理所有的软引用，想方设法的收集可用内存，这种情况clear_all_soft_refs为 true，而且CMSCompactWhenClearAllSoftRefs默认为 true，在垃圾收集完可以执行一次compact，如果真的走到了这一步，该好好的查查代码了，因为这次 gc 的暂停时间已经很长很长很长了。
+
+根据对should_compact参数的判断，执行不同的算法进行 full gc，实现如下：
+
+if (should_compact) {
+    // If the collection is being acquired from the background
+    // collector, there may be references on the discovered
+    // references lists that have NULL referents (being those
+    // that were concurrently cleared by a mutator) or
+    // that are no longer active (having been enqueued concurrently
+    // by the mutator).
+    // Scrub the list of those references because Mark-Sweep-Compact
+    // code assumes referents are not NULL and that all discovered
+    // Reference objects are active.
+    ref_processor()->clean_up_discovered_references();
+
+    if (first_state > Idling) {
+      save_heap_summary();
+    }
+
+    do_compaction_work(clear_all_soft_refs);
+
+    // Has the GC time limit been exceeded?
+    DefNewGeneration* young_gen = _young_gen->as_DefNewGeneration();
+    size_t max_eden_size = young_gen->max_capacity() -
+                           young_gen->to()->capacity() -
+                           young_gen->from()->capacity();
+    GenCollectedHeap* gch = GenCollectedHeap::heap();
+    GCCause::Cause gc_cause = gch->gc_cause();
+    size_policy()->check_gc_overhead_limit(_young_gen->used(),
+                                           young_gen->eden()->used(),
+                                           _cmsGen->max_capacity(),
+                                           max_eden_size,
+                                           full,
+                                           gc_cause,
+                                           gch->collector_policy());
+  } else {
+    do_mark_sweep_work(clear_all_soft_refs, first_state,  should_start_over);
+  }
+个人公众号
+
+作者：占小狼
+链接：http://www.jianshu.com/p/55670407fdb9
+來源：简书
+著作权归作者所有。商业转载请联系作者获得授权，非商业转载请注明出处。

@@ -1,0 +1,162 @@
+前言
+
+JDK的并发包中提供了几个非常有用的工具类，这些工具类给我们在业务开发过程中提供了一种并发流程控制的手段，本文会基于实际应用场景介绍如何使用CyclicBarrier，以及内部实现机制。
+
+CyclicBarrier是什么
+
+CyclicBarrier也叫同步屏障，在JDK1.5被引入，可以让一组线程达到一个屏障时被阻塞，直到最后一个线程达到屏障时，所以被阻塞的线程才能继续执行。
+CyclicBarrier好比一扇门，默认情况下关闭状态，堵住了线程执行的道路，直到所有线程都就位，门才打开，让所有线程一起通过。
+
+构造方法
+
+默认的构造方法是CyclicBarrier(int parties)，其参数表示屏障拦截的线程数量，每个线程调用await方法告诉CyclicBarrier已经到达屏障位置，线程被阻塞。
+另外一个构造方法CyclicBarrier(int parties, Runnable barrierAction)，其中barrierAction任务会在所有线程到达屏障后执行。
+
+CyclicBarrier.png
+应用场景
+
+想象一个场景，运动会男子100米决赛，8名选手。
+
+Athlete.java ：每个运动员都就位后才开始。
+
+class Athlete implements Runnable {
+
+    private CyclicBarrier cyclicBarrier;
+    private String name;
+
+    public Athlete(CyclicBarrier cyclicBarrier, String name) {
+        this.cyclicBarrier = cyclicBarrier;
+        this.name = name;
+    }
+
+    @Override
+    public void run() {
+        System.out.println(name + "就位");
+        try {
+            cyclicBarrier.await();
+            Random random =new Random();
+            double time = random.nextDouble() + 9;
+            System.out.println(name + ": "+ time);
+        } catch (Exception e) {
+        }
+    }
+}
+Race.java ： 负责屏障的初始化。
+
+class Race {
+    private CyclicBarrier cyclicBarrier = new CyclicBarrier(8);
+    public void start() {
+        List<Athlete> athleteList = new ArrayList<>();
+        athleteList.add(new Athlete(cyclicBarrier,"博尔特"));
+        athleteList.add(new Athlete(cyclicBarrier,"鲍威尔"));
+        athleteList.add(new Athlete(cyclicBarrier,"盖伊"));
+        athleteList.add(new Athlete(cyclicBarrier,"布雷克"));
+        athleteList.add(new Athlete(cyclicBarrier,"加特林"));
+        athleteList.add(new Athlete(cyclicBarrier,"苏炳添"));
+        athleteList.add(new Athlete(cyclicBarrier,"路人甲"));
+        athleteList.add(new Athlete(cyclicBarrier,"路人乙"));
+        Executor executor = Executors.newFixedThreadPool(8);
+        for (Athlete athlete : athleteList) {
+            executor.execute(athlete);
+        }
+    }
+}
+实现原理
+
+本文代码源于JDK1.8
+CountDownLatch实现主要基于ReentrantLock，不熟悉的可以移步这里 深入浅出ReentrantLock。
+
+public class CyclicBarrier {
+    private static class Generation {
+        boolean broken = false;
+    }
+    /** The lock for guarding barrier entry */
+    private final ReentrantLock lock = new ReentrantLock();
+    /** Condition to wait on until tripped */
+    private final Condition trip = lock.newCondition();
+    /** The number of parties */
+    private final int parties;
+    /* The command to run when tripped */
+    private final Runnable barrierCommand;
+    /** The current generation */
+    private Generation generation = new Generation();
+    ...省略后面代码
+}
+其中Generation用来控制屏障的循环使用，如果generation.broken为true的话，说明这个屏障已经损坏，当某个线程await的时候，直接抛出异常
+
+await实现
+
+private int dowait(boolean timed, long nanos)
+    throws InterruptedException, BrokenBarrierException,
+           TimeoutException {
+    final ReentrantLock lock = this.lock;
+    lock.lock();
+    try {
+        final Generation g = generation;
+        if (g.broken)
+            throw new BrokenBarrierException();
+        if (Thread.interrupted()) {
+            breakBarrier();
+            throw new InterruptedException();
+        }
+        int index = --count;
+        if (index == 0) {  // tripped
+            boolean ranAction = false;
+            try {
+                final Runnable command = barrierCommand;
+                if (command != null)
+                    command.run();
+                ranAction = true;
+                nextGeneration();
+                return 0;
+            } finally {
+                if (!ranAction)
+                    breakBarrier();
+            }
+        }
+
+        // loop until tripped, broken, interrupted, or timed out
+        for (;;) {
+            try {
+                if (!timed)
+                    trip.await();
+                else if (nanos > 0L)
+                    nanos = trip.awaitNanos(nanos);
+            } catch (InterruptedException ie) {
+                if (g == generation && ! g.broken) {
+                    breakBarrier();
+                    throw ie;
+                } else {
+                    // We're about to finish waiting even if we had not
+                    // been interrupted, so this interrupt is deemed to
+                    // "belong" to subsequent execution.
+                    Thread.currentThread().interrupt();
+                }
+            }
+            if (g.broken)
+                throw new BrokenBarrierException();
+            if (g != generation)
+                return index;
+            if (timed && nanos <= 0L) {
+                breakBarrier();
+                throw new TimeoutException();
+            }
+        }
+    } finally {
+        lock.unlock();
+    }
+}
+每当线程执行await，内部变量count减1，如果count！= 0，说明有线程还未到屏障处，则在锁条件变量trip上等待。
+当count == 0时，说明所有线程都已经到屏障处，执行条件变量的signalAll方法唤醒等待的线程。
+其中 nextGeneration方法可以实现屏障的循环使用：
+重新生成Generation对象
+恢复count值
+CountDownLatch的区别
+
+CountDownLatch 允许一个或多个线程等待一些特定的操作完成，而这些操作是在其它的线程中进行的，也就是说会出现 等待的线程 和 被等的线程 这样分明的角色；
+CountDownLatch 构造函数中有一个 count 参数，表示有多少个线程需要被等待，对这个变量的修改是在其它线程中调用 countDown 方法，每一个不同的线程调用一次 countDown 方法就表示有一个被等待的线程到达，count 变为 0 时，latch（门闩）就会被打开，处于等待状态的那些线程接着可以执行；
+CountDownLatch 是一次性使用的，也就是说latch门闩只能只用一次，一旦latch门闩被打开就不能再次关闭，将会一直保持打开状态，因此 CountDownLatch 类也没有为 count 变量提供 set 的方法；
+总结
+
+通过本文的介绍，希望大家能够了解CyclicBarrier的应用场景和工作机制，如果需要可重用的 CountDownLatch，考虑使用 CyclicBarrier。
+

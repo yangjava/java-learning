@@ -1,0 +1,143 @@
+本文对GC线程的执行过程进行分析，当新生代的可用内存不足时，会触发YGC操作，回收新生代的垃圾对象，具体实现是创建一个VM_GenCollectForAllocation类型的VM_Operation，并交由VMThread进行调度执行。
+
+整个YGC的过程如下
+
+step 1
+
+
+通过VMThread调度执行gc操作，最终调用对应的doit方法
+1、利用SvcGCMarker通知minor gc操作的开始；
+2、设置触发gc的原因为GCCause::_allocation_failure，即内存分配失败；
+3、其中GenCollectedHeap的satisfy_failed_allocation方法会调用GC策略的satisfy_failed_allocation方法，处理内存分配失败的情况；
+
+step 2
+
+从这一步开始是satisfy_failed_allocation方法的实现
+
+
+如果其它线程触发了gc操作，则通过扩展内存代的容量进行分配，最后不管有没有分配成功都返回，等待其它线程的gc操作结束；
+
+step 3
+
+
+如果增量式gcincremental collection可行，则通过do_collection方法执行一次minor gc，即回收新生代的垃圾；
+
+step 4
+
+
+如果增量式gc不可行，则通过do_collection方法执行一次full gc；
+
+step 5
+
+
+gc结束之后，再次从内存堆的各个内存代中依次分配指定大小的内存块，如果分配成功则返回，否则继续；
+
+step 6
+
+
+如果gc结束后还是分配失败，说明gc失败了（这里写gc失败了，是因为代码注释上说collection failed，但是为什么可以确定是gc失败呢？），则再次尝试通过允许扩展内存代容量的方式来试图分配指定大小的内存块；
+
+step 7
+
+
+如果执行到这一步，说明gc之后还是内存不足，则通过do_collection方法最后再进行一次彻底的gc，回收所有的内存代，对堆内存进行压缩，且清除软引用；
+
+step 8
+
+
+经过一次彻底的gc之后，最后一次尝试依次从各内存代分配指定大小的内存块；
+
+从上述分析中可以发现，gc操作的入口都位于GenCollectedHeap::do_collection方法中，不同的参数执行不同类型的gc，定义如下：
+
+
+参数说明：
+1、参数full标识是否需要进行full gc；
+2、参数clear_all_soft_refs标识gc过程中是否需要清除软引用；
+
+方法do_collection的实现过程如下：
+
+step 1
+
+
+执行gc操作必须满足四个条件：
+1、在一个同步安全点，VMThread在调用gc操作时会通过SafepointSynchronize::begin/end方法实现进出安全区域，调用begin方法时会强制所有线程到达一个安全点；
+2、当前线程是VM线程或并发的gc线程；
+3、当前线程已经获得内存堆的全局锁；
+4、内存堆当前_is_gc_active参数为false，即还未开始gc；
+
+step 2
+
+
+如果当前有其它线程触发了gc，则终止当前的gc线程，否则继续；
+
+step 3
+
+
+1、根据参数do_clear_all_soft_refs和GC策略判断本次gc是否需要清除软引用；
+2、记录当前永久代的使用量perm_prev_used；
+3、如果启动参数中设置了-XX:+PrintHeapAtGC，则打印GC发生时内存堆的信息。
+
+step 4
+
+
+1、设置参数_is_gc_active为真，表示当前线程正式开始gc操作；
+2、判断当前是否要进行一次full gc，并确定触发full gc的原因，如通过调用System.gc()触发；
+3、如果设置了PrintGC和PrintGCDateStamps，则在输出日志中添加时间戳；
+4、如果设置了PrintGCDetails，则打印本次gc的详细CPU耗时，如 user_time、system_time和real_time；
+5、gc_prologue方法在gc开始前做一些前置处理，如设置每个内存代的_soft_end字段；
+6、更新发生gc的次数_total_collections，如果当前gc是full gc，则还需更新发生full gc的次数_total_full_collections；
+
+step 5
+
+
+1、获取当前内存堆的使用量gch_prev_used；
+2、初始化开始回收的内存代序号starting_level，默认为0，即从最年轻的内存代开始；
+3、如果当前gc是full gc，则从最老的内存代开始向前搜索，找到第一个可收集所有新生代的内存代，稍后从该内存代开始回收；
+
+step 6
+
+
+1、从序号为starting_level的内存代开始回收；
+2、如果当前内存代不需要进行回收，则处理下一个内存代，否则对当前内存进行回收；
+3、如果当前内存代所有内存代中最老的，则将本次的gc过程升级为full gc，更新full gc的次数，并执行full gc的前置处理，实现如下：
+
+
+在进行FGC之前：
+1、如果设置了参数HeapDumpBeforeFullGC，则对内存堆进行dump；
+2、如果设置了参数PrintClassHistogramBeforeFullGC，则打印在进行FGC之前的对象；
+
+step 7
+
+
+1、统计各个内存代进行gc时的数据；
+2、如果开启了ZapUnusedHeapArea，则在回收每个内存代时都要对内存代的内存上限地址top进行更新；
+
+step 8
+
+
+这一步才开始真正的gc操作：
+1、设置当前内存代的_saved_mark值，即设置这些内存区域块的上限地址；
+2、通过每个内存代管理器的collect方法对垃圾对象的进行回收，垃圾收集算法的具体细节会在后文进行分析；
+
+step 9
+
+
+1、如果当前是FGC，则调用post_full_gc_dump方法通知gc已经完成，可以进行后续操作，如果设置了参数HeapDumpAfterFullGC，则在gc后可以对堆内存进行dump；如果设置了参数PrintClassHistogramAfterFullGC，则在gc后可以打印存活的对象；
+2、如果设置了参数PrintGCDetails，则在gc后可以打印内存堆的变化情况；如果当前还是FGC，则还可以打印永久代的内存变化情况；
+
+step 10
+
+
+1、gc完成后，调整内存堆中各内存代的大小；
+2、如果是FGC，则还需要调整永久代大小；获取FullGCCount_lock锁，对_full_collections_completed进行更新，并通过锁机制通知本次FGC已经完成；
+
+step 11
+
+
+1、打印内存堆的gc总次数和FGC次数；
+2、ExitAfterGCNum默认是0，如果设置ExitAfterGCNum大于0，且gc的总次数超过ExitAfterGCNum，则终止整个JVM进程；
+
+作者：占小狼
+链接：http://www.jianshu.com/p/04eff13f3707
+來源：简书
+著作权归作者所有。商业转载请联系作者获得授权，非商业转载请注明出处。

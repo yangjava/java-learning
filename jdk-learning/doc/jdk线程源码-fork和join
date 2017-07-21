@@ -1,0 +1,495 @@
+互联网一直在说和提到高并发，那什么是高并发，怎么处理高并发？也许每个人都有自己的见解和应对方法，但是总体思想应该及相同的，分而治之，单个服务不发满足时增加服务集群，集群无法满足时考虑拆分，同时选择合适的算法，最终达到解决高并发，但是什么样的级别才能算是高呢？不同的业务也许需求不一样，但是大致还都是相同的，我们最开始使用的处理要素是，200并发，200请求/秒，单机，并且后台也许会有不同的业务逻辑，也许会有其他的复杂计算，这个是根据不同的系统不同的业务而不同设计的。业务你的并发达不到这么高，根据数据的要求，你可能会想到异步处理，或者消息处理来增加并发数。所有的解决方案都不是相同的，只选择适合你们业务的解决方案。
+
+言归正传，这里我们讲的是fork/join的并发处理框架，该框架是是在jdk1.7出现的，如果有人接触过hadoop中的mapreduce，思想是相同的。说起fork/join，我们首先看下该思想的执行操作线路图，这样可以更好的理解该并行计算框架。
+
+
+
+上面的图解中有两个最大的世界，fork：将大任务拆分成小任务进行执行；join：将fork出来的小任务的执行结果进行合并，最终实现过程拆分结果合并的操作。
+
+先上说明一些主要的类：ForkJoinTask：顶层设计类，主要是对任务的拆分合并的计算架构。该顶层类有两个核心子类，在java中也是主要继承这两个类来实现并行计算。RecursiveAction：从后缀也可以猜测出，该执行只是动作的执行，没有返回结果。RecursiveTask：执行任务，有返回值，并且是指定类型的返回结果。ForkJoinPool：任务执行线程池，根据自身算法实现线程的高度复用及任务优化。
+
+下面从demo中解析：无返回值的操作
+
+public class ObjectTest {
+	
+	public static void main(String[] args) throws InterruptedException {
+		//创建执行线程池
+		ForkJoinPool pool = new ForkJoinPool();
+		//提交任务
+		pool.submit(new ActionTest(0, 200));
+		
+		pool.awaitTermination(3, TimeUnit.SECONDS);
+		pool.shutdown();
+		
+	}
+
+}
+
+//继承无返回值的任务
+class ActionTest extends RecursiveAction {
+	
+	private static final int MAX = 50;
+	
+	private int start;
+	private int end;
+	public ActionTest(int start, int end) {
+		this.start = start;
+		this.end = end;
+	}
+
+	@Override
+	protected void compute() {
+		if ((end - start) < MAX) {
+			System.out.println(Thread.currentThread().getName() + "--" + start + "==" + end);
+		} else {
+			int middle = (start + end) / 2;
+			ActionTest up = new ActionTest(start, middle);
+			ActionTest down = new ActionTest(middle, end);
+			//继续拆分
+			up.fork();
+			down.fork();
+		}
+	}
+}
+源码中的提现：
+
+public class ForkJoinPool extends AbstractExecutorService ，该源码中涉及到很多线程安全和线程池的概念，源码比较多，这里就不一一说明，后面有时间了会拿出来单独说明。
+
+public abstract class RecursiveTask<V> extends ForkJoinTask<V> {
+    private static final long serialVersionUID = 5232453952276485270L;
+
+    /**
+     * The result of the computation.
+     */
+    V result;
+
+    /**
+     * The main computation performed by this task.
+     */
+    protected abstract V compute();
+
+    public final V getRawResult() {
+        return result;
+    }
+
+    protected final void setRawResult(V value) {
+        result = value;
+    }
+
+    /**
+     * Implements execution conventions for RecursiveTask.
+     */
+    protected final boolean exec() {
+        result = compute();
+        return true;
+    }
+}
+该源码很简单，只是对父类的继承，操作的结果是无返回值的，所以有两个方法直接操作返回，主要提供抽象的compute()方法供子类实现。
+
+有返回值的demo：
+
+public class ObjectTest {
+	
+	public static void main(String[] args) throws InterruptedException, ExecutionException {
+		//创建执行线程池
+		ForkJoinPool pool = new ForkJoinPool();
+		//提交任务
+		Future<Integer> futuer = pool.submit(new TaskTest(0, 200));
+		System.out.println(futuer.get());
+		pool.awaitTermination(3, TimeUnit.SECONDS);
+		pool.shutdown();
+		
+	}
+
+}
+
+class TaskTest extends RecursiveTask<Integer> {
+private static final int MAX = 50;
+	
+	private int start;
+	private int end;
+	public TaskTest(int start, int end) {
+		this.start = start;
+		this.end = end;
+	}
+	@Override
+	protected Integer compute() {
+		int sum = 0;
+		if ((end - start) < MAX) {
+			for (int i = start; i < end; i++) {
+				sum += i;
+			}
+			return sum;
+		} else {
+			int middle = (start + end) / 2;
+			TaskTest up = new TaskTest(start, middle);
+			TaskTest down = new TaskTest(middle, end);
+			//继续拆分
+			up.fork();
+			down.fork();
+			return up.join() + down.join();
+		}
+	}
+	
+}
+主要区别在继承的父类和返回值，提现在join方法上。
+
+源码体现：
+
+public abstract class RecursiveTask<V> extends ForkJoinTask<V> {
+    private static final long serialVersionUID = 5232453952276485270L;
+
+    /**
+     * The result of the computation.
+     */
+    V result;
+
+    /**
+     * The main computation performed by this task.
+     */
+    protected abstract V compute();
+
+    public final V getRawResult() {
+        return result;
+    }
+
+    protected final void setRawResult(V value) {
+        result = value;
+    }
+
+    /**
+     * Implements execution conventions for RecursiveTask.
+     */
+    protected final boolean exec() {
+        result = compute();
+        return true;
+    }
+
+}
+主要在返回值上的设置会获取
+
+这里先做简单的演示，后面再做深层次的解析和分析
+
+一、定义
+
+Fork/join主要是Java7提供的一个并行执行任务的框架，Fork就是把一个大任务切分为诺干子任务并行的执行，Join就是合并这些子任务的执行结果，最后得到大任务的结果。
+
+如果1+2+3+……+10000     可以分割成10个子任务，每个子任务分别对1000个数进行求和，最终汇总这10个子任务的结果。
+
+二、实现
+
+ 
+
+需求：计算1+2+3+4
+
+使用Fork、Join框架首先要考虑到时如何分割任务，如果希望每个子任务最多执行两个数的相加，那么我们设置分割的阈值是2，由于4个数字相加，所以这个框架会把这个任务fork成两个子任务，子任务一负责计算1+2，子任务二负责计算3+4，然后再join两个子任务的结果，因为是有结果的任务，所以必须继承RecursiveTask，具体实现代码如下：
+
+public class CountTask extends RecursiveTask<Integer> {
+
+private static final int THRESHOLD = 2;
+    private int start;
+    private int end;
+
+    public CountTask(int start, int end) {
+this.start = start;
+        this.end = end;
+}
+
+@Override
+protected Integer compute() {
+int sum = 0;
+//如果任务足够小就计算任务
+boolean canCompute = (end - start) <= THRESHOLD;
+        if (canCompute) {
+for (int i = start; i <= end; i++) {
+                sum += i;
+}
+        } else {
+//如果任务大于阈值，就分裂成两个子任务计算
+int middle = (start + end) / 2;
+CountTask leftTask = new CountTask(start, middle);
+CountTask rightTask = new CountTask(middle + 1, end);
+//执行子任务
+leftTask.fork();
+rightTask.fork();
+//等待子任务执行完，并得到其结果
+int leftResult = leftTask.join();
+            int rightResult = rightTask.join();
+//合并子任务
+sum = leftResult + rightResult;
+}
+return sum;
+}
+}
+public static void main(String[] strs) {
+
+    ForkJoinPool forkJoinPool = new ForkJoinPool();
+//生成一个计算任务，负责计算1+2+3+4
+CountTask task = new CountTask(1, 4);
+//执行一个任务
+Future<Integer>  result = forkJoinPool.submit(task);
+    try {
+        System.out.println(result.get());
+} catch (InterruptedException e) {
+        e.printStackTrace();
+} catch (ExecutionException e) {
+        e.printStackTrace();
+}
+
+if(task.isCompletedAbnormally()){
+        System.out.println(task.getException());
+}
+
+}
+通过这个例子，我们进一步了解了ForkJoinTask，ForkJoinTask与一般任务的主要区别在于它需要实现compute方法，在这个方法里，首先需要判断任务是否足够小，如果足够小就直接执行任务，如果不足够小，就必须分割成两个子任务，每个子任务在调用fork方法时，又会进入compute方法，看看当前子任务是否需要继续分割成子任务，如果不需要继续分割，则执行当前子任务并返回结果，使用join方法会等待子任务执行完并得到其结果。
+
+ForkJoinTask在执行任务的时候可能会抛出异常，但是我们没办法在主线程里直接捕获异常，所以ForkJoinTask提供了isCompletedAbnormally()方法来检查任务是否已经抛出异常或已经被取消了，并且可以通过ForkJoinTask的getException方法捕获异常
+
+三、实现原理
+
+ForkJoinPool由ForkJoinTask数组和ForkJoinWorkerThread数组组成，ForkJoinTask数组负责将存放程序提交给ForkJoinPool的任务，而ForkJoinWorkerThread数组负责执行这些任务。
+
+（1）.ForkJoinTask的fork方法实现原理
+
+当我们调用ForkJoinTask的fork方法时，程序会调用ForkJoinWorkerThread的pushTask方法异步的执行这个任务，然后立即返回结果，代码如下：
+
+ 
+
+public final ForkJoinTask<V> fork() {
+    ((ForkJoinWorkerThread) Thread.currentThread())
+        .pushTask(this);
+    return this;
+}
+pushTask方法把当前任务存放在ForkJoinTask数组队列里。然后再调用ForkJoinPool的signalWork()方法唤醒或创建一个工作线程来执行任务，代码如下：
+
+ 
+
+ 
+
+final void pushTask(ForkJoinTask<?> t) {
+    ForkJoinTask<?>[] q; int s, m;
+    if ((q = queue) != null) {    // ignore if queue removed
+        long u = (((s = queueTop) & (m = q.length - 1)) << ASHIFT) + ABASE;
+        UNSAFE.putOrderedObject(q, u, t);
+        queueTop = s + 1;         // or use putOrderedInt
+        if ((s -= queueBase) <= 2)
+            pool.signalWork();
+        else if (s == m)
+            growQueue();
+    }
+}
+（2）.ForkJoinTask的join方法实现原理
+
+ 
+
+Join方法的主要作用是阻塞当前线程并等待获取结果。让我们一起看看ForkJoinTask的join方法的实现，代码如下：
+
+ 
+
+public final V join() {
+    if (doJoin() != NORMAL)
+        return reportResult();
+    else
+        return getRawResult();
+}
+private V reportResult() {
+    int s; Throwable ex;
+    if ((s = status) == CANCELLED)
+        throw new CancellationException();
+    if (s == EXCEPTIONAL && (ex = getThrowableException()) != null)
+        UNSAFE.throwException(ex);
+    return getRawResult();
+}
+首先，它调用了doJoin方法，通过doJoin()方法得到当前任务的状态来判断返回什么结果，任务状态有4种：已完成（NORMAL）、被取消（CANCELLED）、信号（SIGNAL）和出现异常（EXCEPTIONAL）.
+
+ 
+
+       ①：如果任务状态是已完成，则直接返回任务结果
+
+       ②：如果任务状态是被取消，则直接抛出CancellationException
+
+       ③：如果任务状态是抛出异常，则直接抛出对应的异常
+
+doJoin方法代码如下：
+
+ 
+
+private int doJoin() {
+    Thread t; ForkJoinWorkerThread w; int s; boolean completed;
+    if ((t = Thread.currentThread()) instanceof ForkJoinWorkerThread) {
+        if ((s = status) < 0)
+            return s;
+        if ((w = (ForkJoinWorkerThread)t).unpushTask(this)) {
+            try {
+                completed = exec();
+            } catch (Throwable rex) {
+                return setExceptionalCompletion(rex);
+            }
+            if (completed)
+                return setCompletion(NORMAL);
+        }
+        return w.joinTask(this);
+    }
+    else
+        return externalAwaitDone();
+}
+   在doJoin（）方法里，首先通过查看任务的状态，看任务是否已经执行完成，如果执行完成，则直接返回任务状态，如果没有执行完，则从任务数组里取出任务并执行，如果任务顺利执行完成，则设置任务状态为NORMAL，如果出现异常，则记录异常，并将任务状态设置为EXCEPTION.
+   
+   
+   
+   前文
+
+并行计算在处处都有大数据的今天已经不是一个新鲜的词汇了，现在已经有单机多核甚至多机集群并行计算，注意，这里说的是并行，而不是并发。
+
+并发（concurrency）：使多个操作可以在重叠的时间段内进行。
+并行（parallesim）：就是同时执行的意思。判断程序是否处于并行的状态，就看同一时刻是否有超过一个“工作单位”在运行就好了。所以，单线程永远无法达到并行状态。
+为了充分利用多CPU、多核CPU的性能优势，级软基软件系统应该可以充分“挖掘”每个CPU的计算能力，决不能让某个CPU处于“空闲”状态。为此，可以考虑把一个任务拆分成多个“小任务”,把多个"小任务"放到多个处理器核心上并行执行。当多个“小任务”执行完成之后，再将这些执行结果合并起来即可。 如下面的示意图所示： image
+
+Java Fork&Join
+
+Java在JDK7之后加入了并行计算的框架Fork/Join，可以解决我们系统中大数据计算的性能问题。Fork/Join采用的是分治法，Fork是将一个大任务拆分成若干个子任务，子任务分别去计算，而Join是获取到子任务的计算结果，然后合并，这个是递归的过程。子任务被分配到不同的核上执行时，效率最高。
+
+但是使用Fork/Join的时候，要注意一些事项
+
+除了fork() 和 join()方法外，线程不得使用其他的同步工具。线程最好也不要sleep()
+线程不得进行I/O操作
+线程不得抛出checked exception
+实现类
+
+ForkJoinPool 实现了Fork/Join的线程池，原理则是实现了工作窃取算法
+ForkJoinTask ForkJoinTask代表一个可以并行、合并的任务，是一个抽象类，有两个子类
+RecursiveTask 继承自ForkJoinTask,代表有返回值的任务
+RecursiveAction 继承自ForkJoinTask,代表无返回值的任务
+无返回值的示例
+
+package wang.conge.javasedemo.core.thread;
+
+import java.util.Arrays;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.RecursiveAction;
+import java.util.concurrent.TimeUnit;
+
+public class RecursiveActionTest {
+
+    public static void main(String[] args) throws InterruptedException {
+        //创建ForkJoinPool线程池,原理则是返回一个ForkJoinPool的实例
+        ForkJoinPool  forkjoinPool = new ForkJoinPool();
+
+        int[] nums = {0,1,2,3,4,5,6,7,8};
+
+        forkjoinPool.submit(new NumPrintRecursiveAction(nums));
+
+        forkjoinPool.awaitTermination(2, TimeUnit.SECONDS);
+    }
+
+    static class NumPrintRecursiveAction extends RecursiveAction{
+        private static final long serialVersionUID = 1L;
+        private int[] nums;
+
+        public NumPrintRecursiveAction(int[] nums){
+            this.nums = nums;
+        }
+
+        @Override
+        protected void compute() {
+            //如果数组的length小于4，直接执行
+            if(nums.length<4){
+                for(int num:nums){
+                    System.out.println(num);
+                }
+                return;
+            }
+
+            //如果当前数组的length大于4，分成两个任务继续执行
+            int mid = nums.length/2;
+
+            int[] numsLeft = Arrays.copyOfRange(nums, 0, mid);
+            int[] numsRight = Arrays.copyOfRange(nums, mid, nums.length);
+
+            NumPrintRecursiveAction left = new NumPrintRecursiveAction(numsLeft);
+            NumPrintRecursiveAction right = new NumPrintRecursiveAction(numsRight);
+
+            //并发执行两个子任务
+            left.fork();
+            right.fork();
+        }
+
+    }
+}
+有返回值的示例
+
+package wang.conge.javasedemo.core.thread;
+
+import java.util.Arrays;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.Future;
+import java.util.concurrent.RecursiveAction;
+import java.util.concurrent.RecursiveTask;
+import java.util.concurrent.TimeUnit;
+
+public class RecursiveActionTest {
+
+    public static void main(String[] args) throws InterruptedException, ExecutionException {
+        //创建ForkJoinPool线程池,原理则是返回一个ForkJoinPool的实例
+        ForkJoinPool  forkjoinPool = new ForkJoinPool();
+
+        int[] nums = {0,1,2,3,4,5,6,7,8};
+
+        Future<Integer> future = forkjoinPool.submit(new NumCountRecursiveAction(nums));
+        System.out.println(future.get());
+
+        forkjoinPool.awaitTermination(2, TimeUnit.SECONDS);
+    }
+
+
+    static class NumCountRecursiveAction extends RecursiveTask<Integer>{
+        private static final long serialVersionUID = 1L;
+        private int[] nums;
+
+        public NumCountRecursiveAction(int[] nums){
+            this.nums = nums;
+        }
+
+        @Override
+        protected Integer compute() {
+            //如果数组的length小于4，直接执行
+            if(nums.length<4){
+                int total = 0;
+                for(int num:nums){
+                    total = total + num;
+                }
+                return total;
+            }
+
+            //如果当前数组的length大于4，分成两个任务继续执行
+            int mid = nums.length/2;
+
+            int[] numsLeft = Arrays.copyOfRange(nums, 0, mid);
+            int[] numsRight = Arrays.copyOfRange(nums, mid, nums.length);
+
+            NumCountRecursiveAction left = new NumCountRecursiveAction(numsLeft);
+            NumCountRecursiveAction right = new NumCountRecursiveAction(numsRight);
+
+            //并发执行两个子任务
+            left.fork();
+            right.fork();
+
+            //汇总结果
+            return left.join() + right.join();
+        }
+
+    }
+}
+工作窃取算法
+
+工作窃取（work-stealing）算法是指某个线程从其他队列里窃取任务来执行。工作窃取的运行流程图如下：
+
+image
+
+那么为什么需要使用工作窃取算法呢？
+
+假如我们需要做一个比较大的任务，我们可以把这个任务分割为若干互不依赖的子任务，为了减少线程间的竞争，于是把这些子任务分别放到不同的队列里，并为每个队列创建一个单独的线程来执行队列里的任务，线程和队列一一对应
+比如A线程负责处理A队列里的任务。但是有的线程会先把自己队列里的任务干完，而其他线程对应的队列里还有任务等待处理。干完活的线程与其等着，不如去帮其他线程干活，于是它就去其他线程的队列里窃取一个任务来执行。
+而在这时它们会访问同一个队列，所以为了减少窃取任务线程和被窃取任务线程之间的竞争，通常会使用双端队列，被窃取任务线程永远从双端队列的头部拿任务执行，而窃取任务的线程永远从双端队列的尾部拿任务执行。
+工作窃取算法的优点是充分利用线程进行并行计算，并减少了线程间的竞争，其缺点是在某些情况下还是存在竞争，比如双端队列里只有一个任务时。并且消耗了更多的系统资源，比如创建多个线程和多个双端队列。

@@ -1,0 +1,182 @@
+前言
+
+ThreadLocal为变量在每个线程中都创建了一个副本，所以每个线程可以访问自己内部的副本变量，不同线程之间不会互相干扰。本文会基于实际场景介绍ThreadLocal如何使用以及内部实现机制。
+
+应用场景
+
+最近的一个web项目中，由于Parameter对象的数据需要在多个模块中使用，如果采用参数传递的方式，显然会增加模块之间的耦合性。先看看用ThreadLocal是如何实现模块间共享数据的。
+
+class Parameter {
+  private static ThreadLocal<Parameter> _parameter= new ThreadLocal<>();
+  public static Parameter init() {
+      _parameter.set(new Parameter());
+  }
+  public static Parameter get() {
+    _parameter.get();
+  }
+  ...省略变量声明
+}
+在模块A中通过Parameter.init初始化。
+在模块B或模块C中通过Parameter.get方法可以获得同一线程中模块A已经初始化的Parameter对象。
+那么，在什么场景下比较适合使用ThreadLocal？stackoverflow上有人给出了还不错的回答。
+When and how should I use a ThreadLocal variable?
+One possible (and common) use is when you have some object that is not thread-safe, but you want to avoid synchronizing access to that object (I'm looking at you, SimpleDateFormat). Instead, give each thread its own instance of the object.
+
+实现原理
+
+从线程Thread的角度来看，每个线程内部都会持有一个对ThreadLocalMap实例的引用，ThreadLocalMap实例相当于线程的局部变量空间，存储着线程各自的数据，具体如下：
+
+
+ThreadLocal.png
+Entry
+
+Entry继承自WeakReference类，是存储线程私有变量的数据结构。ThreadLocal实例作为引用，意味着如果ThreadLocal实例为null，就可以从table中删除对应的Entry。
+
+class Entry extends WeakReference<ThreadLocal<?>> {
+      Object value;
+      Entry(ThreadLocal<?> k, Object v) {
+           super(k);
+           value = v;
+      }
+}
+ThreadLocalMap
+
+内部使用table数组存储Entry，默认大小INITIAL_CAPACITY(16)，先介绍几个参数：
+
+size：table中元素的数量。
+threshold：table大小的2/3，当size >= threshold时，遍历table并删除key为null的元素，如果删除后size >= threshold*3/4时，需要对table进行扩容。
+ThreadLocal.set() 实现
+
+public void set(T value) {
+    Thread t = Thread.currentThread();
+    ThreadLocalMap map = getMap(t);
+    if (map != null)
+        map.set(this, value);
+    else
+        createMap(t, value);
+}
+
+ThreadLocalMap getMap(Thread t) {
+    return t.threadLocals;
+}
+从上面代码中看出来：
+
+从当前线程Thread中获取ThreadLocalMap实例。
+ThreadLocal实例和value封装成Entry。
+接下去看看Entry存入table数组如何实现的：
+
+private void set(ThreadLocal<?> key, Object value) {
+    Entry[] tab = table;
+    int len = tab.length;
+    int i = key.threadLocalHashCode & (len-1);
+
+    for (Entry e = tab[i]; e != null; e = tab[i = nextIndex(i, len)]) {
+        ThreadLocal<?> k = e.get();
+        if (k == key) {
+            e.value = value;
+            return;
+        }
+        if (k == null) {
+            replaceStaleEntry(key, value, i);
+            return;
+        }
+    }
+
+    tab[i] = new Entry(key, value);
+    int sz = ++size;
+    if (!cleanSomeSlots(i, sz) && sz >= threshold)
+        rehash();
+}
+通过ThreadLocal的nextHashCode方法生成hash值。
+private static AtomicInteger nextHashCode = new AtomicInteger();
+private static int nextHashCode() {    
+ return nextHashCode.getAndAdd(HASH_INCREMENT);
+}
+从nextHashCode方法可以看出，ThreadLocal每实例化一次，其hash值就原子增加HASH_INCREMENT。
+通过 hash & (len -1) 定位到table的位置i，假设table中i位置的元素为f。
+如果f != null，假设f中的引用为k：
+如果k和当前ThreadLocal实例一致，则修改value值，返回。
+如果k为null，说明这个f已经是stale(陈旧的)的元素。调用replaceStaleEntry方法删除table中所有陈旧的元素（即entry的引用为null）并插入新元素，返回。
+否则通过nextIndex方法找到下一个元素f，继续进行步骤3。
+如果f == null，则把Entry加入到table的i位置中。
+通过cleanSomeSlots删除陈旧的元素，如果table中没有元素删除，需判断当前情况下是否要进行扩容。
+table扩容
+
+如果table中的元素数量达到阈值threshold的3/4，会进行扩容操作，过程很简单：
+
+private void resize() {
+    Entry[] oldTab = table;
+    int oldLen = oldTab.length;
+    int newLen = oldLen * 2;
+    Entry[] newTab = new Entry[newLen];
+    int count = 0;
+
+    for (int j = 0; j < oldLen; ++j) {
+        Entry e = oldTab[j];
+        if (e != null) {
+            ThreadLocal<?> k = e.get();
+            if (k == null) {
+                e.value = null; // Help the GC
+            } else {
+                int h = k.threadLocalHashCode & (newLen - 1);
+                while (newTab[h] != null)
+                    h = nextIndex(h, newLen);
+                newTab[h] = e;
+                count++;
+            }
+        }
+    }
+
+    setThreshold(newLen);
+    size = count;
+    table = newTab;
+}
+新建新的数组newTab，大小为原来的2倍。
+复制table的元素到newTab，忽略陈旧的元素，假设table中的元素e需要复制到newTab的i位置，如果i位置存在元素，则找下一个空位置进行插入。
+ThreadLocal.get() 实现
+
+public T get() {
+    Thread t = Thread.currentThread();
+    ThreadLocalMap map = getMap(t);
+    if (map != null) {
+        ThreadLocalMap.Entry e = map.getEntry(this);
+        if (e != null) {
+            @SuppressWarnings("unchecked")
+            T result = (T)e.value;
+            return result;
+        }
+    }
+    return setInitialValue();
+}
+
+private Entry getEntry(ThreadLocal<?> key) {
+    int i = key.threadLocalHashCode & (table.length - 1);
+    Entry e = table[i];
+    if (e != null && e.get() == key)
+        return e;
+    else
+        return getEntryAfterMiss(key, i, e);
+}
+获取当前的线程的threadLocals。
+
+如果threadLocals不为null，则通过ThreadLocalMap.getEntry方法找到对应的entry，如果其引用和当前key一致，则直接返回，否则在table剩下的元素中继续匹配。
+如果threadLocals为null，则通过setInitialValue方法初始化，并返回。
+private Entry getEntryAfterMiss(ThreadLocal<?> key, int i, Entry e) {
+ Entry[] tab = table;
+ int len = tab.length;
+ while (e != null) {
+     ThreadLocal<?> k = e.get();
+     if (k == key)
+         return e;
+     if (k == null)
+         expungeStaleEntry(i);
+     else
+         i = nextIndex(i, len);
+     e = tab[i];
+ }
+ return null;
+}
+总结
+
+希望通过本文的介绍，大家可以对ThreadLocal有一个更加直观清晰的认识，而不是只见叶子，不见森林。
+

@@ -1,0 +1,48 @@
+AtomicInteger是java.util.concurrent.atomic包下的类，作用是提供原子操作Integer类。
+
+我们知道在Java中，i++、++i这种操作并不是线程安全的。主要是因为类似于++操作会被编译为2条操作指令，而多线程环境下CPU在执行过程可能会中断切换到别的线程，无法保证2条操作指令的原子性，所以是线程不安全。针对这种情况，我们可能会想到利用synchronize关键字实现线程同步，保证++操作的原子性，的确这是一种有效的方法，但我们还有一种选择--AtomicInteger。
+
+源码分析
+
+首先先看一下AtomicInteger类的类变量。可以看出有个unsafe的类变量。
+
+    // setup to use Unsafe.compareAndSwapInt for updates
+    private static final Unsafe unsafe = Unsafe.getUnsafe();
+    private static final long valueOffset;
+
+    static {
+        try {
+            valueOffset = unsafe.objectFieldOffset
+                (AtomicInteger.class.getDeclaredField("value"));
+        } catch (Exception ex) { throw new Error(ex); }
+    }
+
+    private volatile int value;
+Unsafe类是用来在任意内存地址位置处读写数据，可见，对于普通用户来说，使用起来还是比较危险的。AtomicInteger类本质就是利用Unsafe.compareAndSwapInt这个CAS操作方法来保证Integer操作的原子性。
+
+看一下AtomicInteger的对int的加法操作。
+
+    /**
+     * Atomically adds the given value to the current value.
+     *
+     * @param delta the value to add
+     * @return the updated value
+     */
+    public final int addAndGet(int delta) {
+        return unsafe.getAndAddInt(this, valueOffset, delta) + delta;
+    }
+可以看出调用的是Unsafe类中的getAndAddInt方法，可以继续看看getAndAddInt的实现：
+
+    public final int getAndAddInt(Object var1, long var2, int var4) {
+        int var5;
+        do {
+            var5 = this.getIntVolatile(var1, var2);
+        } while(!this.compareAndSwapInt(var1, var2, var5, var5 + var4));
+
+        return var5;
+    }
+    public final native boolean compareAndSwapInt(Object var1, long var2, int var4, int var5);
+CAS有3个操作数，内存值V，旧的预期值A，要修改的新值B。当且仅当预期值A和内存值V相同时，将内存值V修改为B，否则什么都不做。AtomicInteger类实则是利用这一特性来保证操作的原子性，可以说通过CAS实现的。
+
+CAS虽然可以解决原子性问题，但也有其他问题，因为CAS需要在操作值的时候检查下值有没有发生变化，如果没有发生变化则更新，但是如果一个值原来是A，变成了B，又变成了A，那么使用CAS进行检查时会发现它的值没有发生变化，但是实际上却变化了。
+

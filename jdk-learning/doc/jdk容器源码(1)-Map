@@ -1,0 +1,185 @@
+Map.Entry<K,V>源码分析
+
+
+一、简单介绍。
+
+1、Map是java中的接口，Map.Entry是Map的一个内部接口。
+
+2、Map提供了一些常用方法，如keySet()、entrySet()等方法，keySet()方法返回值是Map中key值的集合；entrySet()的返回值也是返回一个Set集合，此集合的类型为Map.Entry。
+
+3、Map.Entry是Map声明的一个内部接口，此接口为泛型，定义为Entry<K,V>。它表示Map中的一个实体（一个key-value对）。接口中有getKey(),getValue方法。
+
+二、源码分析。
+
+Map源码（包含Entry的定义）：
+
+
+package java.util; public interface Map<K,V> { int size(); boolean isEmpty(); boolean containsKey(Object key); boolean containsValue(Object value); V get(Object key); V put(K key, V value); V remove(Object key); void clear(); Set<K> keySet(); Collection<V> values(); Set<Map.Entry<K, V>> entrySet(); interface Entry<K,V> { K getKey(); V getValue(); V setValue(V value); boolean equals(Object o); int hashCode(); }  boolean equals(Object o); int hashCode(); } 
+由源码可知：
+
+1、Entry为Map内部的一个泛型接口，Entry的泛型决定了Map可以存哪些类型的数据。
+
+再来看HashMap源码中的一段代码：
+
+
+static class Entry<K,V> implements Map.Entry<K,V> {
+        final K key;
+        V value;
+        Entry<K,V> next;
+        final int hash;
+
+        Entry(int h, K k, V v, Entry<K,V> n) {
+            value = v;
+            next = n;
+            key = k;
+            hash = h;
+        }
+
+        public final K getKey() {
+            return key;
+        }
+
+        public final V getValue() {
+            return value;
+        }
+
+        public final V setValue(V newValue) {
+            V oldValue = value;
+            value = newValue;
+            return oldValue;
+        }
+
+        public final boolean equals(Object o) {
+            if (!(o instanceof Map.Entry))
+                return false;
+            Map.Entry e = (Map.Entry)o;
+            Object k1 = getKey();
+            Object k2 = e.getKey();
+            if (k1 == k2 || (k1 != null && k1.equals(k2))) {
+                Object v1 = getValue();
+                Object v2 = e.getValue();
+                if (v1 == v2 || (v1 != null && v1.equals(v2)))
+                    return true;
+            }
+            return false;
+        }
+
+        public final int hashCode() {
+            return (key==null   ? 0 : key.hashCode()) ^
+                   (value==null ? 0 : value.hashCode());
+        }
+
+        public final String toString() {
+            return getKey() + "=" + getValue();
+        }
+
+        void recordAccess(HashMap<K,V> m) {
+        }
+
+        void recordRemoval(HashMap<K,V> m) {
+        }
+    }
+
+
+由以上两段源码可以看出：
+1、Entry其实是一个链表。
+
+2、我们往HashMap中put值的时候，值其实是存在Entry里面的。key和value分别会赋值到Entry的key和value中。
+
+3、Entry中还有一个字段叫 final int hash；存取这个Entry的hash值。这个hash值是最终找数据的关键。
+
+由以上可知，Entry对象才是HashMap的核心，存取了数据以及数据的唯一编号hash。
+
+
+
+
+
+
+
+
+
+
+
+
+
+package java.util;import java.io.*;
+public class HashMap<K,V> 
+    extends AbstractMap<K,V> 
+    implements Map<K,V>, Cloneable, Serializable {
+    static final int DEFAULT_INITIAL_CAPACITY = 1 << 4; //初始容量16
+    static final int MAXIMUM_CAPACITY = 1 << 30;
+    static final float DEFAULT_LOAD_FACTOR = 0.75f;
+    transient Node<K,V>[] table;
+    transient int size;
+}
+概述
+
+工作原理：通过hash算法，通过put和get存储和获取对象。
+
+存储对象时，我们将K/V传给put方法时，它调用hashCode计算hash从而得到bucket位置，进一步存储，HashMap会根据当前bucket的占用情况自动调整容量(超过Load Factor则resize为原来的2倍)。如果发生碰撞的时候，Hashmap通过链表将产生碰撞冲突的元素组织起来。如果一个bucket中碰撞冲突的元素超过某个限制(默认是8)，则使用红黑树来替换链表，从而提高速度。
+获取对象时，我们将K传给get，它调用hashCode计算hash从而得到bucket位置，并进一步调用equals()方法确定键值对。
+数据put过程
+
+使用Node<K,V>[]数组实现哈希桶数组。
+static class Node<K,V> implements Map.Entry<K,V> {    
+    final int hash;   
+    final K key;   
+    V value;   
+    Node<K,V> next;
+}
+put思路大概如下
+
+public V put(K key, V value) {    
+    return putVal(hash(key), key, value, false, true);
+}
+
+final V putVal(int hash, K key, V value, boolean onlyIfAbsent, boolean evict) {
+    Node<K,V>[] tab; Node<K,V> p; int n, i;
+    if ((tab = table) == null || (n = tab.length) == 0)
+        n = (tab = resize()).length;
+    if ((p = tab[i = (n - 1) & hash]) == null)
+        tab[i] = newNode(hash, key, value, null);
+    else {
+        Node<K,V> e; K k;
+        if (p.hash == hash &&
+            ((k = p.key) == key || (key != null && key.equals(k))))
+            e = p;
+        else if (p instanceof TreeNode)
+            e = ((TreeNode<K,V>)p).putTreeVal(this, tab, hash, key, value);
+        else {
+            for (int binCount = 0; ; ++binCount) {
+                if ((e = p.next) == null) {
+                    p.next = newNode(hash, key, value, null);
+                    if (binCount >= TREEIFY_THRESHOLD - 1) // -1 for 1st
+                        treeifyBin(tab, hash);
+                    break;
+                }
+                if (e.hash == hash &&
+                    ((k = e.key) == key || (key != null && key.equals(k))))
+                    break;
+                p = e;
+            }
+        }
+        if (e != null) { // existing mapping for key
+            V oldValue = e.value;
+            if (!onlyIfAbsent || oldValue == null)
+                e.value = value;
+            afterNodeAccess(e);
+            return oldValue;
+        }
+    }
+    ++modCount;
+    if (++size > threshold)
+        resize();
+    afterNodeInsertion(evict);
+    return null;
+}
+这个hash算法很重要，我们先看看具体的实现：
+
+hash = (key == null) ? 0 : (h = key.hashCode()) ^ (h >>> 16);
+使用hash值的高位16位与低16进行XORs操作。
+1.7中的实现相对复杂的多，有兴趣的同学可以去看看1.7的源码。
+
+如何确定key在数组的位置？
+取模算法中的除法运算效率很低，在HashMap中通过h&（n-1）替代取模，得到所在数组位置，效率会高很多。（前提是保证数组的容量是2的整数倍）
+

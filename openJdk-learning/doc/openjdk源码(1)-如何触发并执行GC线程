@@ -1,0 +1,51 @@
+前言
+
+由于JVM中垃圾收集器的存在，使得Java程序员在开发过程中可以不用关心对象创建时的内存分配以及释放过程，当内存不足时，JVM会自动开启垃圾收集线程，进行垃圾对象的回收。对象的创建、使用，到最后的回收，整个过程就这样悄无声息的发生着，那么这些垃圾回收线程到底是什么时候触发，并如何执行的呢？本文将对openjdk的源码进行分析，了解一下相关的底层实现细节。
+
+VMThread
+
+VMThread负责调度执行虚拟机内部的VM线程操作，如GC操作等，在JVM实例创建时进行初始化
+
+
+VMThread::create()方法负责该线程的创建，实现如下：
+
+
+1、VMThread内部维护了一个VMOperationQueue类型的队列，用于保存内部提交的VM线程操作VM_operation，在VMThread创建时会对该队列进行初始化。
+2、由于VMThread本身就是一个线程，启动后通过执行loop方法进行轮询操作，从队列中按照优先级取出当前需要执行的VM_operation对象并执行，其中整个轮询过程分为两步：
+
+step 1
+
+
+如果队列为空，_vm_queue->remove_next()方法则返回空的_cur_vm_operation，否则根据队列中的VM_operation优先级进行重新排序，并返回队列头部的VM_operation。如果_cur_vm_operation为空，则执行如下逻辑：
+
+
+通过执行VMOperationQueue_lock->wait方法等待VM operation.
+
+step 2
+
+
+如果当前vm_operation需要在安全点执行，如FULL GC，则执行上述逻辑，否则执行以下逻辑
+
+
+通过evaluate_operation执行当前的_cur_vm_operation，最终调用vm_operation对象的evaluate方法，实现如下：
+
+
+子类通过重写VM_Operation类的doit方法实现具体的逻辑。
+
+如何触发YGC
+
+在《JVM源码分析之Java对象的内存分配》一文中已经分析过，当新生代不足以分配对象所需的内存时，会触发一次YGC，具体实现如下：
+
+
+创建一个VM_GenCollectForAllocation类型的VM_Operation，通过执行VMThread::execute方法保存到VMThread的队列中，其中execute的核心实现如下：
+
+
+YGC的VM_Operation加入到队列后，通过执行VMOperationQueue_lock的notify方法唤醒VMThread线程，等待被执行，其中VM_GenCollectForAllocation的doit方法实现如下：
+
+
+本文不会对GC算法的具体实现进行分析。
+
+作者：占小狼
+链接：http://www.jianshu.com/p/1544d3011ddb
+來源：简书
+著作权归作者所有。商业转载请联系作者获得授权，非商业转载请注明出处。

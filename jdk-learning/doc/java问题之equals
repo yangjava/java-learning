@@ -1,0 +1,74 @@
+1.引用对象
+
+代码
+
+[@Test](https://my.oschina.net/azibug)
+public void test1() {
+    Object one = new Object();
+    Object two = new Object();
+    System.out.println(one.equals(two));
+}
+结果
+
+false
+分析
+
+JDK源码:
+
+public boolean equals(Object obj) {
+    return (this == obj);
+}
+结论
+
+java里面this,指的是啥?对象的引用地址,当我们new对象的时候,虽然是同一个对象,但他的引用地址并不相同,所以输出false.
+2.String
+
+代码
+
+[@Test](https://my.oschina.net/azibug)
+public void test2(){
+    String abc = new String("abc");
+    String abc1 = new String("abc");
+    System.out.println(abc.equals(abc1));
+}
+结果
+
+true
+分析
+
+JDK源码:
+
+public boolean equals(Object anObject) {
+    /**
+    *如果本来就是同一个对象，那肯定是相等的，比如上面对象，abc.equals(abc),肯定是相同的撒。
+    */
+    if (this == anObject) {
+        return true;
+    }
+    /**
+    *判断是否是String类型的，如果不是，直接false
+    */
+    if (anObject instanceof String) {
+        //强制类型转换
+        String anotherString = (String)anObject;
+        int n = value.length;
+        //如果字符串长度相等，才进去if方法，如果不相等，直接false
+        if (n == anotherString.value.length) {
+            char v1[] = value;
+            char v2[] = anotherString.value;
+            int i = 0;
+            //将String拆分成char,一对一对比,如果发现其中某个char不相等,直接返回false
+            while (n-- != 0) {
+                if (v1[i] != v2[i])
+                    return false;
+                i++;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+结论
+
+普通引用对象和String区别,普通对象,如果不重写equals方法,那么直接是用==比较的,比较的是引用地址,
+而String重写了equals方法,比较的字符串中的内容.
