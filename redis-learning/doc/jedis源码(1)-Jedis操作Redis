@@ -1,0 +1,442 @@
+开发前置准备工作：
+
+使用Java操作Redis需要jedis-2.1.0.jar，下载地址：http://files.cnblogs.com/liuling/jedis-2.1.0.jar.zip
+
+如果需要使用Redis连接池的话，还需commons-pool-1.5.4.jar，下载地址:http://files.cnblogs.com/liuling/commons-pool-1.5.4.jar.zip
+
+
+
+1.Jedis操作测试用例
+
+package com.test;
+
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+
+import org.junit.Before;
+import org.junit.Test;
+
+import redis.clients.jedis.Jedis;
+
+public class TestRedis {
+    private Jedis jedis; 
+    
+    @Before
+    public void setup() {
+        //连接redis服务器，192.168.0.100:6379
+        jedis = new Jedis("192.168.0.100", 6379);
+        //权限认证
+        jedis.auth("admin");  
+    }
+    
+    /**
+     * redis存储字符串
+     */
+    @Test
+    public void testString() {
+        //-----添加数据----------  
+        jedis.set("name","xinxin");//向key-->name中放入了value-->xinxin  
+        System.out.println(jedis.get("name"));//执行结果：xinxin  
+        
+        jedis.append("name", " is my lover"); //拼接
+        System.out.println(jedis.get("name")); 
+        
+        jedis.del("name");  //删除某个键
+        System.out.println(jedis.get("name"));
+        //设置多个键值对
+        jedis.mset("name","liuling","age","23","qq","476777XXX");
+        jedis.incr("age"); //进行加1操作
+        System.out.println(jedis.get("name") + "-" + jedis.get("age") + "-" + jedis.get("qq"));
+        
+    }
+    
+    /**
+     * redis操作Map
+     */
+    @Test
+    public void testMap() {
+        //-----添加数据----------  
+        Map<String, String> map = new HashMap<String, String>();
+        map.put("name", "xinxin");
+        map.put("age", "22");
+        map.put("qq", "123456");
+        jedis.hmset("user",map);
+        //取出user中的name，执行结果:[minxr]-->注意结果是一个泛型的List  
+        //第一个参数是存入redis中map对象的key，后面跟的是放入map中的对象的key，后面的key可以跟多个，是可变参数  
+        List<String> rsmap = jedis.hmget("user", "name", "age", "qq");
+        System.out.println(rsmap);  
+  
+        //删除map中的某个键值  
+        jedis.hdel("user","age");
+        System.out.println(jedis.hmget("user", "age")); //因为删除了，所以返回的是null  
+        System.out.println(jedis.hlen("user")); //返回key为user的键中存放的值的个数2 
+        System.out.println(jedis.exists("user"));//是否存在key为user的记录 返回true  
+        System.out.println(jedis.hkeys("user"));//返回map对象中的所有key  
+        System.out.println(jedis.hvals("user"));//返回map对象中的所有value 
+  
+        Iterator<String> iter=jedis.hkeys("user").iterator();  
+        while (iter.hasNext()){  
+            String key = iter.next();  
+            System.out.println(key+":"+jedis.hmget("user",key));  
+        }  
+    }
+    
+    /** 
+     * jedis操作List 
+     */  
+    @Test  
+    public void testList(){  
+        //开始前，先移除所有的内容  
+        jedis.del("java framework");  
+        System.out.println(jedis.lrange("java framework",0,-1));  
+        //先向key java framework中存放三条数据  
+        jedis.lpush("java framework","spring");  
+        jedis.lpush("java framework","struts");  
+        jedis.lpush("java framework","hibernate");  
+        //再取出所有数据jedis.lrange是按范围取出，  
+        // 第一个是key，第二个是起始位置，第三个是结束位置，jedis.llen获取长度 -1表示取得所有  
+        System.out.println(jedis.lrange("java framework",0,-1));  
+        
+        jedis.del("java framework");
+        jedis.rpush("java framework","spring");  
+        jedis.rpush("java framework","struts");  
+        jedis.rpush("java framework","hibernate"); 
+        System.out.println(jedis.lrange("java framework",0,-1));
+    }  
+    
+    /** 
+     * jedis操作Set 
+     */  
+    @Test  
+    public void testSet(){  
+        //添加  
+        jedis.sadd("user","liuling");  
+        jedis.sadd("user","xinxin");  
+        jedis.sadd("user","ling");  
+        jedis.sadd("user","zhangxinxin");
+        jedis.sadd("user","who");  
+        //移除noname  
+        jedis.srem("user","who");  
+        System.out.println(jedis.smembers("user"));//获取所有加入的value  
+        System.out.println(jedis.sismember("user", "who"));//判断 who 是否是user集合的元素  
+        System.out.println(jedis.srandmember("user"));  
+        System.out.println(jedis.scard("user"));//返回集合的元素个数  
+    }  
+  
+    @Test  
+    public void test() throws InterruptedException {  
+        //jedis 排序  
+        //注意，此处的rpush和lpush是List的操作。是一个双向链表（但从表现来看的）  
+        jedis.del("a");//先清除数据，再加入数据进行测试  
+        jedis.rpush("a", "1");  
+        jedis.lpush("a","6");  
+        jedis.lpush("a","3");  
+        jedis.lpush("a","9");  
+        System.out.println(jedis.lrange("a",0,-1));// [9, 3, 6, 1]  
+        System.out.println(jedis.sort("a")); //[1, 3, 6, 9]  //输入排序后结果  
+        System.out.println(jedis.lrange("a",0,-1));  
+    }  
+    
+    @Test
+    public void testRedisPool() {
+        RedisUtil.getJedis().set("newname", "中文测试");
+        System.out.println(RedisUtil.getJedis().get("newname"));
+    }
+}
+2.Redis连接池：
+
+package com.test;
+
+import redis.clients.jedis.Jedis;
+import redis.clients.jedis.JedisPool;
+import redis.clients.jedis.JedisPoolConfig;
+
+public final class RedisUtil {
+    
+    //Redis服务器IP
+    private static String ADDR = "192.168.0.100";
+    
+    //Redis的端口号
+    private static int PORT = 6379;
+    
+    //访问密码
+    private static String AUTH = "admin";
+    
+    //可用连接实例的最大数目，默认值为8；
+    //如果赋值为-1，则表示不限制；如果pool已经分配了maxActive个jedis实例，则此时pool的状态为exhausted(耗尽)。
+    private static int MAX_ACTIVE = 1024;
+    
+    //控制一个pool最多有多少个状态为idle(空闲的)的jedis实例，默认值也是8。
+    private static int MAX_IDLE = 200;
+    
+    //等待可用连接的最大时间，单位毫秒，默认值为-1，表示永不超时。如果超过等待时间，则直接抛出JedisConnectionException；
+    private static int MAX_WAIT = 10000;
+    
+    private static int TIMEOUT = 10000;
+    
+    //在borrow一个jedis实例时，是否提前进行validate操作；如果为true，则得到的jedis实例均是可用的；
+    private static boolean TEST_ON_BORROW = true;
+    
+    private static JedisPool jedisPool = null;
+    
+    /**
+     * 初始化Redis连接池
+     */
+    static {
+        try {
+            JedisPoolConfig config = new JedisPoolConfig();
+            config.setMaxActive(MAX_ACTIVE);
+            config.setMaxIdle(MAX_IDLE);
+            config.setMaxWait(MAX_WAIT);
+            config.setTestOnBorrow(TEST_ON_BORROW);
+            jedisPool = new JedisPool(config, ADDR, PORT, TIMEOUT, AUTH);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+    
+    /**
+     * 获取Jedis实例
+     * @return
+     */
+    public synchronized static Jedis getJedis() {
+        try {
+            if (jedisPool != null) {
+                Jedis resource = jedisPool.getResource();
+                return resource;
+            } else {
+                return null;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+    
+    /**
+     * 释放jedis资源
+     * @param jedis
+     */
+    public static void returnResource(final Jedis jedis) {
+        if (jedis != null) {
+            jedisPool.returnResource(jedis);
+        }
+    }
+}
+
+
+
+刚学完Redis，用Jedis再熟悉一下api，发现还是有些不同的 。使用的是jedis-2.1.0.jar
+
+package com.lishunpu.redis.test;
+
+import org.junit.Before;
+import org.junit.Test;
+import redis.clients.jedis.BinaryClient;
+import redis.clients.jedis.Jedis;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+public class TestAPI {
+    private Jedis jedis = null;
+
+    @Before
+    public void before() {
+        jedis = new Jedis("192.168.163.128", 6379);
+        jedis.set("k1", "v1");
+        jedis.set("k2", "v2");
+        jedis.set("k3", "v3");
+        jedis.set("k4", "v4");
+        jedis.set("num", "23");
+    }
+
+    @Test
+    public void testKey() {
+        System.out.println(jedis.keys("*"));
+        System.out.println(jedis.exists("k1"));
+        jedis.expire("k1", 8); //设置过期时间为8秒
+        try {
+            for (int i = 1; i < 10; i++) {
+                Thread.sleep(1000);
+                System.out.println(jedis.ttl("k1") + ":" + jedis.exists("k1")); //ttl的单位为秒
+            }
+        } catch (Exception e) {
+        }
+        System.out.println(jedis.type("k2"));
+    }
+
+    @Test
+    public void testString() {
+        //set, get, del, append, strlen
+        jedis.set("name", "yitiaoxianyu");
+        System.out.println(jedis.get("name")); //yitiaoxianyu
+        jedis.del("name");
+        System.out.println(jedis.exists("name")); //false
+        jedis.append("name","so powerful one"); //append可以创建元素
+        System.out.println(jedis.get("name"));  //如何在get时取到它的中文呢？只需要在redis-cli 后面加上 --raw
+        System.out.println(jedis.strlen("name")); //长度为16， 可以使用ssh连接逐个查看
+
+        //incr, incyby, decr, decyby
+        System.out.println(jedis.incr("num")); //相当于++i
+        System.out.println(jedis.decr("num")); //相当于--i
+        System.out.println(jedis.incrBy("num", 20));
+        System.out.println(jedis.decrBy("num", 13));
+
+        //getrange, setrange
+        System.out.println(jedis.getrange("name", 0, -1)); //起始字符位置为0， 末尾字符位置为-1
+        System.out.println(jedis.getrange("name", 1, 6));  //s'o powe'rful one
+        System.out.println(jedis.getrange("name", 2, -1)); //so' powerful one'
+        System.out.println(jedis.setrange("name", 4, "xyz")); //字符替换
+        System.out.println(jedis.getrange("name", 0, -1));
+
+        //setex, setnx
+        jedis.setex("email", 7, "123@abc.com"); //setex: 重新创建一个元素email, 过期时间为7秒，值为“123@abc.com"
+        jedis.setnx("gender", "male"); //setnx: 如果不存在就创建
+        System.out.println(jedis.exists("gender"));
+        jedis.setnx("email", "234@bcd.com");
+        System.out.println(jedis.getrange("email", 0, -1));
+
+        //mset, mget, msetnx
+        jedis.mset("name1", "zhangsan", "name2", "lisi", "name3", "wangwu"); //参数为key,value对的可变数组。一一对应
+        List<String> list = jedis.mget("name1", "name2","name3");//参数为可变数组
+        list.forEach(System.out::println); //jdk8中的lambda表达式
+        jedis.msetnx("name1", "zhaoliu", "height", "173"); //msetnx: 不存在就创建
+        jedis.mget("name1", "height").forEach(System.out::println);
+
+        //getset: 返回原来的值，然后设置新值
+        System.out.println(jedis.getSet("email", "345@cde.com"));
+        System.out.println(jedis.get("email"));
+    }
+
+    @Test
+    public void testList() {
+        //lpush, rpush, lrange
+        jedis.del("fruit", "animal", "number");//del的参数为可变数组
+        jedis.lpush("fruit", "apple", "banana", "orange", "grape", "pear"); //第一个参数为键值，后面为一个可变数组
+        jedis.rpush("animal", "panda", "dog", "cat", "elephant"); //第一个参数为键值，后面为一个可变数组
+        List<String> fruit0 = jedis.lrange("fruit", 0, 2);
+        fruit0.forEach(System.out::println); //结果为 pear grape orange, 简单理解，lpush为逆序
+        List<String> animal0 = jedis.lrange("animal", 0, 2);
+        animal0.forEach(System.out::println); //结果为 panda dog cat
+
+        //lpop, rpop, rpoplpush
+        System.out.println(jedis.lpop("fruit")); //结果为pear
+        System.out.println(jedis.rpop("animal")); //结果为elephant
+        jedis.rpoplpush("fruit", "animal"); //将fruit中的尾部元素apple移入animal的头部panda前
+
+        //lindex, llen
+        System.out.println(jedis.lindex("animal", 1));//结果为panda
+        System.out.println(jedis.llen("animal"));
+
+        //lrem
+        jedis.lpush("number", "1", "7", "2", "3", "5", "3", "3", "1");
+        jedis.lrem("number", 2, "3"); //删除2个3
+        System.out.println(jedis.lrange("number", 0, -1)); //[1, 5, 3, 2, 7, 1]
+
+        //ltrim
+        jedis.ltrim("number", 1, 3); //截取
+        System.out.println(jedis.lrange("number", 0, -1));//[5, 3, 2]
+
+        //lset
+        jedis.lset("number", 1, "10");
+        System.out.println(jedis.lrange("number", 0, -1));//[5, 10, 2]
+
+        //linsert
+        jedis.linsert("number", BinaryClient.LIST_POSITION.AFTER, "5", "6"); //在"5"后面插入"6"
+        System.out.println(jedis.lrange("number", 0, -1)); //[5, 6, 10, 2]
+        jedis.linsert("number", BinaryClient.LIST_POSITION.BEFORE, "5", "0"); //在"5"前面插入"0"
+        System.out.println(jedis.lrange("number", 0, -1)); //[0, 5, 6, 10, 2]
+    }
+
+    @Test
+    public void testSet() {
+        jedis.del("name", "num1", "num2");
+
+        //sadd, smembers, sismember, scard
+        jedis.sadd("name", "zhangsan", "lisi", "wangwu", "zhangsan", "zhaoliu");
+        System.out.println(jedis.smembers("name"));//[lisi, zhaoliu, zhangsan, wangwu]
+        System.out.println(jedis.sismember("name", "wangwu"));//是否包含
+        System.out.println(jedis.scard("name"));//获取元素个数
+
+        //srem, srandmember, spop
+        jedis.srem("name", "wangwu");//第二个参数为可变数组
+        System.out.println(jedis.smembers("name"));//[lisi, zhaoliu, zhangsan]
+        System.out.println(jedis.srandmember("name"));//随机值
+        System.out.println(jedis.spop("name")); //随机弹出，因为set是无序的
+
+        //sdiff, sinter, sunion
+        jedis.sadd("num1", "1", "2", "3", "5", "8");
+        jedis.sadd("num2", "3", "4", "8", "9");
+        jedis.sdiff("num1", "num2").forEach(System.out::println);//差集 1 2 5
+        jedis.sinter("num1", "num2").forEach(System.out::println);//交集 3 8
+        jedis.sunion("num1", "num2").forEach(System.out::println);//并集 1 2 3 4 5 8 9
+    }
+
+    @Test
+    public void testHash() {
+        //hset, hget, hmset, hmget, hgetAll, hdel
+        jedis.del("hs1", "user");
+        jedis.hset("hs1", "id", "12"); //创建一个hs1对象，其id属性值为12
+        System.out.println(jedis.hget("hs1", "id"));
+        Map<String, String> map = new HashMap<>();
+        map.put("name", "zhangsan");
+        map.put("age", "21");
+        map.put("gender", "male");
+        jedis.hmset("user", map);
+        System.out.println(jedis.hmget("user", "name", "age")); //[zhangsan, 21]
+        System.out.println(jedis.hgetAll("user"));//{gender=male, name=zhangsan, age=21}
+        jedis.hdel("user", "age"); //第一个参数为键值，第二个参数为可变数组
+        System.out.println(jedis.hgetAll("user"));//{gender=male, name=zhangsan}
+
+        //hlen, hexists
+        System.out.println(jedis.hlen("user")); //获取字段的个数
+        System.out.println(jedis.hexists("user", "name")); //判断hash对象中是否存在某个属性
+        System.out.println(jedis.hexists("user", "age")); //false
+
+        //hkeys, hvals
+        System.out.println(jedis.hkeys("user")); //获取所有的属性名
+        System.out.println(jedis.hvals("user")); //获取所有的属性值
+
+        //hincrby, hsetnx
+        jedis.hincrBy("user","age",1);
+        jedis.hsetnx("user", "email", "123@abc.com"); //对象中不存在某个属性就添加
+    }
+
+    @Test
+    public void testZset() {
+        jedis.del("z1");
+
+        //zadd, zrange, zcard, zcount
+        jedis.zadd("z1", 90, "优秀");
+        jedis.zadd("z1", 80, "良好");
+        jedis.zadd("z1", 70, "中等");
+        jedis.zadd("z1", 60, "及格");
+        System.out.println(jedis.zrange("z1", 0, -1));//[及格, 中等, 良好, 优秀]
+        System.out.println(jedis.zrangeWithScores("z1", 0, -1));//得到如下奇怪的结果，求指教-……-
+        //[[[-27, -113, -118, -26, -96, -68],60.0], [[-28, -72, -83, -25, -83, -119],70.0], [[-24, -119, -81, -27, -91, -67],80.0], [[-28, -68, -104, -25, -89, -128],90.0]]
+        jedis.zrem("z1","中等");
+        System.out.println(jedis.zrange("z1", 0, -1)); //[及格, 良好, 优秀]
+        System.out.println(jedis.zcard("z1")); //key的基数
+        System.out.println(jedis.zcount("z1", 72, 91)); //score 值在 min 和 max 之间的成员的数量。
+
+        //zrank, zscore
+        System.out.println(jedis.zrank("z1", "良好")); //获得下标值
+        System.out.println(jedis.zscore("z1", "良好")); //获得分数
+
+        //zrevranke, zrevrange
+        System.out.println(jedis.zrevrank("z1", "良好"));//1, 逆序获得下标值
+        System.out.println(jedis.zrevrange("z1", 0, -1));//[优秀, 良好, 及格]， 逆序截取
+
+        //zrevrangebyscore
+        System.out.println(jedis.zrevrangeByScore("z1", 81, 74)); //[良好]
+    }
+}
+发现了一些问题：
+
+jedis中的hash数据类型好像没有hincrbyfloat这个方法，目前还没找到
+jedis中的move方法应该是出问题了，测试时得到的结果类似于复制，而不是拷贝
+如果直接使用ssh连接，在redis中使用连接时加上--raw可正常显示中文，类似 redis-cli -p 6379 --raw, 在jedis中普通的字符串可以采用改变编码的方法解决，但zrangeWithScores()得到的返回类型为Set<Tuple>, 还不知道如果解决。欢迎告知o(￣▽￣)ｄ

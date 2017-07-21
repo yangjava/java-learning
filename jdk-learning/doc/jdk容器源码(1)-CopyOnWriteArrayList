@@ -1,0 +1,84 @@
+CopyOnWriteArrayList源码解析
+
+什么是CopyOnWriteArrayList
+
+CopyOnWriteArrayList底层是由数组组成的一种数据结构，可以进行动态的增删改查
+
+CopyOnWriteArrayList用来干嘛
+
+CopyOnWriteArrayList一般用于对数据的存储(最好针对少量数据，添加会涉及到整个数组的复制)
+
+源码解析
+
+数据的存储
+数据的操作
+什么时候扩容
+是否线程安全
+带上问题去找答案
+
+数据的存储
+
+public class CopyOnWriteArrayList<E>
+    implements List<E>, RandomAccess, Cloneable, java.io.Serializable {
+    private static final long serialVersionUID = 8673264195747942595L;
+
+    /** 用于实现add的同步操作 */
+    transient final ReentrantLock lock = new ReentrantLock();
+
+    /** volatile针对读取时获取最新值，同时作为容器 */
+    private volatile transient Object[] array;
+数据的操作
+
+添加
+public boolean add(E e) {
+    final ReentrantLock lock = this.lock;
+    lock.lock();
+    try {//同步操作
+        Object[] elements = getArray();
+        int len = elements.length;
+        Object[] newElements = Arrays.copyOf(elements, len + 1);//添加操作设计到整个数组的复制，影响性能
+        newElements[len] = e;
+        setArray(newElements);
+        return true;
+    } finally {
+        lock.unlock();
+    }
+}
+删除
+public E remove(int index) {
+    final ReentrantLock lock = this.lock;
+    lock.lock();
+    try {//同步代码
+        Object[] elements = getArray();
+        int len = elements.length;
+        E oldValue = get(elements, index);
+        int numMoved = len - index - 1;
+        if (numMoved == 0)
+            setArray(Arrays.copyOf(elements, len - 1));//数组复制
+        else {
+            Object[] newElements = new Object[len - 1];
+            System.arraycopy(elements, 0, newElements, 0, index);
+            System.arraycopy(elements, index + 1, newElements, index,
+                             numMoved);
+            setArray(newElements);
+        }
+        return oldValue;
+    } finally {
+        lock.unlock();
+    }
+}
+获取
+public E get(int index) {//基于volatile获取最新值
+    return get(getArray(), index);
+}
+什么时候扩容
+
+每次添加删除，针对array做copy操作
+
+是否线程安全
+
+基于Lock实现并发写入的安全，针对并发修改的读取，修改基于copy后的新数组，读取如果未set获取到的还是原数组。如果set后读取到的就是最新的值
+
+使用注意事项
+
+避免CopyOnWriteArrayList过长，copy影响性能

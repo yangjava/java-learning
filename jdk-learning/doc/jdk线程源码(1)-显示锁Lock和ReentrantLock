@@ -1,0 +1,168 @@
+Lock是一个接口提供了无条件的、可轮询的、定时的、可中断的锁获取操作，所有加锁和解锁的方法都是显式的。包路径是：java.util.concurrent.locks.Lock。核心方法是lock()，unlock()，tryLock()，实现类有ReentrantLock, ReentrantReadWriteLock.ReadLock, ReentrantReadWriteLock.WriteLock。
+Lock
+
+Lock是一个接口，提供了无条件的、可轮询的、定时的、可中断的锁获取操作，所有加锁和解锁的方法都是显式的。包路径是：java.util.concurrent.locks.Lock。核心方法有 lock()，unlock()，tryLock()，实现类有 ReentrantLock、ReentrantReadWriteLock.ReadLock、ReentrantReadWriteLock.WriteLock。
+
+方法及说明
+
+public abstract interface Lock {
+
+    // 获取锁。如果锁不可用，出于线程调度目的，将禁用当前线程，并且在获得锁之前，
+    // 该线程将一直处于休眠状态
+    void lock();
+
+    // 如果当前线程未被中断，则获取锁。如果锁可用，则获取锁，并立即返回。
+    // 如果锁不可用，出于线程调度目的，将禁用当前线程，并且在发生以下两种情况之一以前，该线程将一直处于休眠状态：
+    // 锁由当前线程获得；或者其他某个线程中断当前线程，并且支持对锁获取的中断。
+    // 如果当前线程：在进入此方法时已经设置了该线程的中断状态；
+    // 或者在获取锁时被中断，并且支持对锁获取的中断，则将抛出`InterruptedException`，并清除当前线程的已中断状态
+    void lockInterruptibly() throws InterruptedException;
+
+    // 仅在调用时锁为空闲状态才获取该锁。如果锁可用，则获取锁，并立即返回值 true。
+    // 如果锁不可用，则此方法将立即返回值 false。通常对于那些不是必须获取锁的操作可能有用
+    boolean tryLock();
+
+    // 如果锁在给定的等待时间内空闲，并且当前线程未被中断，则获取锁。
+    // 如果锁可用，则此方法将立即返回值 true。如果锁不可用，出于线程调度目的，
+    // 将禁用当前线程，并且在发生以下三种情况之一前，该线程将一直处于休眠状态
+    boolean tryLock(long time, TimeUnit unit) throws InterruptedException;
+
+    // 释放锁。对应于 lock()、tryLock()、tryLock(time, unit)、lockInterruptibly() 等操作，
+    // 如果成功的话应该对应着一个`unlock()`，这样可以避免死锁或者资源浪费
+    void unlock();
+
+    // 返回用来与此 Lock 实例一起使用的 Condition 实例
+    Condition newCondition();
+}
+ReentrantLock
+
+ReentrantLock是Lock的实现类，是一个互斥的同步器，它具有扩展的能力。在竞争条件下，ReentrantLock 的实现要比现在的 synchronized 实现更具有可伸缩性。（有可能在 JVM 的将来版本中改进 synchronized 的竞争性能）这意味着当许多线程都竞争相同锁定时，使用 ReentrantLock 的吞吐量通常要比 synchronized 好。换句话说，当许多线程试图访问 ReentrantLock 保护的共享资源时，JVM 将花费较少的时间来调度线程，而用更多个时间执行线程。虽然 ReentrantLock 类有许多优点，但是与同步相比，它有一个主要缺点 — 它可能忘记释放锁定。ReentrantLock是在工作中对方法块加锁使用频率最高的。
+
+使用方法如下：
+
+class X {
+    private final ReentrantLock lock = new ReentrantLock();
+
+    // …
+    public void m() {
+        lock.lock(); // 获得锁
+        try {
+            // … 方法体
+        } finally {
+            lock.unlock();//解锁
+        }
+    }
+}
+Lock与synchronized 的比较：
+
+Lock使用起来比较灵活，但是必须有释放锁的动作；
+Lock必须手动释放和开启锁，synchronized 不需要；
+Lock只适用与代码块锁，而synchronized 对象之间的互斥关系；
+示例
+
+请注意以下两种方式的区别：
+
+第一种方式：两个方法之间的锁是独立的
+
+public class ReentrantLockDemo {
+
+    public static void main(String[] args) {
+        final Count ct = new Count();
+        for (int i = 0; i < 2; i++) {
+            new Thread() {
+                public void run() {
+                    ct.get();
+                }
+            }.start();
+        }
+
+        for (int i = 0; i < 2; i++) {
+            new Thread() {
+                public void run() {
+                    ct.put();
+                }
+            }.start();
+        }
+    }
+}
+
+class Count {
+
+    public void get() {
+        final ReentrantLock lock = new ReentrantLock();
+        try {
+            lock.lock(); // 加锁
+            System.out.println(Thread.currentThread().getName() + " get begin");
+            Thread.sleep(1000);// 模仿干活
+            System.out.println(Thread.currentThread().getName() + " get end");
+            lock.unlock(); // 解锁
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void put() {
+        final ReentrantLock lock = new ReentrantLock();
+        try {
+            lock.lock(); // 加锁
+            System.out.println(Thread.currentThread().getName() + " put begin");
+            Thread.sleep(1000);// 模仿干活
+            System.out.println(Thread.currentThread().getName() + " put end");
+            lock.unlock(); // 解锁
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
+}
+运行结果如下（每次运行结果都是不一样的，仔细体会一下）：
+
+Thread-0 get begin
+Thread-1 get begin
+Thread-2 put begin
+Thread-3 put begin
+Thread-0 get end
+Thread-2 put end
+Thread-3 put end
+Thread-1 get end
+第二种方式，两个方法之间使用相同的锁
+
+ReentrantLockDemo 类的内容不变，将Count中的ReentrantLock改成全局变量，如下所示：
+
+class Count {
+
+    final ReentrantLock lock = new ReentrantLock();
+
+    public void get() {
+        try {
+            lock.lock(); // 加锁
+            System.out.println(Thread.currentThread().getName() + " get begin");
+            Thread.sleep(1000);// 模仿干活
+            System.out.println(Thread.currentThread().getName() + " get end");
+            lock.unlock(); // 解锁
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void put() {
+        try {
+            lock.lock(); // 加锁
+            System.out.println(Thread.currentThread().getName() + " put begin");
+            Thread.sleep(1000);// 模仿干活
+            System.out.println(Thread.currentThread().getName() + " put end");
+            lock.unlock(); // 解锁
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
+}
+运行结果如下（每次运行结果一样的，仔细体会一下）：
+
+Thread-0 get begin
+Thread-0 get end
+Thread-1 get begin
+Thread-1 get end
+Thread-2 put begin
+Thread-2 put end
+Thread-3 put begin
+Thread-3 put end

@@ -1,0 +1,164 @@
+虽然这篇文章的标题打着JVM源码分析的旗号，不过本文不仅仅从JVM源码角度来分析，更多的来自于Linux Kernel的源码分析，今天要说的是JVM里比较常见的一个问题 这个问题可能有几种表述 * 一个Java进程到底能创建多少线程？ * 到底有哪些因素决定了能创建多少线程
+概述
+
+虽然这篇文章的标题打着JVM源码分析的旗号，不过本文不仅仅从JVM源码角度来分析，更多的来自于Linux Kernel的源码分析，今天要说的是JVM里比较常见的一个问题
+
+这个问题可能有几种表述
+
+一个Java进程到底能创建多少线程？
+到底有哪些因素决定了能创建多少线程？
+java.lang.OutOfMemoryError: unable to create new native thread的异常究竟是怎么回事
+不过我这里先声明下可能不能完全百分百将各种因素都理出来，因为毕竟我不是做Linux Kernel开发的，还有不少细节没有注意到的，我将我能分析到的因素和大家分享一下，如果大家在平时工作中还碰到别的因素，欢迎在文章下面留言，让更多人参与进来讨论
+
+从JVM说起
+
+线程大家都熟悉，new Thread().start()即会创建一个线程，这里我首先指出一点new Thread()其实并不会创建一个真正的线程，只有在调用了start方法之后才会创建一个线程，这个大家分析下Java代码就知道了，Thread的构造函数是纯Java代码，start方法会调到一个native方法start0里，而start0其实就是JVM_StartThread这个方法
+
+JVM_ENTRY(void, JVM_StartThread(JNIEnv* env, jobject jthread))
+
+  ...
+
+      // We could also check the stillborn flag to see if this thread was already stopped, but
+      // for historical reasons we let the thread detect that itself when it starts running
+
+      jlong size =
+             java_lang_Thread::stackSize(JNIHandles::resolve_non_null(jthread));
+      // Allocate the C++ Thread structure and create the native thread.  The
+      // stack size retrieved from java is signed, but the constructor takes
+      // size_t (an unsigned type), so avoid passing negative values which would
+      // result in really large stacks.
+      size_t sz = size > 0 ? (size_t) size : 0;
+      native_thread = new JavaThread(&thread_entry, sz);
+
+  ...   
+
+  if (native_thread->osthread() == NULL) {
+    ...
+    THROW_MSG(vmSymbols::java_lang_OutOfMemoryError(),
+              "unable to create new native thread");
+  }
+
+  Thread::start(native_thread);
+
+JVM_END
+从上面代码里首先要大家关注下最后的那个if判断if (native_thread->osthread() == NULL)，如果osthread为空，那将会抛出大家比较熟悉的unable to create new native thread OOM异常，因此osthread为空非常关键，后面会看到什么情况下osthread会为空
+
+另外大家应该注意到了native_thread = new JavaThread(&thread_entry, sz)，在这里才会真正创建一个线程
+
+JavaThread::JavaThread(ThreadFunction entry_point, size_t stack_sz) :
+  Thread()
+#ifndef SERIALGC
+  , _satb_mark_queue(&_satb_mark_queue_set),
+  _dirty_card_queue(&_dirty_card_queue_set)
+#endif // !SERIALGC
+{
+  if (TraceThreadEvents) {
+    tty->print_cr("creating thread %p", this);
+  }
+  initialize();
+  _jni_attach_state = _not_attaching_via_jni;
+  set_entry_point(entry_point);
+  // Create the native thread itself.
+  // %note runtime_23
+  os::ThreadType thr_type = os::java_thread;
+  thr_type = entry_point == &compiler_thread_entry ? os::compiler_thread :
+                                                     os::java_thread;
+  os::create_thread(this, thr_type, stack_sz);
+
+}
+上面代码里的os::create_thread(this, thr_type, stack_sz)会通过pthread_create来创建线程，而Linux下对应的实现如下：
+
+bool os::create_thread(Thread* thread, ThreadType thr_type, size_t stack_size) {
+  assert(thread->osthread() == NULL, "caller responsible");
+
+  // Allocate the OSThread object
+  OSThread* osthread = new OSThread(NULL, NULL);
+  if (osthread == NULL) {
+    return false;
+  }
+
+  // set the correct thread state
+  osthread->set_thread_type(thr_type);
+
+  // Initial state is ALLOCATED but not INITIALIZED
+  osthread->set_state(ALLOCATED);
+
+  thread->set_osthread(osthread);
+
+  // init thread attributes
+  pthread_attr_t attr;
+  pthread_attr_init(&attr);
+  pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+
+  // stack size
+  if (os::Linux::supports_variable_stack_size()) {
+    // calculate stack size if it's not specified by caller
+    if (stack_size == 0) {
+      stack_size = os::Linux::default_stack_size(thr_type);
+
+      switch (thr_type) {
+      case os::java_thread:
+        // Java threads use ThreadStackSize which default value can be
+        // changed with the flag -Xss
+        assert (JavaThread::stack_size_at_create() > 0, "this should be set");
+        stack_size = JavaThread::stack_size_at_create();
+        break;
+      case os::compiler_thread:
+        if (CompilerThreadStackSize > 0) {
+          stack_size = (size_t)(CompilerThreadStackSize * K);
+          break;
+        } // else fall through:
+          // use VMThreadStackSize if CompilerThreadStackSize is not defined
+      case os::vm_thread:
+      case os::pgc_thread:
+      case os::cgc_thread:
+      case os::watcher_thread:
+        if (VMThreadStackSize > 0) stack_size = (size_t)(VMThreadStackSize * K);
+        break;
+      }
+    }
+
+    stack_size = MAX2(stack_size, os::Linux::min_stack_allowed);
+    pthread_attr_setstacksize(&attr, stack_size);
+  } else {
+    // let pthread_create() pick the default value.
+  }
+
+  // glibc guard page
+  pthread_attr_setguardsize(&attr, os::Linux::default_guard_size(thr_type));
+
+  ThreadState state;
+
+  {
+    // Serialize thread creation if we are running with fixed stack LinuxThreads
+    bool lock = os::Linux::is_LinuxThreads() && !os::Linux::is_floating_stack();
+    if (lock) {
+      os::Linux::createThread_lock()->lock_without_safepoint_check();
+    }
+
+    pthread_t tid;
+    int ret = pthread_create(&tid, &attr, (void* (*)(void*)) java_start, thread);
+
+    pthread_attr_destroy(&attr);
+
+    if (ret != 0) {
+      if (PrintMiscellaneous && (Verbose || WizardMode)) {
+        perror("pthread_create()");
+      }
+      // Need to clean up stuff we've allocated so far
+      thread->set_osthread(NULL);
+      delete osthread;
+      if (lock) os::Linux::createThread_lock()->unlock();
+      return false;
+    }
+
+    // Store pthread info into the OSThread
+    osthread->set_pthread_id(tid);
+     ...
+  }
+   ...
+  return true;
+}
+如果在new OSThread的过程中就失败了，那显然osthread为NULL，那再回到上面第一段代码，此时会抛出java.lang.OutOfMemoryError: unable to create new native thread的异常，而什么情况下new OSThread会失败，比如说内存不够了，而这里的内存其实是C Heap，而非Java Heap，由此可见从JVM的角度来说，影响线程创建的因素包括了Xmx，MaxPermSize，MaxDirectMemorySize，ReservedCodeCacheSize等，因为这些参数会影响剩余的内存
+
+另外注意到如果pthread_create执行失败，那通过thread->set_osthread(NULL)会设置空值，这个时候osthread也为NULL，因此也会抛出上面的OOM异常，导致创建线程失败，因此接下来要分析下pthread_create失败的因素

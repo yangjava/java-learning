@@ -1,0 +1,108 @@
+HashMap是java无论是企业管理系统还是web或者其他应用层的程序开发,都是应用比较多的一种数据结构,正好最近面试有问到与HashMap解决hash冲突的方式(本人菜比没答上来),现浅析源码以解惑 且记录,将来在项目上尽量避免此类问题的出现,大家都知道HashMap为key-value存储,在HashMap中,HashMap本身拥有一个Entry数组,Entry则存有key-value,且对于Hashmap来讲一个key只能对应一个value  
+   首先是put方法
+
+    
+    
+    public V put(K key, V value) {
+        if (key == null)
+            return putForNullKey(value);
+        int hash = hash(key.hashCode());
+        int i = indexFor(hash, table.length);
+        for (Entry<K,V> e = table[i]; e != null; e = e.next) {
+            Object k;
+            if (e.hash == hash && ((k = e.key) == key || key.equals(k))) {
+                V oldValue = e.value;
+                e.value = value;
+                e.recordAccess(this);
+                return oldValue;
+            }
+        }
+
+        modCount++;
+        addEntry(hash, key, value, i);
+        return null;
+    }
+  put方法通过调用key的hashcode()并以算法计算后得到一个hash码,再通过这个hash码与HashMap中的Entry数组长度来计算得到位置值i,HashMap在初始化的时候默认会把Entry数组的长度设置为16或者设置为大于或等于指定大小的2的N次幂 indexFor的方法很简单 return hash&length-1 ; 则 length-1 用二进制表示 一定是 011111....,任何数比 length 小在按位与运算中都会得到这个数本身,如果hash=length则hash&length-1返回0在length不发生变化的情况下i的值是相同的,所以在存入的两个不同key的hashcode()方法一致的时候得到的i值是一致的,然后是循环,主要是处理key完全一致或者用equals方法比对一致的情况,如果不一致的话则调用addEntry方法,处理的关键来了,
+
+     
+    void addEntry(int hash, K key, V value, int bucketIndex) {
+	Entry<K,V> e = table[bucketIndex];
+        table[bucketIndex] = new Entry<K,V>(hash, key, value, e);
+        if (size++ >= threshold)
+            resize(2 * table.length);
+    }
+    
+    
+    static class Entry<K,V> implements Map.Entry<K,V> {
+        final K key;
+        V value;
+        Entry<K,V> next;
+        final int hash;
+
+        /**
+         * Creates new entry.
+         */
+        Entry(int h, K k, V v, Entry<K,V> n) {
+            value = v;
+            next = n;
+            key = k;
+            hash = h;
+        }
+
+        public final K getKey() {
+            return key;
+        }
+
+        public final V getValue() {
+            return value;
+        }
+
+        public final V setValue(V newValue) {
+	    V oldValue = value;
+            value = newValue;
+            return oldValue;
+        }
+
+        public final boolean equals(Object o) {
+            if (!(o instanceof Map.Entry))
+                return false;
+            Map.Entry e = (Map.Entry)o;
+            Object k1 = getKey();
+            Object k2 = e.getKey();
+            if (k1 == k2 || (k1 != null && k1.equals(k2))) {
+                Object v1 = getValue();
+                Object v2 = e.getValue();
+                if (v1 == v2 || (v1 != null && v1.equals(v2)))
+                    return true;
+            }
+            return false;
+        }
+
+        public final int hashCode() {
+            return (key==null   ? 0 : key.hashCode()) ^
+                   (value==null ? 0 : value.hashCode());
+        }
+
+        public final String toString() {
+            return getKey() + "=" + getValue();
+        }
+
+        /**
+         * This method is invoked whenever the value in an entry is
+         * overwritten by an invocation of put(k,v) for a key k that's already
+         * in the HashMap.
+         */
+        void recordAccess(HashMap<K,V> m) {
+        }
+
+        /**
+         * This method is invoked whenever the entry is
+         * removed from the table.
+         */
+        void recordRemoval(HashMap<K,V> m) {
+        }
+    }
+在addEntry中用到了在HashMap内部声明的一种数据结构Entry,Entry中有个next属性的类型是这个类本身,所以我认为Entry是单向链表的一种实现,在调用addEntry的过程中,如果两个key的hashcode()方法的返回值一致,则会取到数组同一个位置上这时候HashMap的实现是把旧的Entry(先put进map的key-value)取出来放到新的Entry的next属性上,然后把新的Entry放在旧的Entry的位置上,这样就解决了hashcode的冲突问题,调用HashMap的get方法无法取出旧的Entry对应的value,只能通过entrySet()方法取出所有的Entry才能取到
+2016年09月23日
+
+再看HashMap addEntry已经没有了

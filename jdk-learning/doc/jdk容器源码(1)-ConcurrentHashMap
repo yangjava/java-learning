@@ -1,0 +1,299 @@
+先看一段代码
+
+public class Main {
+
+	private static ExecutorService executorService = Executors.newFixedThreadPool(10);
+
+	public static final int threadCount = 10000;
+	
+	public static void main(String[] args) {
+		List<Callable<Integer>> monitorList = new ArrayList<Callable<Integer>>();
+		final HashMap map = new HashMap();
+        for(int i =0;i<threadCount;i++){
+            monitorList.add(new Callable<Integer>() {
+                public Integer call() throws Exception {
+                	map.put(UUID.randomUUID().toString(), "11");
+                    return 1;
+                }
+            });
+        }
+        try {
+            List<Future<Integer>> futures = executorService.invokeAll(monitorList);
+            System.out.println("线程大小"+futures.size());
+           
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+	}
+}
+代码的大意就是在main函数中开启10000个线程,使用UUID生成的唯一标识作为key,不断的存入进map,模拟了高并发的put操作。运行后。。。 image发现内存满了(我电脑是12G的内存),这是为什么呢。因为HashMap在并发执行put操作时引起了死循环,会导致HashMap的Entry链形成环形的数据结构,一旦形成环形的后,Entry的next节点永远不为空,所以就产生了死循环. 这就是所谓的线程不安全。
+
+学习HashMap的时候，肯定也学过Hashtable这个类，大致的就记得Hashtable是线程安全的，在并发使用这个类中的方法时能保证数据不被其他线程所改变。
+
+再仔细一点的同学就会点进去看源码了，发现大部分的方法都是用synchronized关键字修饰。不过synchronized关键字的性能还是不够好，当有一个线程正在使用时，就会锁住整个hash表，其他的线程就只能乖乖的等待了。
+
+从jdk1.5开始 就出现了ConcurrentHashMap，这个类与Hashtable区别就是 锁的粒度和锁的方式
+
+正文
+
+ConcurrentHashMap为什么高效？
+
+与Hashtable不同的是,ConcurrentHashMap使用的是分段锁技术,将ConcurrentHashMap容器的数据分段存储,每一段数据分配一个Segment,当线程占用一个Segment时,其他线程可以访问其他段的数据.
+
+概念
+
+Segment : 可重入锁,继承ReentrantLock 也称之为桶
+
+HashEntry : 主要存储键值对 可以叫节点
+
+image
+
+HashEntry源码:
+
+static final class HashEntry<K,V> {
+        final int hash;
+        final K key;
+        volatile V value;
+        volatile HashEntry<K,V> next;
+volatile关键字保证了多线程读取的时候一定是最新值。
+
+ConcurrentHashMap包含一个Segment数组,每个Segment包含一个HashEntry数组,当修改HashEntry数组采用开链法处理冲突,所以它的每个HashEntry元素又是链表结构的元素。
+
+基本操作源码分析
+
+构造方法:
+
+public ConcurrentHashMap(int initialCapacity,
+                             float loadFactor, int concurrencyLevel) {
+        if (!(loadFactor > 0) || initialCapacity < 0 || concurrencyLevel <= 0)
+            throw new IllegalArgumentException();
+        if (concurrencyLevel > MAX_SEGMENTS)
+            concurrencyLevel = MAX_SEGMENTS;   //1
+        int sshift = 0;
+        int ssize = 1;
+        while (ssize < concurrencyLevel) {
+            ++sshift;
+            ssize <<= 1;    //2
+        }
+        this.segmentShift = 32 - sshift;  //3
+        this.segmentMask = ssize - 1;   //4
+        if (initialCapacity > MAXIMUM_CAPACITY)
+            initialCapacity = MAXIMUM_CAPACITY;
+        int c = initialCapacity / ssize;
+        if (c * ssize < initialCapacity)
+            ++c;
+        int cap = MIN_SEGMENT_TABLE_CAPACITY;
+        while (cap < c)
+            cap <<= 1;
+        Segment<K,V> s0 =
+            new Segment<K,V>(loadFactor, (int)(cap * loadFactor),
+                             (HashEntry<K,V>[])new HashEntry[cap]);//5
+        Segment<K,V>[] ss = (Segment<K,V>[])new Segment[ssize]; //6
+        UNSAFE.putOrderedObject(ss, SBASE, s0); 
+        this.segments = ss;
+    }
+整个初始化是通过参数initialCapacity(初始容量)，loadFactor(增长因子)和concurrencyLevel(并发等级)来初始化segmentShift（段偏移量）、segmentMask（段掩码）和segment数组。
+
+注释1: 最大的并发等级不能超过MAX_SEGMENTS 1<<16(也就是1的二进制向左移16位,65535)
+
+注释2: 如果你传入的是15 就是向上取2的4次方倍 也就是16.
+
+注释3和4: segmentShift和segmentMask在定位segment使用，segmentShift = 32 - ssize向左移位的次数，segmentMask = ssize - 1。ssize的最大长度是65536，对应的 segmentShift最大值为16，segmentMask最大值是65535，对应的二进制16位全为1；
+
+注释5和6: 初始化segment
+
+1.初始化每个segment的HashEntry长度；
+
+2.创建segment数组和segment[0]。
+
+HashEntry长度cap同样也是2的N次方，默认情况，ssize = 16，initialCapacity = 16，loadFactor = 0.75f，那么cap = 1，threshold = (int) cap * loadFactor = 0。
+
+get操作
+
+public V get(Object key) {
+        Segment<K,V> s; 
+        HashEntry<K,V>[] tab;
+        int h = hash(key);  //1
+        long u = (((h >>> segmentShift) & segmentMask) << SSHIFT) + SBASE;
+        if ((s = (Segment<K,V>)UNSAFE.getObjectVolatile(segments, u)) != null &&  //2
+            (tab = s.table) != null) {
+            for (HashEntry<K,V> e = (HashEntry<K,V>) UNSAFE.getObjectVolatile
+                     (tab, ((long)(((tab.length - 1) & h)) << TSHIFT) + TBASE);
+                 e != null; e = e.next) {
+                K k;
+                if ((k = e.key) == key || (e.hash == h && key.equals(k)))
+                    return e.value;
+            }
+        }
+        return null;
+    }
+注释1: 根据key计算hash值
+
+注释2: 根据计算出的hash值定位segment 如果segment不为null segment.table也不为null 跳转进里面的循环
+
+里面的一大段东西 大致讲的就是通过hash值定位segment中对应的HashEntry 遍历HashEntry,如果key存在,返回key对应的value 如果不存在则返回null
+
+put操作
+
+public V put(K key, V value) {
+        Segment<K,V> s;
+        if (value == null)
+            throw new NullPointerException();
+        int hash = hash(key);
+        int j = (hash >>> segmentShift) & segmentMask;
+        if ((s = (Segment<K,V>)UNSAFE.getObject          
+             (segments, (j << SSHIFT) + SBASE)) == null) 
+            s = ensureSegment(j);
+        return s.put(key, hash, value, false);
+    }
+1.判断值是否为null
+
+2.计算hash值
+
+3.定位segment 如果不存在，则创建
+
+4.调用segment的put方法
+
+还有一个putifAbsent的方法 ,唯一的不同就是最后的false变为了true
+
+再来看看Segment的put方法
+
+final V put(K key, int hash, V value, boolean onlyIfAbsent) {
+            HashEntry<K,V> node = tryLock() ? null :
+                scanAndLockForPut(key, hash, value);  //1
+            V oldValue;
+            try {
+                HashEntry<K,V>[] tab = table;
+                int index = (tab.length - 1) & hash;
+                HashEntry<K,V> first = entryAt(tab, index);  //2
+                for (HashEntry<K,V> e = first;;) { //3
+                    if (e != null) {
+                        K k;
+                        if ((k = e.key) == key ||
+                            (e.hash == hash && key.equals(k))) {
+                            oldValue = e.value;
+                            if (!onlyIfAbsent) {
+                                e.value = value;
+                                ++modCount;
+                            }
+                            break;
+                        }
+                        e = e.next;
+                    }
+                    else {
+                        if (node != null)
+                            node.setNext(first);
+                        else
+                            node = new HashEntry<K,V>(hash, key, value, first);
+                        int c = count + 1;
+                        if (c > threshold && tab.length < MAXIMUM_CAPACITY)
+                            rehash(node);
+                        else
+                            setEntryAt(tab, index, node);
+                        ++modCount;
+                        count = c;
+                        oldValue = null;
+                        break;
+                    }
+                }
+            } finally {
+                unlock();
+            }
+            return oldValue;
+        }
+注释1: 获取锁 ，保证线程安全
+
+注释2:定位到具体的HashEntry
+
+注释3: 遍历HashEntry链表,如果key已存在 再判断传入的onlyIfAbsent的值 ,再决定是否覆盖旧值.
+
+最后释放锁,返回旧值.
+
+再说明一下put 和 putifAbsent的用法
+
+这两个方法本身是线程安全的,但是要看你的用法是否恰当
+
+例子:
+
+private static ConcurrentHashMap<String,AtomicInteger> map = new ConcurrentHashMap<>();
+public static void putInTo(String key) {
+		AtomicInteger obj = map.get(key);
+		if(obj == null){
+			map.put(key, new AtomicInteger(0));
+		}else{
+			obj.incrementAndGet();
+			map.put(key, obj);
+		}
+	}
+这段代码可以用最开始提供的测试代码进行测试，会发现如果多个线程调用putInTo方法 最后值会确定不了,每一次都是不一样。 就算是保证原子性的AtomicInteger 也会有误差,可能误差比较小罢了。这个误差的出现就会出现在前几次的操作。
+
+原因: 多个线程同时进入putInTo 比如线程1已经把不存在的键值对存入,而线程2还没完成操作 再继续存入key相同的键值对,从而覆盖了前面存入的数据,导致数据丢失。
+
+这段代码就能保证线程安全 而不用通过synchronized关键字来锁定方法
+
+private static ConcurrentMap<String, AtomicLong> wordCounts = newConcurrentHashMap<>();  
+   
+public static long increase(String word) {  
+    AtomicLong number = wordCounts.get(word);  
+    if(number == null) {  
+        AtomicLong newNumber = newAtomicLong(0);  
+        number = wordCounts.putIfAbsent(word, newNumber);  
+        if(number == null) {  
+            number = newNumber;  
+        }  
+    }  
+    return number.incrementAndGet();  
+}
+获取size
+
+public int size() {
+        final Segment<K,V>[] segments = this.segments;
+        int size;
+        boolean overflow; 
+        long sum;         
+        long last = 0L;   
+        int retries = -1; 
+        try {
+            for (;;) {
+                if (retries++ == RETRIES_BEFORE_LOCK) {  //1
+                    for (int j = 0; j < segments.length; ++j)
+                        ensureSegment(j).lock(); 
+                }
+                sum = 0L;
+                size = 0;
+                overflow = false;
+                for (int j = 0; j < segments.length; ++j) {
+                    Segment<K,V> seg = segmentAt(segments, j);
+                    if (seg != null) {
+                        sum += seg.modCount;  //2
+                        int c = seg.count;
+                        if (c < 0 || (size += c) < 0)
+                            overflow = true;
+                    }
+                }
+                if (sum == last)
+                    break;
+                last = sum;
+            }
+        } finally {
+            if (retries > RETRIES_BEFORE_LOCK) {
+                for (int j = 0; j < segments.length; ++j)
+                    segmentAt(segments, j).unlock();
+            }
+        }
+        return overflow ? Integer.MAX_VALUE : size;
+    }
+注释1 : RETRIES_BEFORE_LOCK为不变常量2 尝试两次不锁住Segment的方式来统计每个Segment的大小,如果在统计的过程中Segment的count发生变化,这时候再加锁统计Segment的count
+
+这段代码的上一句for(;;)会比while(true)效率高一点,因为这个容器的使用场景是高并发,所以代码还是越优越好。
+
+总结
+
+关于size 再引用一个我觉得很好的例子:
+
+一个Map有4个Segment，标记为S1，S2，S3，S4，现在我们要获取Map的size。计算过程 是这样的：第一次计算，不对S1，S2，S3，S4加锁，遍历所有的Segment，假设每个Seg ment的大小分别为1，2，3，4，更新操作次数分别为：2，2，3，1，则这次计算可以得 到Map的总大小为1+2+3+4=10，总共更新操作次数为2+2+3+1=8；第二次计算，不对S1,S 2,S3,S4加锁，遍历所有Segment，假设这次每个Segment的大小变成了2，2，3，4，更 新次数分别为3，2，3，1，因为两次计算得到的Map更新次数不一致(第一次是8，第二 次是9)则可以断定这段时间Map数据被更新，则此时应该再试一次；第三次计算，不对S 1，S2，S3，S4加锁，遍历所有Segment，假设每个Segment的更新操作次数还是为3，2 ，3，1，则因为第二次计算和第三次计算得到的Map的更新操作的次数是一致的，就能 说明第二次计算和第三次计算这段时间内Map数据没有被更新，此时可以直接返回第三 次计算得到的Map的大小。最坏的情况：第三次计算得到的数据更新次数和第二次也不 一样，则只能先对所有Segment加锁再计算最后解锁。
+
+ConcurrentHashMap中的key和value值都不能为null，HashMap中key可以为null，HashTable中key不能为null。
+ConcurrentHashMap是线程安全的类并不能保证使用了ConcurrentHashMap的操作都是线程安全的！
+ConcurrentHashMap的get操作不需要加锁，put操作需要加锁 put和get都只关心一个segment
+里面的hash操作质量也是很高的 如果hash后都存放在同一个segment中 那么使用这个类的意义就不会很大.

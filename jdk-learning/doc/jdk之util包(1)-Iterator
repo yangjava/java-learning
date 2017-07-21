@@ -1,0 +1,349 @@
+先贴出测试代码：
+
+public static void main(String[] args) {
+		List<String> list=new ArrayList<String>();
+		list.add("aa");
+		list.add("bb");
+		list.add("cc");
+		Iterator<String> iterator =list.iterator();
+		while(iterator.hasNext()){
+			String aaString=iterator.next();
+			if(aaString.equals("aa")){
+				iterator.remove();
+			}
+		}
+		for (String string : list) {
+			System.out.println(string);
+		}
+	}
+运行结果：
+
+bb
+cc
+我们跟进list.iterator()源码，选择 ArrayList 实现类，发现源码中ArrayList 继承与AbstractList，发现ArrayList实现类中并没有iterator()方法，那么肯定是在父类中，跟进源码发现，iterator（）源码如下：
+
+  public Iterator<E> iterator() {
+	return new Itr();
+    }
+发现new 了一个 Itr，跟进继续，发现Itr 实现了Iterator接口，部分源码如下：
+
+  private class Itr implements Iterator<E> {
+	/**
+	 * Index of element to be returned by subsequent call to next.
+	 */
+	int cursor = 0;
+
+	/**
+	 * Index of element returned by most recent call to next or
+	 * previous.  Reset to -1 if this element is deleted by a call
+	 * to remove.
+	 */
+	int lastRet = -1;
+
+	/**
+	 * The modCount value that the iterator believes that the backing
+	 * List should have.  If this expectation is violated, the iterator
+	 * has detected concurrent modification.
+	 */
+	int expectedModCount = modCount;
+
+	public boolean hasNext() {
+            return cursor != size();
+	}
+
+	public E next() {
+            checkForComodification();
+	    try {
+		E next = get(cursor);
+		lastRet = cursor++;
+		return next;
+	    } catch (IndexOutOfBoundsException e) {
+		checkForComodification();
+		throw new NoSuchElementException();
+	    }
+	}
+
+	public void remove() {
+	    if (lastRet == -1)
+		throw new IllegalStateException();
+            checkForComodification();
+
+	    try {
+		AbstractList.this.remove(lastRet);
+		if (lastRet < cursor)
+		    cursor--;
+		lastRet = -1;
+		expectedModCount = modCount;
+	    } catch (IndexOutOfBoundsException e) {
+		throw new ConcurrentModificationException();
+	    }
+	}
+
+	final void checkForComodification() {
+	    if (modCount != expectedModCount)
+		throw new ConcurrentModificationException();
+	}
+    }  private class Itr implements Iterator<E> {
+	/**
+	 * Index of element to be returned by subsequent call to next.
+	 */
+	int cursor = 0;
+
+	/**
+	 * Index of element returned by most recent call to next or
+	 * previous.  Reset to -1 if this element is deleted by a call
+	 * to remove.
+	 */
+	int lastRet = -1;
+
+	/**
+	 * The modCount value that the iterator believes that the backing
+	 * List should have.  If this expectation is violated, the iterator
+	 * has detected concurrent modification.
+	 */
+	int expectedModCount = modCount;
+
+	public boolean hasNext() {
+            return cursor != size();
+	}
+
+	public E next() {
+            checkForComodification();
+	    try {
+		E next = get(cursor);
+		lastRet = cursor++;
+		return next;
+	    } catch (IndexOutOfBoundsException e) {
+		checkForComodification();
+		throw new NoSuchElementException();
+	    }
+	}
+
+	public void remove() {
+	    if (lastRet == -1)
+		throw new IllegalStateException();
+            checkForComodification();
+
+	    try {
+		AbstractList.this.remove(lastRet);
+		if (lastRet < cursor)
+		    cursor--;
+		lastRet = -1;
+		expectedModCount = modCount;
+	    } catch (IndexOutOfBoundsException e) {
+		throw new ConcurrentModificationException();
+	    }
+	}
+
+	final void checkForComodification() {
+	    if (modCount != expectedModCount)
+		throw new ConcurrentModificationException();
+	}
+    }
+根据源码我们发现Itr()里定义了三个变量：
+
+int cursor = 0;下一个将要返回的元素的索引；
+
+int lastRet = -1;lastRet记录上一次游标所在位置，因此它总是比cursor少1，-1表示最近的一次操作没有返回元素。
+
+int expectedModCount = modCount;
+
+其中的modCount 是AbstractList包含的一个modCount变量，它的初始值是0，当集合每被修改一次时（调用add，remove等方法），modCount加1。因此，modCount如果不变，表示集合内容未被修改。
+
+expectedModCount 初始赋值等于modCount的值，后续会校验两个变量是否相等，如果不等会抛出异常ConcurrentModificationException。
+
+为什么直接使用list.remove()会抛异常，而使用iterator中的remove方法却不报错？关键点在这里：
+
+	public void remove() {
+	    if (lastRet == -1)
+		throw new IllegalStateException();
+            checkForComodification();
+
+	    try {
+		AbstractList.this.remove(lastRet);
+		if (lastRet < cursor)
+		    cursor--;
+		lastRet = -1;
+		expectedModCount = modCount;
+	    } catch (IndexOutOfBoundsException e) {
+		throw new ConcurrentModificationException();
+	    }
+	}
+final void checkForComodification() {
+	    if (modCount != expectedModCount)
+		throw new ConcurrentModificationException();
+	}
+分析源码，咱们发现，首先判断本次操作是否有返回元素，如果没有，就抛出异常，然后检查expectedModCount和modCount是否相等，如果不想等就会抛出异常。接下来调用List本身的remove方法，索引指定位lastRet，此时，浮标减少一位，lastRet为-1，表示上次没有返回数据，最后关键一步，同步修改的modCount变量值，这样就保证remove后不抛出异常。
+
+
+
+
+
+
+
+
+
+作用
+
+Itarator是一个泛型接口,主要描述遍历的手段, 需要实现两个方法hasNext,next
+
+hasNext方法 返回一个boolean 用来描述是否还有下一个
+
+next方法 用来返回下一个值
+
+iterator的使用方式应该总是先用hasNext来判断是否有更多的内容, 然后再用next来获取下一条数据
+
+使用
+
+通过实现一个数据库表记录迭代器TableDataIterator来加强印象
+
+实现要求
+
+约定:
+
+表必须包含名为id的列
+id必须为自增整数
+通过传入表名后能够将整张表的数据都遍历出来
+
+实现
+
+import java.sql.*;
+import java.util.*;
+
+/**
+ * Created by 0x0001 on 16/12/18.
+ */
+public class TableDataIterator implements Iterator<Map<String, Object>> {
+
+    // 表名
+    private final String tableName;
+    // 缓存数据条数
+    private final int bufSize = 20;
+
+    // 上一次最后一条记录的ID
+    private int prevID = 0;
+
+    private final List<Map<String, Object>> buffers;
+
+    static {
+        // 加载数据库驱动
+        try {
+            Class.forName("driver class full name");
+        } catch(Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public TableDataIterator(String tableName) {
+        this.tableName = tableName;
+        buffers = new ArrayList<>();
+    }
+
+
+    @Override
+    public boolean hasNext() {
+        // 如果缓存不为空则允许迭代, 否则尝试加载数据到缓存
+        return !buffers.isEmpty() || loadToCache();
+    }
+
+    @Override
+    public Map<String, Object> next() {
+        if (hasNext()) {
+            return buffers.remove(0);
+        }
+        throw new IllegalStateException("no more data");
+    }
+
+    private boolean loadToCache() {
+
+        String sql = "SELECT * FROM " + tableName + " WHERE id > ? ORDER BY id ASC LIMIT ?";
+
+        try (Connection conn = getConnection()) {
+            try(PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                pstmt.setObject(1, prevID);
+                pstmt.setObject(2, bufSize);
+
+                try (ResultSet rs = pstmt.executeQuery()) {
+                    while (rs.next()) {
+                        buffers.add(rs2Map(rs));
+                    }
+
+                    // 数据加载到buf以后顺便设置当前已经获取到的数据的最后一条的id
+                    if (!buffers.isEmpty()) {
+                        Map<String, Object> last = buffers.get(buffers.size() -1);
+                        prevID = (Integer) last.get("id");
+                    }
+                }
+            }
+
+        } catch(SQLException e) {
+            throw new RuntimeException(e);
+        }
+
+        return !buffers.isEmpty();
+    }
+
+    private Connection getConnection() {
+        try {
+            return DriverManager.getConnection("jdbc_url");
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+
+    private Map<String, Object> rs2Map(ResultSet rs) {
+        try {
+            ResultSetMetaData metaData = rs.getMetaData();
+            int columnCount = metaData.getColumnCount();
+
+            Map<String, Object> row = new HashMap<String, Object>();
+
+            for (int i = 0; i < columnCount; i++) {
+                String name = metaData.getColumnName(i);
+                Object data = rs.getObject(i);
+                row.put(name, data);
+            }
+
+            return row;
+
+
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public static void main(String[] args) {
+        Iterator<Map<String, Object>> iterator = new TableDataIterator("user");
+        while(iterator.hasNext()) {
+            System.out.println(iterator.next());
+        }
+    }
+}
+配合Iterable能实现一个可以使用for-each循环的迭代器, 如:
+
+class TableDataIterable implements Iterable<Map<String, Object>> {
+    private final String tableName;
+    TableDataIterable(String tableName) {
+        this.tableName = tableName;
+    }
+
+
+    @Override
+    public Iterator<Map<String, Object>> iterator() {
+        return new TableDataIterator(tableName);
+    }
+
+    public static void main(String[] args) {
+        for(Map<String, Object> row : new TableDataIterable("user")) {
+            System.out.println(row);
+        }
+    }
+}
+使用起来将更加方便, for-each循环被jdk编译后代码应该大致如下:
+
+Iterator<Map<String, Object>> iterator = new TableDataIterable("user").iterator();
+while(iterator.hasNext()) {
+    System.out.println(iterator.next());
+}
+

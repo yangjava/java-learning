@@ -1,0 +1,64 @@
+ackage redis.clients.jedis;
+
+import redis.clients.util.FixedResourcePool;
+
+public class JedisPool extends FixedResourcePool<Jedis> {
+    private String host;//IP
+    private int port;//端口
+    private int timeout;//超时时间
+
+    public JedisPool(String host) {//设置IP
+	this.host = host;
+	this.port = Protocol.DEFAULT_PORT;
+    }
+
+    public JedisPool(String host, int port) {//设置IP和端口
+	this.host = host;
+	this.port = port;
+    }
+
+    public JedisPool(String host, int port, int timeout) {//设置IP和端口,超时时间
+	this.host = host;
+	this.port = port;
+	this.timeout = timeout;
+    }
+
+    @Override
+    protected Jedis createResource() {//一直连接，返回jedis并且已经连接上了...
+	Jedis jedis = new Jedis(this.host, this.port, this.timeout);
+	boolean done = false;
+	while (!done) {
+	    try {
+		jedis.connect();
+		done = true;
+	    } catch (Exception e) {
+		try {
+		    Thread.sleep(100);
+		} catch (InterruptedException e1) {
+		}
+	    }
+	}
+	return jedis;
+    }
+
+    @Override
+    protected void destroyResource(Jedis jedis) {//销毁资源
+	if (jedis != null && jedis.isConnected()) {
+	    try {
+		jedis.quit();
+		jedis.disconnect();
+	    } catch (Exception e) {
+
+	    }
+	}
+    }
+
+    @Override
+    protected boolean isResourceValid(Jedis jedis) {//资源是否有效
+	try {
+	    return jedis.isConnected() && jedis.ping().equals("PONG");
+	} catch (Exception ex) {
+	    return false;
+	}
+    }
+}

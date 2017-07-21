@@ -1,0 +1,44 @@
+String 是 Java 中最重要的类之一， 然而，很多Java新手都不会意识到 String在Java中是 不可变的（immutable） 并且最终的（ final），并且每次对String结果的调整都会创建一个新的String对象。所以我们会问, 如何在Java中操作字符串又能避免创建String垃圾呢? 对于这个问题 StringBuilder 和 StringBuffer 就是答案。
+String 是  Java 中最重要的类之一，并且任何刚开始做Java编程的人，都会 用String定义一些内容，然后通过著名的 System.out.println() 语句来打印 出来。 然而，很多Java新手都不会意识到  String在Java中是 不可变的（immutable） 并且最终的（final） 的   并且每次对String结果的调整都会创建一个新的String对象。所以我们会问, 如何在Java中操作字符串又能避免创建String垃圾呢?  对于这个问题 StringBuilder 和  StringBuffer 就是答案。 StringBuffer是一个老的类，而 StringBuilder是在Java5中新加入的，并且StringBuilder 有了新的改进，主要像是   Enum ,  Generics ,  varargs methods  和  Autoboxing in Java 。不管你是做何种应用，你都会发现应用中使用可大量的Java String类。 但是如果你切实地分析了你的应用，你将会发现由于程序中创建了大量的临时String因此产生了了大量的垃圾。在这个  Java 向导  中我们会看到在Java中 String到是什么 , Java中String的一些重要属性, 在Java 中 StringBuffer 是真么  , 在Java 中什么时候使用  StringBuffer ,  Java 中的  StringBuilder 以及它是如何能替代  StringBuffer 的,    在Java中 什么才是 String 和 StringBuffer 和 StringBuilder 的差别 ？哪个才是  最常见的Java核心问题    以及  String ，StringBuilder ， StringBuffer 三者的主要对比差异？ 现在我们从 String开始分析。
+
+Java中String, StringBuffer 和 StringBuilder的区别
+
+Java中的String
+
+在找String 和 StringBuffer 或 StringBuilder 之间的差异之前，我们先来看一下Java中 String类的一些基础属性。 
+1) 在Java中String是非可变的（immutable）:  String在Java中是有意设计成非可变的，您可以通过查看 该文章 找到原因。不变性（Immutability）为String类带来许多优势，比如：它的hashcode值可以缓存，这可以使他成为一个更快的 hashmap 键值， 并且成为 为何 String 是在HashMap中式一个流行的键的原因之一。 因为String是最终的（final），它可以在多个线程之间安全的共享，而不需要任何多余的同步.  
+2)当我们通过双引号来表示字符串时，就像"abcd" ，我们称之为字符串常量（String literal），这些字符串常量在字符串池（String pools）中创建。 当你使用等号“==”来 比较两个字符串常量 ，如果返回值是true那是因为他们是String类的相同实例。不过，在Java中用等号来比较两个对象并不是好的做法，而是应该使用 equals方法 来检查是否相等。  
+3) "+"操作对于String来说是 重载（overloaded） ，用来连接两个字符串。在内部， "+" 加操作实际上是通过 StringBuffer欧哲 StringBuilder 来实现的。 
+4) String字符串是通过字符数组备份的并且以UTF-16的格式来表示。 顺便说一下这可能会引起String的内存泄露（memory leak），因为相同的字符数组在源String和SubString之间是共享的，这会阻碍源String的被垃圾回收。请参阅 How SubString是如何在Java中工作的 来获取更相信的信息。  
+5) String类重写了equals() 和 hashcode() 方法，两个String字符串，如果包含相同顺序的相同字符并且大小写情况也一样，那么这两个字符串就认为相等。如果想要忽略大小写情况来比较两个字符串可以考虑使用equalsIgnoreCase()方法。请参考 如何在Java中准确地重写equals方法  来了解更多关于equals 方法的最佳实践。另一个值得关注的点是，对于String来说equals 方法必须与 compareTo()方法一致，因为在Java中SortedSet 和 SortedMap ，比如： TreeMap，使用 compareTo 方法 来比较 String。  
+7) toString()方法为所有对象提供了String表示，该方法在对象类中声明，并推荐给其他的类来实现该方法并提供String表示（ representation）。 
+8) String 在Java中用UTF-16格式表示。  
+9) 在Java中你可以创建 String 通过char数组, byte数组, 其他字符串,通过StringBuffer或者通过StringBuilder。 Java的String类为所有这些情况提供了构造方法。  
+
+Java中String的问题
+
+Java中String的一个最大优势--不可变性（ Immutability ）---也是它最大的问题，如果不正确使用的话。很多时候我们创建一个String字符串之后会执行很多操作，比如：将字符串转换成大写，小写，获取其子字符串(substring) ,与其他字符串连接等等。尽管String是一个不可变的类，每当一个新的String创建，旧的String就被丢弃，这样以来就在堆（heap）中 创建了大量的临时垃圾。如果String通过字符串常量来创建的，那么它们会依然保留在字符串池中（String pool）。为了解决这个问题，Java为我们提供了两个类： StringBuffer 和 StringBuilder。StringBuffer 是一个老的类，而 StringBuilder 相对来说较新，实在 JDK 5中新添的类。  
+
+Java中String 和 StringBuffer 的差异
+
+String 和 StringBuffer的最大区别是：String是不可变的，而 StringBuffer 是可变的，这即意味着  StringBuffer对象创建以后还能够被更改并且与此同时不需要创建新的对象。这个可变的属性使得 StringBuffer 成为Java中处理字符串的一个理想选择。 你可以通过toString()方法将StringBuffer转化成String。 String与StringBuffer的对比或者StringBuffer与String的区别是电话面试或者首轮面试中 流行的Java面试题 之一。现如今，对比中加入了StringBuilder，问题成了对比String和StringBuffer和StringBuilder的区别。 所以要准备好，下一节我们来讲Java中StringBuffer 和 StringBuilder 的区别。  
+
+Java中 StringBuilder 和 StringBuffer 的差异
+
+StringBuffer  在可变字符串方面表现的很好，但是它有一个缺点是：它的所有公共方法都是 同步化的，这使得它是 线程安全的（thread-safe） ，但同时效率也低了。在JDK 5中提供了类似的Java类，叫做 StringBuilder， 它是StringBuffer的副本但是去掉了同步性。 尽可能的尝试使用 StringBuilder 吧，在大多数情况下它都比 StringBuffer 类表现的更好。你也可以使用 "+" 来联接两个字符串，因为在Java中 "+" 操作在内部是通过 StringBuffer 或者 StringBuilder来实现的。如果你对比查看 StringBuilder 和 ringBuffer ，你将会发现他们两个基本相同，在Java中所有适用于 StringBuffer的API方法，也适用于StringBuilder 。换个角度来说： String和StringBuffer是完全不同的并且他们的API也完全不同，这种对比结果对于StringBuilder 和 String也同样适用。
+
+
+总结
+
+在此总结Java中StringBuffer, String 和 StringBuilder的区别如下 :
+
+
+1) String 是不可变的，而 StringBuffer 和 StringBuilder 是可变的对象。
+
+2) StringBuffer 是 同步的（synchronized）而 StringBuilder不能同步，这也使得 StringBuilder 比 StringBuffer更迅速。
+
+3) 联接操作符 "+" 在内部是通过StringBuffer或者StringBuilder来实现的。
+
+4) 在Java中，如果你需要 不可变性（immutability）那么请使用String， 如果你需要可变性以及线程安全（thread-safety）请使用Stringbuffer， 如果你需要可变性而不需要线程安全（thread-safety）那么请使用 StringBuilder。
+
+以上就是所有关于 String 和  StringBuffer 和  StringBuilder 的讨论。所有的这些差异有助于避免很多情况下使用了String来代替StringBuffer的常规的编码错误。从Java5以后，在Java中联接字符串，可以使用 + 操作符或者 StringBuilder 。

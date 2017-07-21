@@ -1,0 +1,40 @@
+java.lang.Boolean比较简单，有几个方法值得说一下
+
+ 
+
+ 
+public static boolean parseBoolean(String s) {
+        return ((s != null) && s.equalsIgnoreCase("true"));
+    }
+先判断null，再判断是否值为true，忽略大小写
+
+public static int hashCode(boolean value) {
+        return value ? 1231 : 1237;
+    }
+HashCode的判断里，有两个素数，根据stackoverflow中的讨论来看，也是随便用的，你换任意大的素数也可以。原理主要是防碰撞。
+
+http://stackoverflow.com/questions/3912303/boolean-hashcode
+
+    public static boolean getBoolean(String name) {
+        boolean result = false;
+        try {
+            result = parseBoolean(System.getProperty(name));
+        } catch (IllegalArgumentException | NullPointerException e) {
+        }
+        return result;
+    }
+这个比较假，一般人不看源码谁知道这个是返回系统属性啊,还会catch掉一些异常，如果想判断布尔值，请使用parseBoolean.
+
+此外，1.8增加了几个与或异或的方法
+
+    public static boolean logicalAnd(boolean a, boolean b) {
+        return a && b;
+    }
+
+    public static boolean logicalOr(boolean a, boolean b) {
+        return a || b;
+    }
+
+    public static boolean logicalXor(boolean a, boolean b) {
+        return a ^ b;
+    }

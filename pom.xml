@@ -17,5 +17,7 @@
   	<module>jdk-learning</module>
   	<module>jvm-learning</module>
   	<module>openJdk-learning</module>
+  	<module>Data-Structure</module>
+  	<module>zookeeper-learning</module>
   </modules>
 </project>

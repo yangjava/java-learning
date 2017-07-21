@@ -1,0 +1,139 @@
+作用
+
+Iterable 是一个接口, 子类只需要实现一个方法Iterator<T> iterator();, 返回一个迭代器, 这个接口的主要作用就是:实现了这个接口的类的实例,能够使用for-each循环进行遍历. 主要语义是为了表示一个对象可迭代.
+
+使用
+
+以下通过实现一个Range类来使用一下这个接口,加深印象
+
+Range类实现要求
+
+通过输入两个数字来产生一个连续的自然数区间
+可以循环迭代这个区间
+可以指定步进产生一个区间 (1,3,5...)
+实现
+
+public class Range implements Iterable<Integer> {
+    // 起始数字
+    private final Integer start;
+    // 结束数字
+    private final Integer stop;
+    // 步进
+    private final Integer step;
+
+    /**
+     * 自定义开始,结束和步进的Range
+     * @param start 开始数字
+     * @param stop  结束数字
+     * @param step  步进 (每次加多少)
+     */
+    public Range(Integer start, Integer stop, Integer step) {
+        this.start = start;
+        this.stop = stop;
+        this.step = step;
+    }
+
+    /**
+     * 步进为1的Range
+     * @param start 开始数字
+     * @param stop  结束数字
+     */
+    public Range(Integer start, Integer stop) {
+        this(start, stop, 1);
+    }
+
+    /**
+     * 实现接口,返回一个迭代器
+     * @return
+     */
+    @Override
+    public Iterator<Integer> iterator() {
+        return new RangeIterator(start);
+    }
+
+    // -----------------------------------------
+
+    // 内部迭代器
+    private class RangeIterator implements Iterator<Integer> {
+        private Integer current;
+        RangeIterator(Integer current) {
+            this.current = current;
+        }
+
+        @Override
+        public boolean hasNext() {
+            if (step < 0) {
+                return current.doubleValue() > stop.doubleValue();
+            } else {
+                return current.doubleValue() < stop.doubleValue();
+            }
+        }
+
+        @Override
+        public Integer next() {
+            current += step;
+            return current;
+        }
+    }
+}
+测试:
+
+for(int i: new Range(0, 10)) {
+    System.out.println("i = " + i);
+}
+
+// 输出:
+i = 1
+i = 2
+i = 3
+i = 4
+i = 5
+i = 6
+i = 7
+i = 8
+i = 9
+i = 10
+
+// ----------------------------
+for (int i : new Range(10, 0, -1)) {
+    System.out.println("i = " + i);
+}
+
+// 输出
+i = 9
+i = 8
+i = 7
+i = 6
+i = 5
+i = 4
+i = 3
+i = 2
+i = 1
+i = 0
+以上代码基本符合实现要求, 这个类里面实现了一个Iterator, 其实他才是真正干活的,后面有时间再写关于Iterator的事情
+
+其它内容
+
+jdk1.8中新加入了两个default的方法, 一个是forEach, 另外一个是spliterator, 这两个方法是为了方便使用而加进来的
+
+先来看看forEach的使用
+
+
+new Range(0, 10).forEach(i -> {
+    System.out.println("i = " + i);
+});
+
+// 输出:
+i = 1
+i = 2
+i = 3
+i = 4
+i = 5
+i = 6
+i = 7
+i = 8
+i = 9
+i = 10
+这只一个是方便使用lambda的一种便利循环方式
+
+还有一个spliterator方法, 返回一个Spliterator, 关于这个后面再写

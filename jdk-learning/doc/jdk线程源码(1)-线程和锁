@@ -1,0 +1,643 @@
+1.概述
+
+1.1并发还是并行(Concurrent or Parallel)
+
+A concurrent program has multiple logical threads of control. These threads may or may not run in parallel.
+A parallel program may or may not have more than one logical thread of control.
+并发是问题域中的概念:程序需要设计成能够处理多个同时(几乎同时)发生的事件;而并行则是方法域中的概念:通过将问题中的多个部分并发执行,来加速解决问题.
+并发是同一时间应对(dealing with)多件事件的处理能力;并行是同一时间动手做(doing)多件事情的能力
+可以同时处理多个问题,但是每次只做一件事,是并发.
+我妻子是一位教师。与众多教师一样，她极其善于处理多个任务。她虽然每次只能做一件事，但可以并发地处理多个任务。比如，在听一位学生朗读的时候，她可以暂停学生的朗读，以维持课堂秩序，或者回答学生的问题。这是并发，但并不并行（因为仅有她一个人，某一时刻只能进行一件事）。 但如果还有一位助教，则她们中一位可以聆听朗读，而同时另一位可以回答问题。这种方式既是并发，也是并行。 假设班级设计了自己的贺卡并要批量制作。一种方法是让每位学生制作五枚贺卡。这种方法是并行，而（从整体看）不是并发，因为这个过程整体来说只有一个任务。
+
+并发和并行经常被混淆的一个原因是，传统的“线程与锁”模型并没有显式支持并行。如果要用线程与锁模型为多核进行开发，唯一的选择就是写一个并发的程序，让其并行地运行在多核上。
+
+并发程序通常是不确定的, 并行程序可能是确定的. 使用一门直接支持并行的编程语言可以写出并行程序，而不会引入不入不 确定性.
+
+1.2 并行架构
+
+位级（bit-level）并行
+
+32位计算机比8位计算机运行速度更快,因为并行,对于两个32位数的加法，8位计算 机必须进行多次8位计算，而32位计算机可以一步完成，即并行地处理32位数的4字节。
+指令级（instruction-level）并行
+
+现代CPU的并行度很高，其中使用的技术包括流水线、乱序执行和猜测执行等。入多核时代，我们必须面对的情况是：无论是表面上还是实质上，指令都不再串行 执行了。这个就是内存可见性的问题啊,由于cpu对指令的重排序!!重排序问题的引入
+数据级（data）并行 数据级并行
+
+图像处理就是一种适合进行数据级并行的场景。比如，为了增加图片亮度就需要增加每一个像 素的亮度。现代GPU（图形处理器）也因图像处理的特点而演化成了极其强大的数据并行处理器。
+任务级（task-level）并行
+
+终于来到了大家所默认的并行形式——多处理器。从程序员的角度来看，多处理器架构最明 显的分类特征是其内存模型（共享内存模型或分布式内存模型）。
+共享内存模型(通过内存通信)
+
+分布式内存模型( 通过网络通信 )
+
+1.3 并发：不只是多核
+
+并发的世界，并发的软件
+分布式的世界，分布式的软件
+不可预测的世界，容错性强的软件
+复杂的世界，简单的软件
+在选对编程语言和工具的情况下，比起串行的等价解决方案，一个并发的解决方案会更简洁清晰。
+如果解决方案有着与问题类似的并发结构，就会简单许多：我们不需要创建一个复杂的线程来处理问题中的多个任务，只需要用多个简单的线程分别处理不同的任务即可。
+1.4 七个模型
+
+线程与锁
+
+线程与锁模型有很多众所周知的不足，但仍是其他模型的技术基础，也是很多并发软件开发的首选。
+函数式编程
+
+函数式编程日渐重要的原因之一，是其对并发编程和并行编程提供了良好的支持。函数式编程消除了可变状态，所以从根本上是线程安全的，而且易于并行执行。
+Clojure之道——分离标识与状态
+
+编程语言Clojure是一种指令式编程和函数式编程的混搭方案，在两种编程方式上取得了微妙的平衡来发挥两者的优势。
+actor
+
+actor模型是一种适用性很广的并发编程模型，适用于共享内存模型和分布式内存模型，也适合解决地理分布型问题，能提供强大的容错性。
+通信顺序进程（Communicating Sequential Processes，CSP）
+
+表面上看，CSP模型与actor模型很相似，两者都基于消息传递。不过CSP模型侧重于传递信息的通道，而actor模型侧重于通道两端的实体，使用CSP模型的代码会带有明显不同的风格。
+数据级并行
+
+每个笔记本电脑里都藏着一台超级计算机——GPU。GPU利用了数据级并行，不仅可以快速进行图像处理，也可以用于更广阔的领域。如果要进行有限元分析、流体力学计算或其他的大量数字计算，GPU的性能将是不二选择。
+Lambda架构
+
+大数据时代的到来离不开并行——现在我们只需要增加计算资源，就能具有处理TB级数据的能力。Lambda架构综合了MapReduce和流式处理的特点，是一种可以处理多种大数据问题的架构。
+2.线程与锁
+
+2.1 简单粗暴
+
+线程与锁其实是是对底层硬件运行过程的形式化.这是他的最大优点也是最大缺点
+现在的优秀代码很少直接使用底层服务:不应在产品代码上直接使用Thread类等底层服务
+2.2 第一天:互斥和内存模型
+
+竞态条件
+
+内存可见性
+
+class Counter {
+    private int count = 0;
+    public synchronized void increment() { ++count; } ➤
+    public int getCount() { return count; }
+}
+这段代码没有竞态条件的bug 但是又内存可见性的bug 因为getCount()没有加锁,调用getCount()可能获得一个失效的值
+死锁
+
+哲学家进餐问题
+class Philosopher extends Thread {
+    private Chopstick left, right;
+    private Random random;
+
+    public Philosopher(Chopstick left, Chopstick right) {
+        this.left = left; this.right = right;
+                random = new Random();
+    }
+
+    public void run() {
+        try {
+            while(true) {
+                    Thread.sleep(random.nextInt(1000)); // Think for a while
+                synchronized(left) { // Grab left chopstick //
+                    synchronized(right) { // Grab right chopstick // 15
+                        Thread.sleep(random.nextInt(1000)); // Eat for a while
+                    }
+                }
+            }
+        } catch(InterruptedException e) {}
+    }
+}
+创建五个哲学家实例,这个程序可以愉快的运行很久,但到某个时刻一切会停下来:如果所有哲学家同时进餐,就会死锁(相邻的几个同时准备进餐还不至于会死锁)
+一个线程想使用多把锁的时候就要考虑死锁的可能,有一个简单的规则还有避免死锁:总是按照一个全局的固定的顺序获取多把锁,其中一种实现如下:
+class Philosopher extends Thread {
+    private Chopstick first, second;
+    private Random random;
+    private int thinkCount;
+
+    public Philosopher(Chopstick left, Chopstick right) {
+        if(left.getId() < right.getId()) {
+            first = left; second = right;
+        } else {
+            first = right; second = left;
+        }
+        random = new Random();
+    }
+
+    public void run() {
+        try {
+            while(true) {
+                ++thinkCount;
+                if (thinkCount % 10 == 0)
+                    System.out.println("Philosopher " + this + " has thought " + thinkCount + " times");
+                Thread.sleep(random.nextInt(1000));     // Think for a while
+                synchronized(first) {                   // Grab first chopstick
+                    synchronized(second) {                // Grab second chopstick
+                        Thread.sleep(random.nextInt(1000)); // Eat for a while
+                    }
+                }
+            }
+        } catch(InterruptedException e) {}
+    }
+}
+程序解释:当所有人同时决定进餐的时候,ABCD左手分别拿起1234号筷子(对于他们小的编号的筷子还是在左手),这和上面的程序没啥不同,但是差别就在这个E,他左边的筷子是大编号,所以他左手拿的是1,然而1被A拿了,所以他就一只筷子都拿不到,所以D可以正常进餐,就不会死锁
+
+局限:获取锁的代码写的比较集中的话,有利于维护这个全局顺序,但是对于规模比较大的程序,使用锁的地方比较零散,各处都遵守这个顺序就显得不太实际.
+
+技巧:使用对象的散列值作为锁的全局顺序
+优点:适用于所有java对象,不用为锁对象专门定义并维护一个顺序,
+缺点:但是对象的散列值不能保证唯一性(虽然几率很小), 不是迫不得已不要使用
+if(System.identityHashCode(left) < System.identityHashCode(right)) {
+            first = left; second = right;
+} else {
+            first = right; second = left;
+}
+来自外星方法的危害
+
+  private synchronized void updateProgress(int n) {
+    for (ProgressListener listener: listeners) // listeners是累的一个field
+      listener.onProgress(n);
+  }
+上面的方法乍一看好像没啥问题,但是这个方法调用了onProgress()方法,我们对这个方法一无所知, 要是他里面还有一把锁,就可能会死锁
+解决方案:在遍历前对listeners进行保护性复制(defensive copy),再针对这份副本进行遍历
+
+  private void updateProgress(int n) {
+    ArrayList<ProgressListener> listenersCopy;
+    synchronized(this) {
+      listenersCopy = (ArrayList<ProgressListener>)listeners.clone();
+    }
+    for (ProgressListener listener: listenersCopy)
+      listener.onProgress(n);
+  }
+这个方案一石多鸟,不仅调用外星方法的时候不用加锁,而且还大大减少了代码持有锁的时间(前面是对方法加synchronized,这里是对语句块)
+避免危害的准则
+
+1.对共享变量的所有访问都需要同步化(读脏数据,竞态条件)
+2.读线程和写线程都需要同步化(内存可见性)
+3.按照约定的全局顺序获取多把锁(死锁)
+4.当持有锁的时候避免调用外星方法(你对外星方法一无所知,要是他里面有锁,就会死锁)
+5.持有锁的时间尽可能短
+2.3第二天:超越内置锁
+
+ReentrantLock提供了显式的lock和unlock
+Lock lock = new ReentrantLock();
+lock.lock();
+try{
+  //使用共享资源
+
+} finally { //使用finally确保锁释放
+  lock.unlock();
+}
+可中断的锁
+
+使用内置锁,由于阻塞的线程无法被中断,所以程序不可能从死锁中恢复,可以用ReentrantLock代替内置锁,使用它的lockInterruptibly 在下面的程序中使用Thread.interrupt()可以让线程终止(这里说的都是死锁情况下)
+    final ReentrantLock l1 = new ReentrantLock();
+    final ReentrantLock l2 = new ReentrantLock();
+
+    Thread t1 = new Thread() {
+      public void run() {
+        try {
+          l1.lockInterruptibly();
+          Thread.sleep(1000);
+          l2.lockInterruptibly();
+        } catch (InterruptedException e) { System.out.println("t1 interrupted"); }
+      }
+    };
+超时
+
+ReentrantLock突破了内置锁的另一个限制:可以为获取锁的操作设置超时时间,可以用这种方式来解决哲学家进餐问题
+class Philosopher extends Thread {
+  private ReentrantLock leftChopstick, rightChopstick;
+  private Random random;
+  private int thinkCount;
+
+  public Philosopher(ReentrantLock leftChopstick, ReentrantLock rightChopstick) {
+    this.leftChopstick = leftChopstick; this.rightChopstick = rightChopstick;
+    random = new Random();
+  }
+
+  public void run() {
+    try {
+      while(true) {
+        ++thinkCount;
+        if (thinkCount % 10 == 0)
+          System.out.println("Philosopher " + this + " has thought " + thinkCount + " times");
+        Thread.sleep(random.nextInt(1000)); // Think for a while
+        leftChopstick.lock();
+        try {
+          if (rightChopstick.tryLock(1000, TimeUnit.MILLISECONDS)) {
+            // Got the right chopstick
+            try {
+              Thread.sleep(random.nextInt(1000)); // Eat for a while
+            } finally { rightChopstick.unlock(); }
+          } else {
+            // Didn't get the right chopstick - give up and go back to thinking
+            System.out.println("Philosopher " + this + " timed out");
+          }
+        } finally { leftChopstick.unlock(); }
+      }
+    } catch(InterruptedException e) {}
+  }
+}
+虽然上述代码不会死锁,但也不是一个足够好的方案,后面有更好的方案
+1.这个方案不能避免死锁,只能避免无尽的死锁 只是提供了从死锁中恢复的手段
+2.会受到活锁现象,如果所有死锁线程同时超时,它们极有可能再次陷入死锁,虽然死锁没有永远持续下去,但对资源的争夺状况没有得到任何改善(可以用一些方法减少活锁的几率,比如为每个线程设置不同的超时时间)
+交替锁(hand-over-hand locking)
+
+交替锁可以只锁住链表的一部分,允许不涉及被锁部分的其他线程自由访问链表.插入新的链表节点时,需要将待插入位置两边的节点加锁.首先锁住链表的前两个节点,如果这两个节点之间不是待插入的位置,那么就解锁第一个,并锁住第三个,以此类推,知道找到待插入位置并插入新的节点,最后解锁两边的节点
+这种交替型的加锁和解锁顺序无法用内置锁实现,使用ReentrantLock可以
+class ConcurrentSortedList {
+  private class Node {
+    int value;
+    Node prev;
+    Node next;
+    ReentrantLock lock = new ReentrantLock();
+
+    Node() {}
+
+    Node(int value, Node prev, Node next) {
+      this.value = value; this.prev = prev; this.next = next;
+    }
+  }
+
+  private final Node head;
+  private final Node tail;
+
+  public ConcurrentSortedList() {
+    head = new Node(); tail = new Node();
+    head.next = tail; tail.prev = head;
+  }
+
+  //insert方法是有序的 遍历列表直到找到第一个值小于等于新插入的值得节点,在这个位置插入
+  public void insert(int value) {
+    Node current = head;
+    current.lock.lock();
+    Node next = current.next;
+    try {
+      while (true) {
+        next.lock.lock();
+        try {
+          if (next == tail || next.value < value) {
+            Node node = new Node(value, current, next);
+            next.prev = node;
+            current.next = node;
+              //!!!这里return要在两个finally都执行完后才会执行啊!!!但只是finally里的.不过要是return换成exit(0)就直接退出了
+
+            return; 
+          }
+        } finally { current.lock.unlock(); }
+        current = next;
+        next = current.next;
+      }
+    } finally { next.lock.unlock(); }
+  }
+
+  public int size() {
+    Node current = tail;
+    int count = 0;
+
+    while (current.prev != head) {
+      ReentrantLock lock = current.lock;
+      lock.lock();
+      try {
+        ++count;
+        current = current.prev;
+      } finally { lock.unlock(); }
+    }
+
+    return count;
+  }
+
+  public boolean isSorted() {
+    Node current = head;
+    while (current.next.next != tail) {
+      current = current.next;
+      if (current.value < current.next.value)
+        return false;
+    }
+    return true;
+  }
+}
+
+class LinkedList {
+  public static void main(String[] args) throws InterruptedException {
+    final ConcurrentSortedList list = new ConcurrentSortedList();
+    final Random random = new Random();
+
+    class TestThread extends Thread {
+      public void run() {
+        for (int i = 0; i < 10000; ++i)
+          list.insert(random.nextInt());
+      }
+    }
+
+    class CountingThread extends Thread {
+      public void run() {
+        while (!interrupted()) {
+          System.out.print("\r" + list.size());
+          System.out.flush();
+        }
+      }
+    }
+
+    Thread t1 = new TestThread();
+    Thread t2 = new TestThread();
+    Thread t3 = new CountingThread();
+    //注意一下这里的用法 这里先join再interrupted的用法
+    t1.start(); t2.start(); t3.start();
+    t1.join(); t2.join();
+    t3.interrupt();
+
+    System.out.println("\r" + list.size());
+
+    if (list.size() != 20000)
+      System.out.println("*** Wrong size!");
+
+    if (!list.isSorted())
+      System.out.println("*** Not sorted!");
+  }
+}
+26行的 next.lock.lock();锁住了头,36行的 next.lock.lock();锁住了下一个节点. if ( next == tail || next.value < value )判断两个节点之间是否是待插入位置,如果不是,在38行的finally解锁 current.lock.unlock();并继续遍历,如果找到待插入位置,33~36行构造新节点并将其插入链表后返回.两把锁的解锁操作在俩finally块中进行
+这种方案可以让多个线程并发的进行链表插入操作
+条件变量
+
+并发编程经常需要等待某个事件的发生.比如队列删除元素前需要等待队列非空等等
+按照下面的模式使用条件变量
+ReentrantLock lock = new ReentrantLock();
+Condition condition = lock.newCondition();
+lock.lock();
+try {
+  while (! « condition is true » ) {
+    condition.await();
+  }
+  //使用共享资源
+} finally { lock.unlock(); }
+为何要在一个循环中循环调用await():当另一个线程调用了signal()或signalAll(),意味着对应的条件可能为真,await()将原子地恢复运行并重新加锁.从await()返回后需要重新检查等待的条件是否为真,必要的话可能再次调用await()并阻塞
+哲学家进餐问题新解决方法
+class Philosopher extends Thread {
+
+    private boolean eating;
+    private Philosopher left;
+    private Philosopher right;
+    private ReentrantLock table;
+    private Condition condition;
+    private Random random;
+    private int thinkCount;
+
+    public Philosopher ( ReentrantLock table ) {
+        eating = false;
+        this.table = table;
+        condition = table.newCondition();
+        random = new Random();
+    }
+
+    public void setLeft ( Philosopher left ) {
+        this.left = left;
+    }
+
+    public void setRight ( Philosopher right ) {
+        this.right = right;
+    }
+
+    public void run () {
+        try {
+            while ( true ) {
+                think();
+                eat();
+            }
+        }
+        catch ( InterruptedException e ) {
+        }
+    }
+
+    private void think () throws InterruptedException {
+        table.lock();
+        try {
+            eating = false;
+            left.condition.signal();
+            right.condition.signal();
+        } finally {
+            table.unlock();
+        }
+        ++thinkCount;
+        if ( thinkCount % 10 == 0 ) {
+            System.out.println( "Philosopher " + this + " has thought " + thinkCount + " times" );
+        }
+        Thread.sleep( 1000 );
+    }
+
+    private void eat () throws InterruptedException {
+        table.lock();
+        try {
+            while ( left.eating || right.eating ) {
+                condition.await();
+            }
+            eating = true;
+        } finally {
+            table.unlock();
+        }
+        Thread.sleep( 1000 );
+    }
+}
+现在没有筷子类,现在仅当哲学家的左右邻座都没有进餐的时候,他才可以进餐
+当一个哲学家饥饿的时候,他首先锁住餐桌,这样其他哲学家无法改变状态(进餐/思考),然后查看左右的哲学家有没有在进餐,没有的话开始进餐并解锁餐桌,否则调用await(),解锁餐桌
+当一个哲学家进餐结束开始思考的时候,他首先锁住餐桌并将eating设置为false,然后通知左邻右舍可以进餐了,最后解锁餐桌.
+之前的解决方案经常只有一个哲学家能进餐,其他人都持有一根筷子在等,这个方案中当一个哲学家理论上可以进餐,他肯定可以进餐
+原子变量
+
+原子变量是无锁非阻塞算法的基础
+volatile是一种低级形式的同步,他的适用场景也越来越少,如果你要使用volatile,可以在atomic包中寻找更适合的工具
+2.4 站在巨人的肩膀上
+
+写入时复制
+
+之前有用到保护性复制,Java标准库提供了更优雅的现成的方案--CopyOnWriteArrayList,他不是在遍历列表前进行复制,而是在列表被修改时进行
+先将当前容器进行Copy，复制出一个新的容器，然后新的容器里添加元素，添加完元素之后，再将原容器的引用指向新的容器 所以CopyOnWrite容器也是一种读写分离的思想，读和写不同的容器。CopyOnWriteArrayList适合使用在读操作远远大于写操作的场景里，比如缓存
+缺点: 1.内存占用问题 2.数据一致性问题:CopyOnWrite容器只能保证数据的最终一致性，不能保证数据的实时一致性。所以如果你希望写入的的数据，马上能读到，请不要使用CopyOnWrite容器。
+//Downloader.java
+  private CopyOnWriteArrayList<ProgressListener> listeners;
+
+
+  public void addListener(ProgressListener listener) {
+    listeners.add(listener);
+  }
+  public void removeListener(ProgressListener listener) {
+    listeners.remove(listener);
+  }
+  private void updateProgress(int n) {
+    for (ProgressListener listener: listeners)
+      listener.onProgress(n);
+  }
+一个完整的程序
+
+Q:wiki上出现频率最高的词
+版本一的并行:生产者和消费者(串行的我略过了)
+
+//生产者 将page加到队尾
+class Parser implements Runnable {
+  private BlockingQueue<Page> queue;
+
+
+  public Parser(BlockingQueue<Page> queue) {
+    this.queue = queue;
+  }
+
+  public void run() {
+    try {
+      Iterable<Page> pages = new Pages(100000, "enwiki.xml");
+      for (Page page: pages)
+        queue.put(page);
+    } catch (Exception e) { e.printStackTrace(); }
+  }
+}
+//消费者
+class Counter implements Runnable {
+  private BlockingQueue<Page> queue;
+  private Map<String, Integer> counts;
+
+  public Counter(BlockingQueue<Page> queue,
+                 Map<String, Integer> counts) {
+    this.queue = queue;
+    this.counts = counts;
+  }
+
+  public void run() {
+    try {
+      while(true) {
+        Page page = queue.take();
+        if (page.isPoisonPill())
+          break;
+
+
+        Iterable<String> words = new Words(page.getText());
+        for (String word: words)
+          countWord(word);
+      }
+    } catch (Exception e) { e.printStackTrace(); }
+  }
+
+
+  private void countWord(String word) {
+    Integer currentCount = counts.get(word);
+    if (currentCount == null)
+      counts.put(word, 1);
+    else
+      counts.put(word, currentCount + 1);
+  }
+}
+最后创建两个线程运行
+  public static void main(String[] args) throws Exception {
+    ArrayBlockingQueue<Page> queue = new ArrayBlockingQueue<Page>(100);
+    HashMap<String, Integer> counts = new HashMap<String, Integer>();
+
+    Thread counter = new Thread(new Counter(queue, counts));
+    Thread parser = new Thread(new Parser(queue));
+    long start = System.currentTimeMillis();
+
+    counter.start();
+    parser.start();
+    parser.join();
+    queue.put(new PoisonPill());
+    counter.join();
+    long end = System.currentTimeMillis();
+    System.out.println("Elapsed time: " + (end - start) + "ms");
+  }
+程序解释:该程序由两个线程在跑.一个读取一个分析,性能还不是最高.这里 ArrayBlockingQueue<Page> queue = new ArrayBlockingQueue<Page>(100);用了一个阻塞的并发队列来存放读取到的page.这个并发队列很适合实现生产者消费者模式,提供了高效的并发方法put()和take(),这些方法会在必要时阻塞:当一个空队列调用take(一个满队列调用put()),程序会阻塞直到队列变为非空(非满)
+为什么要用阻塞队列? concurrent包不仅提供了阻塞队列,还提供了一种容量无限,操作不需等待,非阻塞的队列ConcurrentLinkedQueue.为何不用他?关键在与生产者和消费者几乎不会保持相同的速度,当生产者速度快于消费者,生产者越来越大的时候,会撑爆内存.相比之下,阻塞队列只允许生产者的速度在一定程度上超过消费者的速度,但不会超过很多.
+第二个版本:多个消费者
+
+上个版本的解析文件花了10s,统计花了95s,一共花了95s.进一步优化就对统计过程进行并行化,建立多个消费者.(他这里还是用一个count,不同的消费者都写这一个count,所以要加锁)
+  private void countWord(String word) {
+    lock.lock();
+    try {
+      Integer currentCount = counts.get(word);
+      if (currentCount == null)  counts.put(word, 1);
+      else  counts.put(word, currentCount + 1);
+    } finally { lock.unlock(); }
+  }
+运行多个消费者
+    ExecutorService executor = Executors.newCachedThreadPool();
+    for (int i = 0; i < NUM_COUNTERS; ++i)
+      executor.execute(new Counter(queue, counts));
+    Thread parser = new Thread(new Parser(queue));
+    parser.start();
+    parser.join();
+    for (int i = 0; i < NUM_COUNTERS; ++i)
+      queue.put(new PoisonPill());
+    executor.shutdown();
+但是一运行发现比串行还慢一半.主要原因就是过多的线程尝试访问同一个共享资源,等待的时间比运行的时间还长.改用ConcurrentHashMap(使用了锁分段)
+  //改用 ConcurrentHashMap
+  private void countWord(String word) {
+    while (true) { //理解一下这里的循环 如果下面的操作没有成功的话,就重试
+      Integer currentCount = counts.get(word);
+      if (currentCount == null) {
+        if (counts.putIfAbsent(word, 1) == null) //如果没有与1关联 则关联,有原子性
+          break;
+      } else if (counts.replace(word, currentCount, currentCount + 1)) {
+        break;
+      }
+    }
+这次的测速要好很多,但是没有理论上的提速.因为消费者对conuts有一些不必要的竞争,与其所有消费者都共享一个counts,不如每个消费者各自维护一个计数map,再对这些计数map进行合并
+class Counter implements Runnable {
+
+  private BlockingQueue<Page> queue;
+  private ConcurrentMap<String, Integer> counts;
+  private HashMap<String, Integer> localCounts;
+
+  public Counter(BlockingQueue<Page> queue,
+                 ConcurrentMap<String, Integer> counts) {
+    this.queue = queue;
+    this.counts = counts;
+    localCounts = new HashMap<String, Integer>();
+  }
+
+  public void run() {
+    try {
+      while(true) {
+        Page page = queue.take();
+        if (page.isPoisonPill())
+          break;
+        Iterable<String> words = new Words(page.getText());
+        for (String word: words)
+          countWord(word);
+      }
+      //所以计数的那个可以是普通的map 他只在自己的线程里
+      mergeCounts();
+    } catch (Exception e) { e.printStackTrace(); }
+  }
+
+  private void countWord(String word) {
+    Integer currentCount = localCounts.get(word);
+    if (currentCount == null)
+      localCounts.put(word, 1);
+    else
+      localCounts.put(word, currentCount + 1);
+  }
+
+  private void mergeCounts() {
+    for (Map.Entry<String, Integer> e: localCounts.entrySet()) {
+      String word = e.getKey();
+      Integer count = e.getValue();
+      while (true) {
+        Integer currentCount = counts.get(word);
+        if (currentCount == null) {
+          if (counts.putIfAbsent(word, count) == null)
+            break;
+        } else if (counts.replace(word, currentCount, currentCount + count)) {
+          break;
+        }
+      }
+    }
+  }
+}
+第三天总结
+
+1.使用线程池,不要直接创建线程
+2.使用CopyOnWriteArrayList让监听器相关的代码更简单高效
+3.使用ArrayBlockingQueue让生产者和消费者之间高效合作
+4.ConcurrentHashMap提供了更好的并发访问
+2.5 复习
+
+线程与锁的缺点:没有为并行提供直接的支持,对于程序员,编程语言层面没有提供足够的帮助
+应用多线程的难点不在编程,而在于难以测试,多线程的bug很难重现.可维护性更让人头疼,如果不能对多线程问题进行可靠的测试,就无法对多线程进行可靠的重构.使用其他不那么底层的模型会好一些.
+
+
+
+volatile的语义是保证内存可见性 不保证原子性

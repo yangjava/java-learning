@@ -1,0 +1,105 @@
+一、前言
+
+上一篇《Java IO 之 InputStream源码》，说了InputStream。JDK1.0中就有了这传统的IO字节流，也就是 InputStream 和 OutputStream。梳理下两者的核心：
+
+InputStream中有几个 read() 方法和 OutputStream中有几个 write() 方法。它们是一一对应的，而核心的是read()和write()方法。它们都没实现，所有本质调用是各自实现类实现的该两个方法。
+
+read() 和 write() ,对应着系统的Input和Output，即系统的输出输入。
+
+二、OutputStream
+
+也是一个抽象类，即表示所有字节输入流实现类的基类。它的作用就是抽象地表示所有要输出到的目标，例如常见的FileOutStream、FilterOutputStream等。它实现了java.io.Closeable和java.io.Flushable两个接口。其中空实现了flush方法，即拥有刷新缓存区字节数组作用。
+
+那些输出目标呢？比如：
+
+1） 字节数组（不代表String类，但可以转换）
+
+2） 文件
+
+3） 管道（多线程环境中的数据源）
+
+等等
+
+FilterOutputStream是为各种OutputStream实现类提供的“装饰器模式”的基类。将属性或者有用的接口与输出流连接起来。
+
+ 
+
+三、细解OutputStream源码的核心
+
+一样的，先看源码：
+
+
+/**
+ * 所有字节输出流实现类的基类
+ */
+public abstract class SOutputStream implements Closeable, Flushable {
+ 
+    // 将指定的字节写入输出流
+    public abstract void write(int b) throws IOException;
+ 
+    // 将指定的byte数组的字节全部写入输出流
+    public void write(byte b[]) throws IOException {
+        write(b, 0, b.length);
+    }
+ 
+    // 将指定的byte数组中从偏移量off开始的len个字节写入输出流
+    public void write(byte b[], int off, int len) throws IOException {
+        if(b == null) {
+            throw new NullPointerException();
+        } elseif((off < 0) || (off > b.length) || (len < 0) ||
+                   ((off + len) > b.length) || ((off + len) < 0)) {
+            throw new IndexOutOfBoundsException();
+        } elseif(len == 0) {
+            return;
+        }
+        for(int i = 0; i < len ; i++) {
+            write(b[off + i]);
+        }
+    }
+ 
+    // 刷新输出流，并强制写出所有缓冲的输出字节
+    public void flush() throws IOException {
+    }
+ 
+    // 关闭输出流，并释放与该流有关的所有资源
+    public void close() throws IOException {
+    }
+ 
+}
+
+
+
+其中三个核心的write()方法，对应着三个InputStream的read()方法：
+
+1. abstract void write(int b) 抽象方法
+
+
+public abstract void write(int b) throws IOException;
+对应着，InputStream的read()方法，此方法依旧是抽象方法。因为子类必须实现此方法的一个实现。这就是输入流的关键方法。
+
+二者，下面两个write方法中调用了此核心方法。
+
+可见，核心的是read()和write()方法在传统的IO是多么重要。
+
+2.  void write(byte b[]) 方法
+
+
+public void write(byte b[]) throws IOException
+将指定的byte数组的字节全部写入输出流。该效果实际上是由下一个write方法实现的，只是调用的额时候指定了长度：
+
+3.  void write(byte b[], int off, int len) 方法
+
+
+public void write(byte b[], int off, int len) throws IOException
+将指定的byte数组中从偏移量off开始的len个字节写入输出流。代码详细流程解读如下：
+
+    a.  如果 b 为 null，则抛出 NullPointerException。
+
+    b.  如果 off 为负，或 len 为负，或者 off+len 大于数组 b 的长度，则抛出 IndexOutOfBoundsException。
+
+    c.  将数组 b 中的某些字节按顺序写入输出流；元素 b[off] 是此操作写入的第一个字节，b[off+len-1] 是此操作写入的最后一个字节。
+
+四、小结
+
+
+OutputStream 解读对照着 InputStream来看！注意 一个write对应一个read

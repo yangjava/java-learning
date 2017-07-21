@@ -1,0 +1,239 @@
+源码解读
+
+Vector的声明：
+
+public class Vector<E>
+    extends AbstractList<E>
+    implements List<E>, RandomAccess, Cloneable, java.io.Serializable
+通过继承和实现关系，可以看出Vector继承自抽象类AbstractList，实现了接口List, RandomAccess, Cloneable, java.io.Serializable.
+
+功能和特点
+
+Vector 继承了AbstractList，实现了List；所以，它是一个队列，支持相关的添加、删除、修改、遍历等功能。
+Vector 实现了RandmoAccess接口，即提供了随机访问功能。RandmoAccess是java中用来被List实现，为List提供快速访问功能的。在Vector中，我们即可以通过元素的序号快速获取元素对象；这就是快速随机访问。
+Vector 实现了Cloneable接口，即实现clone()函数。它能被克隆。
+与ArrayList的不同点：Vector中的操作是线程安全的。
+
+Vector的实现
+
+常量
+
+
+//list初始容量
+private static final int DEFAULT_CAPACITY = 10;
+变量
+
+
+/**
+ * The array buffer into which the components of the vector are
+ * stored. The capacity of the vector is the length of this array buffer,
+ * and is at least large enough to contain all the vector's elements.
+ *
+ * <p>Any array elements following the last element in the Vector are null.
+ *
+ * @serial
+ */
+protected Object[] elementData;
+
+/**
+ * The number of valid components in this {@code Vector} object.
+ * Components {@code elementData[0]} through
+ * {@code elementData[elementCount-1]} are the actual items.
+ *
+ * @serial
+ */
+protected int elementCount;
+
+/**
+ * The amount by which the capacity of the vector is automatically
+ * incremented when its size becomes greater than its capacity.  If
+ * the capacity increment is less than or equal to zero, the capacity
+ * of the vector is doubled each time it needs to grow.
+ *
+ * @serial
+ */
+protected int capacityIncrement;
+构造方法
+
+
+public Vector(int initialCapacity, int capacityIncrement) {
+    super();
+    if (initialCapacity < 0)
+        throw new IllegalArgumentException("Illegal Capacity: "+
+                                           initialCapacity);
+    this.elementData = new Object[initialCapacity];
+    this.capacityIncrement = capacityIncrement;
+}
+
+public Vector(int initialCapacity) {
+    this(initialCapacity, 0);
+}
+
+public Vector() {
+    this(10);
+}
+
+public Vector(Collection<? extends E> c) {
+    elementData = c.toArray();
+    elementCount = elementData.length;
+    // c.toArray might (incorrectly) not return Object[] (see 6260652)
+    if (elementData.getClass() != Object[].class)
+        elementData = Arrays.copyOf(elementData, elementCount, Object[].class);
+}
+第一种方法需要一个默认的容量大小和每次容量增长的大小; 第二个是只设置初始容量的构造方法； 第三个是默认的构造方法，会默认创建一个容量为10的 Vector ; 第四个则传给一个 Collection ，注意，不管 Collection 里面是什么类型，最后放进 Vector 都会上转为 Object，与ArrayList类似。
+
+当capacityIncrement=0时，容量需要增长时，直接翻倍。 实现构造器调用，节省代码。值得借鉴。
+
+核心方法
+
+几乎所有的操作方法与ArrayList一致，只有数组容量的增长策略不同： copyInto
+
+public synchronized void copyInto(Object[] anArray) {
+    System.arraycopy(elementData, 0, anArray, 0, elementCount);
+}
+为什么是线程安全的？
+
+数据操作方法都是用synchronized关键字修饰，所以是县城安全的。
+
+小结
+
+与ArrayList的区别：
+
+线程安全性：
+容量增长策略：
+与ArrayList联系：
+
+都是基于数组实现
+都是实现了AbstractList抽象类，List接口，Clone接口，RandomAccess接口和Serializable接口。
+
+
+
+Vector 概述
+
+Vector 类是一个可变数组，它的大小随着add()和remove()等操作而变化。
+
+Vetctor类通过capacity和capacityIncrement这两个属性来优化存储。capacity就是底层数组的大小，随着元素的添加，递增数组可能需要进行扩容，每次扩容的增量至少是capacityIncrement的大小。
+
+Java1.2 开始，Vector类被重写实现了List接口的方法。与新的Collection集合的实现不同，Vector类的操作都是同步的。
+
+Vector 定义与属性
+
+public class Vector<E>
+    extends AbstractList<E>
+    implements List<E>, RandomAccess, Cloneable, java.io.Serializable
+{
+    protected Object[] elementData;
+    protected int elementCount;
+    protected int capacityIncrement;
+    ...
+
+}
+Vector 方法
+
+构造方法
+
+    public Vector(int initialCapacity, int capacityIncrement) {
+        super();
+        if (initialCapacity < 0)
+            throw new IllegalArgumentException("Illegal Capacity: "+
+                                               initialCapacity);
+        this.elementData = new Object[initialCapacity];
+        this.capacityIncrement = capacityIncrement;
+    }
+
+    public Vector(int initialCapacity) {
+        this(initialCapacity, 0);  //初始化扩容步长为0（扩容时，如果步长<0，会将步长设为当前容量大小）
+    }
+
+    public Vector() {
+        this(10);  //初始化容量为10
+    }
+扩容
+
+    private void grow(int minCapacity) {
+        // overflow-conscious code
+        int oldCapacity = elementData.length;
+    //新的容量为旧的容量加上扩容步长，如果扩容步长没有设置，则以当前容量为扩容步长
+        int newCapacity = oldCapacity + ((capacityIncrement > 0) ?   
+                                         capacityIncrement : oldCapacity);  
+        if (newCapacity - minCapacity < 0)  //如果新的容量仍然不够，则将新的容量直接设置为minCapacity
+            newCapacity = minCapacity;
+        if (newCapacity - MAX_ARRAY_SIZE > 0)
+            newCapacity = hugeCapacity(minCapacity);
+        elementData = Arrays.copyOf(elementData, newCapacity);
+    }
+获取
+
+    E elementData(int index) {
+        return (E) elementData[index];
+    }
+
+    public synchronized E get(int index) {
+        if (index >= elementCount)
+            throw new ArrayIndexOutOfBoundsException(index);
+
+        return elementData(index);
+    }
+插入
+
+    public synchronized boolean add(E e) {
+        modCount++;
+        ensureCapacityHelper(elementCount + 1);
+        elementData[elementCount++] = e;
+        return true;
+    }
+删除
+
+    public boolean remove(Object o) {
+        return removeElement(o);
+    }
+
+    public synchronized boolean removeElement(Object obj) {
+        modCount++;
+        int i = indexOf(obj);
+        if (i >= 0) {
+            removeElementAt(i);
+            return true;
+        }
+        return false;
+    }
+
+    public synchronized void removeElementAt(int index) {
+        modCount++;
+        if (index >= elementCount) {
+            throw new ArrayIndexOutOfBoundsException(index + " >= " +
+                                                     elementCount);
+        }
+        else if (index < 0) {
+            throw new ArrayIndexOutOfBoundsException(index);
+        }
+        int j = elementCount - index - 1;
+        if (j > 0) {
+            System.arraycopy(elementData, index + 1, elementData, index, j);
+        }
+        elementCount--;
+        elementData[elementCount] = null;
+    }
+说明
+
+Vector与ArrayList
+
+Vector与ArrayList都继承了抽象类ArrayList，具有几乎相同的底层存储与操作。
+其区别主要有以下几点： Vector是线程安全的，ArrayList不是。
+Vector与ArrayList的扩容步长不同。
+Vector没有subList()方法。
+
+Vector的线程安全
+
+Vector是线程安全的，但是对于非原子操作，并不能保证线程安全性，依然需要进行加锁。
+eg：
+
+    Vector<Integer> vector = new Vector<Integer>();
+    if(vector.isEmpty()) {
+        vector.add(1);
+    }
+
+
+
+
+

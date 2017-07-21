@@ -1,0 +1,809 @@
+在C、C++中有很多排序算法，但是通常排序算法不得不让程序员在写代码的过程中陷入对底层很多指针和位置的理解，java不希望这样，所以排序大多可以由java帮你做掉，例如，你要对一个数组排序，就通过：Collections.sort(list)那么这个list就被排序了，排序最终调用的是Arrays.sort方法来完成的，所以数组自然是用Arrays.sort了，而SortedSet里面内部也有排序功能也是类似的方式的来实现的，只是内部调用了相关的方法来完成而已；SortedSet只是一个接口，实现类有很多，本文以TreeSet实现类作为例子。
+
+而排序必然就存在对比大小，那么传递的信息，java是通过什么来对比大小的呢？compareTo这个来对比的，而内部对比过程中，需要将数据转换为Comparable来对比，所以你的对象就需要implementsComparable，并实现内部的方法compareTo，只要你的compareTo实现是你所想要的，那么排序必然是正确的，那么是否还有其他的方法，有的，排序的时候，允许你传入一个对比类，因为这样也可以减少一些空指针出现的可能性，传入的类需要实现：Comparator接口，实现其方法：compare类，虽然接口中还定义了equals方法基本不用管它，因为Object就已经实现了，并且内部排序中并没有用到equals方法来做排序。
+
+下面开始使用实例分别来做中文排序、对象排序，并分别使用对象实现Comparable接口，以及单独定义排序对象实现Comparator接口来完成排序：
+
+实例1（通过实现Comparator接口完成中文排序）：
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+import java.text.Collator;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
+ 
+public class ChineseSortCompare {
+ 
+     @SuppressWarnings ( "rawtypes" )
+     private final static Comparator CHINA_COMPARE = Collator.getInstance(java.util.Locale.CHINA);
+ 
+     public static void main(String []args) {
+         sortArray();
+         sortList();
+         System.out.println( "李四" .compareTo( "张三" )); //前者大于后者，则为正数，否则为负数，相等为0
+     }
+ 
+     @SuppressWarnings ( "unchecked" )
+     private static void sortList() {
+         List<String>list = Arrays.asList( "张三" , "李四" , "王五" );
+         Collections.sort(list , CHINA_COMPARE);
+         for (String str : list) {
+             System.out.println(str);
+         }
+     }
+ 
+     @SuppressWarnings ( "unchecked" )
+     private static void sortArray() {
+         String[] arr = { "张三" , "李四" , "王五" };
+         Arrays.sort(arr, CHINA_COMPARE);
+         for (String str : arr) {
+             System.out.println(str);
+         }
+     }
+}
+可以看到输出的结果都是一样的，当然String本身有compare方法，而且其本身也是实现了Comparable接口的，所以你如果不放入CHINA_COMPARE来进行处理的话，将会默认按照String自己的compareTo来做排序，排序的结果自然不是你想要的，当然英文应该是你想要的。
+
+实例2（通过外部定义Comparator来完成对象排序）：
+
+这里首先要构造一个对象的类，为了简单，我们就用两属性，定义一个UserDO这样一个类，描述如下：
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+public class UserDO {
+ 
+     protected String name;
+ 
+     protected String email;
+ 
+     public UserDO() {}
+ 
+     public UserDO(String name , String email) {
+         this .name = name;
+         this .email = email;
+     }
+ 
+     public String getName() {
+         return name;
+     }
+ 
+     public void setName(String name) {
+         this .name = name;
+     }
+ 
+     public String getEmail() {
+         return email;
+     }
+ 
+     public void setEmail(String email) {
+         this .email = email;
+     }
+}
+定义了两个属性为name和email，此时我们想要按照name了排序，那么我们定义排序的类如下：
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+import java.text.Collator;
+import java.util.Comparator;
+ 
+public class UserDOComparator implements Comparator<UserDO> {
+ 
+     Collator cmp = Collator.getInstance(java.util.Locale.CHINA);
+ 
+     @Override
+     public int compare(UserDO userDO1, UserDO userDO2) {
+ 
+         return cmp.compare(userDO1.getName(), userDO2.getName());
+     }
+}
+此时可以看出我们实现了compare方法，是使用拼音排序的，然后我们来模拟一些数据验证结果：
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+45
+46
+47
+48
+49
+50
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.SortedSet;
+import java.util.TreeSet;
+ 
+public class SortUserListTest {
+ 
+     private final static UserDOComparator USER_COMPARATOR = new UserDOComparator();
+ 
+     public static void main(String []args) {
+         sortUserDOArray();
+         sortUserDOList();
+         sortUserBySortedSet();
+     }
+ 
+     private static void sortUserBySortedSet() {
+         SortedSet<UserDO>userSet = new TreeSet<UserDO>(USER_COMPARATOR);
+         userSet.add( new UserDO( "张三" , "aaazhangsan@ddd.com" ));
+         userSet.add( new UserDO( "李四" , "ddlisi@dsfds.com" ));
+         userSet.add( new UserDO( "王五" , "ddwangwu@fsadfads.com" ));
+         for (UserDO userDO : userSet) {
+             System.out.println(userDO.getName());
+         }
+     }
+ 
+     private static void sortUserDOList() {
+         List<UserDO>list = Arrays.asList(
+                 new UserDO( "张三" , "aaazhangsan@ddd.com" ),
+                 new UserDO( "李四" , "ddlisi@dsfds.com" ),
+                 new UserDO( "王五" , "ddwangwu@fsadfads.com" )
+         );
+         Collections.sort(list , USER_COMPARATOR);
+         for (UserDO userDO : list) {
+             System.out.println(userDO.getName());
+         }
+     }
+ 
+     private static void sortUserDOArray() {
+         UserDO []userDOArray = new UserDO[] {
+             new UserDO( "张三" , "aaazhangsan@ddd.com" ),
+             new UserDO( "李四" , "ddlisi@dsfds.com" ),
+             new UserDO( "王五" , "ddwangwu@fsadfads.com" )
+         };
+         Arrays.sort(userDOArray , USER_COMPARATOR);
+         for (UserDO userDO : userDOArray) {
+             System.out.println(userDO.getName());
+         }
+     }
+}
+根据这些输入，你可以看到它的输出和实际想要的按照名称的拼音排序是一致的，那么有人会问，如果我按照两个字段排序，先按照一个字段排序，再按照另一个字段排序该怎么办，其次如果是倒叙应该是如何操作，其实倒叙来讲只需要在compare方法中将原有的输出改成相反数就可以了，compare得到的结果为正数、负数、或0，若为正数，代表第一个数据比第二个大，而负数相反，为0的时候代表相等；而多字段排序也是如此，通过第一层排序后得到结果，看是否是0，如果是0，那么就再按照第二个字段排序即可，否则就直接返回第一层返回的结果，两者混合应用以及多层排序自然就实现了。
+
+实例3（将上面的UserDO使用一个叫UserComparableDO在类的基础上进行排序）
+
+首先将UserDO重新编写为UserComparableDO：
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+import java.text.Collator;
+import java.util.Comparator;
+ 
+public class UserComparableDO extends UserDO implements Comparable<UserDO> {
+ 
+     public UserComparableDO() {}
+ 
+     public UserComparableDO(String name , String email) {
+         this .name = name;
+         this .email = email;
+     }
+ 
+     @SuppressWarnings ( "rawtypes" )
+     private final static Comparator CHINA_COMPARE = Collator.getInstance(java.util.Locale.CHINA);
+ 
+     @SuppressWarnings ( "unchecked" )
+     @Override
+     public int compareTo(UserDO userDO) {
+         return CHINA_COMPARE.compare( this .getName(), userDO.getName());
+     }
+}
+当然这段代码里面直接在里面定义一个Comparator是不正确的，一般这个东西是被抽象到系统某些公共的Commons组件里面的，其次，如果原本没有UserDO类，相应的属性写一次即可，我这里原本有UserDO所有直接集成，减少很多代码。
+
+此时就不需要自己再去写一个Comparator了，就可以直接排序了，下面是我们的测试程序：
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+45
+46
+47
+48
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.SortedSet;
+import java.util.TreeSet;
+ 
+public class SortUserListByComparable {
+ 
+     public static void main(String []args) {
+         sortUserBySortedSet();
+         sortUserDOList();
+         sortUserDOArray();
+     }
+ 
+     private static void sortUserBySortedSet() {
+         SortedSet<UserComparableDO>userSet = new TreeSet<UserComparableDO>();
+         userSet.add( new UserComparableDO( "张三" , "aaazhangsan@ddd.com" ));
+         userSet.add( new UserComparableDO( "李四" , "ddlisi@dsfds.com" ));
+         userSet.add( new UserComparableDO( "王五" , "ddwangwu@fsadfads.com" ));
+         for (UserComparableDO userDO : userSet) {
+             System.out.println(userDO.getName());
+         }
+     }
+ 
+     private static void sortUserDOList() {
+         List<UserComparableDO>list = Arrays.asList(
+                 new UserComparableDO( "张三" , "aaazhangsan@ddd.com" ),
+                 new UserComparableDO( "李四" , "ddlisi@dsfds.com" ),
+                 new UserComparableDO( "王五" , "ddwangwu@fsadfads.com" )
+         );
+         Collections.sort(list);
+         for (UserComparableDO userDO : list) {
+             System.out.println(userDO.getName());
+         }
+     }
+ 
+     private static void sortUserDOArray() {
+         UserComparableDO []userDOArray = new UserComparableDO[] {
+             new UserComparableDO( "张三" , "aaazhangsan@ddd.com" ),
+             new UserComparableDO( "李四" , "ddlisi@dsfds.com" ),
+             new UserComparableDO( "王五" , "ddwangwu@fsadfads.com" )
+         };
+         Arrays.sort(userDOArray);
+         for (UserComparableDO userDO : userDOArray) {
+             System.out.println(userDO.getName());
+         }
+     }
+}
+可以看到本次排序中没有再使用自定义的Comparator作为参数，另外TreeSet的入口参数也没有再传入这些参数。
+
+结果知道了，我们简单看看相关的源码来证实这个说法，我们首先来看Collections.sort方法：
+
+源码片段1：Collections.sort(List<T> list)
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+public static <T extends Comparable<? super T>> void sort(List<T> list) {
+     Object[] a = list.toArray();
+     Arrays.sort(a);
+     ListIterator<T> i = list.listIterator();
+     for ( int j= 0 ; j<a.length; j++) {
+         i.next();
+         i.set((T)a[j]);
+     }
+}
+此时直接调用了Arrays.sort(a)来排序后，将数组的数据写回到list，另外根据方法的定义，泛型T要求传入的类必须是Comparable类的子类或实现类，所以要调用Collections.sort(list)这个方法，传入的list中包含的每行数据必须是implements Comparable这个接口的，否则编译时就会报错。
+
+再看重载方法，传入自定义的Comparator
+
+源码片段2：Collections.sort(List<T> list, Comparator<? super T> c)
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+public static <T> void sort(List<T> list, Comparator<? super T> c) {
+     Object[] a = list.toArray();
+     Arrays.sort(a, (Comparator)c);
+     ListIterator i = list.listIterator();
+     for ( int j= 0 ; j<a.length; j++) {
+         i.next();
+         i.set(a[j]);
+     }
+}
+也是和第一个方法类似，就是调用了Arrays.sort相应的重载方法，看来都是在Arrays里面是实现的，那么就进一步向下看：
+
+源码片段3：Arrays.sort(T[]t):
+
+1
+2
+3
+4
+public static void sort(Object[] a) {
+         Object[] aux = (Object[])a.clone();
+         mergeSort(aux, a, 0 , a.length, 0 );
+}
+看来代码片段交给了mergeSort来处理，而对数组做了一次克隆，作为排序的基础数据，而原来的数组作为排序的目标，mergeSort的代码片段应该是核心部分，我们先放在这里，先看下sort的另一个重载方法，另外需要注意，这里并没有像Collections.sort(List<T>list)那样在编译时检查类型，也就是在使用这个方法的时候，数组里面的每行并没有implements Comparable也会不会出错，只是在运行时会报错而已，在下面的源码中会有说明。
+
+源码片段4 : Arrays.sort(T[]t, Comparator<? super T> c)
+
+1
+2
+3
+4
+5
+6
+7
+8
+public static <T> void sort(T[] a, Comparator<? super T> c)
+{
+     T[] aux = (T[])a.clone();
+         if (c== null )
+             mergeSort(aux, a, 0 , a.length, 0 );
+         else
+             mergeSort(aux, a, 0 , a.length, 0 , c);
+}
+看来mergeSort也进行了重载，也就是当传入了自定义的Comparator和不传入自定义的Comparator是调用不同的方法来实现的，然后我们来看下两个方法的实现。
+
+源码片段5：mergeSort(Object[]src , Object[]dst , int low , int high , int off)
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+private static void mergeSort(Object[] src,
+                   Object[] dest,
+                   int low,
+                   int high,
+                   int off) {
+     int length = high - low;
+         if (length < INSERTIONSORT_THRESHOLD) {
+             for ( int i=low; i<high; i++)
+                 for ( int j=i; j>low &&
+              ((Comparable) dest[j- 1 ]).compareTo(dest[j])> 0 ; j--)
+                     swap(dest, j, j- 1 );
+             return ;
+         }
+         int destLow  = low;
+         int destHigh = high;
+         low  += off;
+         high += off;
+         int mid = (low + high) >>> 1 ;
+         mergeSort(dest, src, low, mid, -off);
+         mergeSort(dest, src, mid, high, -off);
+         if (((Comparable)src[mid- 1 ]).compareTo(src[mid]) <= 0 ) {
+             System.arraycopy(src, low, dest, destLow, length);
+             return ;
+         }
+         for ( int i = destLow, p = low, q = mid; i < destHigh; i++) {
+             if (q >= high || p < mid && ((Comparable)src[p]).compareTo(src[q])<= 0 )
+                 dest[i] = src[p++];
+             else
+                 dest[i] = src[q++];
+         }
+     }
+ 
+/**
+  * Swaps x[a] with x[b].
+  */
+private static void swap(Object[] x, int a, int b) {
+     Object t = x[a];
+     x[a] = x[b];
+     x[b] = t;
+}
+仔细阅读代码可以发现排序是分段递归回调的方式来排序（注意中间的low和high两个参数的变化），每次如果分段的大小大于INSERTIONSORT_THRESHOLD（定义为7）的时候，则再分段，前一段和后一段，然后分开的两段再调用递推，递推后再回归排序，若发现中间分隔的位置两个数据是有序，则认为两段是完全有序的，若不是，那么再将两段做一次排序，此时排序就很好排序了，因为两个块是排序排好的，所以不需要两次循环，只需要循环扫描下去，两个数组按照顺序向下走，分别对比出最小值写入数组，较大者暂时不写入数组与另一个数组的下一个值进行对比，最后一截数据（源码中是通过越界来判定的）写入到尾巴当中：
+
+1
+2
+3
+4
+5
+6
+7
+for ( int i = destLow, p = low, q = mid; i < destHigh; i++)
+{
+             if (q >= high || p < mid && ((Comparable)src[p]).compareTo(src[q])<= 0 )
+                 dest[i] = src[p++];
+             else
+                 dest[i] = src[q++];
+}
+这段对两个有序数组的排序是很经典的写法，主要是if语句的浓缩，不然代码会写得很长。
+
+注意：这里的代码排序中使用了强制类型转换为Comparable来调用内部的comareTo方法，所以如果你的类没有implements Comparable那么在Collections.sort(List<T>list)时编译时会报错上面已经说到，在调用Arrays.sort(Object []t)时，编译时并不会报错，但是运行时会报错为：java.lang.ClassCastExceptionXXXDO cannot be cast to java.lang.Comparable
+
+排序部分我们再看看其重载的mergeSort方法，就是传入了自定义的Comparator的方法
+
+源码片段6： mergeSort(Object[]src,Object[]dst,int low,int high,intoff,Comparator c)
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+private static void mergeSort(Object[] src,
+                Object[] dest,
+                int low, int high, int off,
+                Comparator c) {
+  int length = high - low;
+  if (length < INSERTIONSORT_THRESHOLD) {
+      for ( int i=low; i<high; i++)
+      for ( int j=i; j>low && c.compare(dest[j- 1 ], dest[j])> 0 ; j--)
+          swap(dest, j, j- 1 );
+      return ;
+  }
+      int destLow  = low;
+      int destHigh = high;
+      low  += off;
+      high += off;
+      int mid = (low + high) >>> 1 ;
+      mergeSort(dest, src, low, mid, -off, c);
+      mergeSort(dest, src, mid, high, -off, c);
+ 
+      if (c.compare(src[mid- 1 ], src[mid]) <= 0 ) {
+         System.arraycopy(src, low, dest, destLow, length);
+         return ;
+      }
+      for ( int i = destLow, p = low, q = mid; i < destHigh; i++) {
+          if (q >= high || p < mid && c.compare(src[p], src[q]) <= 0 )
+              dest[i] = src[p++];
+          else
+              dest[i] = src[q++];
+      }
+  }
+可以发现算法和上一个方法完全一样，唯一的区别就是排序时使用的compare变成了传入的comparator了，其余的没有任何区别。
+
+大概清楚了，此时发现java提供的排序还是比较高效的，大多数情况下你不需要自己去写排序算法，最后我们再看看TreeSet中的在add的时候如何实现排序的，也是分别传入了comparator和没有传入，我们跟着源码里面，可以看到传入了comparator将这个属性设置给了TreeSet里面定义的一个TreeeMap，而TreeMap中的一个属性设置了这个Comparator：
+
+源码片段7：TreeSet以及TreeMap设置Comparator的构造方法
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+public TreeSet(Comparator<? super E> comparator) {
+     this ( new TreeMap<E,Object>(comparator));
+}
+TreeSet(NavigableMap<E,Object> m) {
+     this .m = m;
+}
+public TreeMap(Comparator<? super K> comparator) {
+         this .comparator = comparator;
+}
+当然没有传入这个Comparator的时候自然没有设置到TreeMap中了，那么我们来看看TreeMap的add方法：
+
+源码片段8：TreeSet#add(E e)
+
+1
+2
+3
+4
+public boolean add(E e) {
+ 
+     return m.put(e,PRESENT)== null ;
+}
+这个m是什么呢？其实通过源码片段7就可以看出，m是开始实例化的一个TreeMap，那么我们就需要看TreeMap的put方法
+
+代码片段9：TreeMap#put(K key , V value)
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+45
+46
+47
+48
+49
+public V put(K key, V value) {
+         Entry<K,V> t = root;
+         if (t == null ) {
+             root = new Entry<K,V>(key, value, null );
+             size = 1 ;
+             modCount++;
+             return null ;
+         }
+         int cmp;
+         Entry<K,V> parent;
+         // split comparator and comparable paths
+         Comparator<? super K> cpr = comparator;
+         if (cpr != null ) {
+             do {
+                 parent = t;
+                 cmp = cpr.compare(key, t.key);
+                 if (cmp < 0 )
+                     t = t.left;
+                 else if (cmp > 0 )
+                     t = t.right;
+                 else
+                     return t.setValue(value);
+             } while (t != null );
+         }
+         else {
+             if (key == null )
+                 throw new NullPointerException();
+             Comparable<? super K> k = (Comparable<? super K>) key;
+             do {
+                 parent = t;
+                 cmp = k.compareTo(t.key);
+                 if (cmp < 0 )
+                     t = t.left;
+                 else if (cmp > 0 )
+                     t = t.right;
+                 else
+                     return t.setValue(value);
+             } while (t != null );
+         }
+         Entry<K,V> e = new Entry<K,V>(key, value, parent);
+         if (cmp < 0 )
+             parent.left = e;
+         else
+             parent.right = e;
+         fixAfterInsertion(e);
+         size++;
+         modCount++;
+         return null ;
+     }
+这里判定了是否存在Comparator进行不同方式来写入不同的位置，并没有重载方法，所以实现上也不一定有什么绝对非要如何做，只需要保证代码可读性很好就好，一切为它服务，否则那些过多的设计是属于过度设计，当然并不是说代码设计不重要，但是这些需要适可而止；另外TreeSet里面对于其他的方法也会做排序处理，我们这里仅仅是用add方法来做一个例子而已。
+
+相信你对java的排序有了一些了解，也许本文说了一堆废话，因为本文不是在说排序算法，我们只是告诉你java是如何排序的，你在大部分情况下无需自己写排序算法来完成排序导致一些不必要的bug，而且效率未必有java本身提供的排序算法高效。

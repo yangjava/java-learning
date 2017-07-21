@@ -1,0 +1,51 @@
+今天我们来看一下arraylist的存储开销，因为在项目当中，我尝试了一个非常大的arraylist，然后内存爆了
+
+所以我看了下源码，原来arraylist的存储开销是比较大的，先上代码
+
+
+import java.util.ArrayList;
+
+public class Test {
+	public static void main(String[] args) {
+		ArrayList<String> list = new ArrayList<String>();
+		list.add("1");
+		System.out.println(list.size());
+		for (int i = 0; i < 1000000; i++) {
+			if (i==99999||i==999999) {
+				System.out.println(i);
+			}
+			list.add("1");
+		}
+		System.out.println(list.size());
+	}
+}
+
+
+我们再中间打印i的地方下断点，跟踪arraylist的源码
+
+下面是arraylist的源码
+
+
+public void ensureCapacity(int minCapacity) {
+	modCount++;
+	int oldCapacity = elementData.length;
+	if (minCapacity > oldCapacity) {
+	    Object oldData[] = elementData;
+	    int newCapacity = (oldCapacity * 3)/2 + 1;
+    	    if (newCapacity < minCapacity)
+		newCapacity = minCapacity;
+            // minCapacity is usually close to size, so this is a win:
+            elementData = Arrays.copyOf(elementData, newCapacity);
+	}
+    }
+
+当i=99999时，arraylist所占的大小是132385
+当i=999999时，arraylist所占的大小是1005308
+
+如果我把i增加10倍，当i=9999999时，arraylist所占的大小是11451103
+
+
+其实，arraylist的大小计算主要是由下面这一句控制，一直这样算出来
+
+int newCapacity = (oldCapacity * 3)/2 + 1;
+所以，当超过某一个数量级的时候，内存就会爆了，这是java留给我们的一个坑，大家在计算大数据的时候要注意啦

@@ -1,0 +1,196 @@
+自动装箱（boxing）和自动拆箱（unboxing）
+
+首先了解下Java的四类八种基本数据类型
+
+
+
+自动装箱
+
+Java中所谓的装箱通俗点就是：八种基本数据类型在某些条件下使用时，会自动变为对应的包装器类型。
+
+如下清单1：
+
+@Test
+public void boxingTest() {
+  
+Integer i1 = 17;
+Integer i2 = 17;
+  
+Integer i3 = 137;
+Integer i4 = 137;
+  
+System.out.println(i1 == i2);
+System.out.println(i3 == i4);
+}
+输出：
+
+true
+false
+
+解释下清单1第11句输出true的原因：
+
+当包装器类型进行“==”比较时，i3会调用Integer.valueOf自动装箱基本数据类型为包装器类型。
+
+/**
+* Returns an {@code Integer} instance representing the specified
+* {@code int} value. If a new {@code Integer} instance is not
+* required, this method should generally be used in preference to
+* the constructor {@link #Integer(int)}, as this method is likely
+* to yield significantly better space and time performance by
+* caching frequently requested values.
+*
+* This method will always cache values in the range -128 to 127,
+* inclusive, and may cache other values outside of this range.
+*
+* @param i an {@code int} value.
+* @return an {@code Integer} instance representing {@code i}.
+* @since 1.5
+*/
+public static Integer valueOf(int i) {
+if (i >= IntegerCache.low && i <= IntegerCache.high)
+return IntegerCache.cache[i + (-IntegerCache.low)];
+return new Integer(i);
+}
+从源码中可以看出，Integer对象自动缓存int值范围在low~high（-128~127），如果超出这个范围则会自动装箱为包装类。
+
+Note:
+
+Integer、Short、Byte、Character、Long这几个包装类的valueOf方法的实现是类似的；
+
+Double、Float的valueOf方法的实现是类似的。
+
+Boolean的valueOf方法的实现是个三目运算，形如`  return (b ? TRUE : FALSE);  `
+
+自动拆箱
+
+Java中所谓的拆箱通俗点就是：八种包装器类型在某些条件下使用时，会自动变为对应的基本数据类型。
+
+清单2：
+
+@Test
+public void unboxingTest() {
+Integer i1 = 17;
+int i2 = 17;
+  
+int i3 = 137;
+Integer i4 = 137;
+  
+System.out.println(i1 == i2);
+System.out.println(i3 == i4);
+}
+输出：
+
+true
+true
+
+解释下清单2第10句输出true的原因：
+
+当程序执行到第10句时，i4会调用Integer.intValue方法自动拆箱包装器类型为基本数据类型。
+
+/**
+* Returns the value of this {@code Integer} as an
+* {@code int}.
+*/
+public int intValue() {
+return value;
+}
+从源码可以看出，当包装器类型和基本数据类型进行“==”比较时，包装器类型会自动拆箱为基本数据类型。
+
+清单3内容如下：
+
+@Test
+public void unboxingTest() {
+Integer i1 = 17;
+Integer i2 = 17;
+  
+Integer i3 = 137;
+Integer i4 = 137;
+  
+// ==
+System.out.println(i1 == i2);
+System.out.println(i3 == i4);
+  
+// equals
+System.out.println(i1.equals(i2));
+System.out.println(i3.equals(i4));
+  
+}
+输出：
+
+true
+false
+true
+true
+
+解释第15句为什么会输出true：
+
+因为在Integer包装类实现的equals方法中，只要比较的当前对象是Integer实例，那么就会自动拆箱为基本数据类型。从以下Integer类的equals方法的源码就可看出：
+
+/**
+* Compares this object to the specified object. The result is
+* {@code true} if and only if the argument is not
+* {@code null} and is an {@code Integer} object that
+* contains the same {@code int} value as this object.
+*
+* @param obj the object to compare with.
+* @return {@code true} if the objects are the same;
+* {@code false} otherwise.
+*/
+public boolean equals(Object obj) {
+if (obj instanceof Integer) {
+return value == ((Integer)obj).intValue();
+}
+return false;
+}
+Note:
+
+Integer、Short、Byte、Character、Long这几个包装类的intValue方法的实现是类似的；
+
+Double、Float的intValue方法的实现是类似的。
+
+Boolean的booleanValue方法的实现和intValue方法的实现也是类似的。
+
+装箱拆箱综合清单：
+
+public static void main(String args[]) {
+  
+Integer a = 1;
+Integer b = 2;
+Integer c = 3;
+Integer d = 3;
+Integer e = 321;
+Integer f = 321;
+  
+Long g = 3L;
+Long h = 2L;
+  
+// 会自动拆箱（会调用intValue方法）
+System.out.println(c==d);
+// 会自动拆箱后再自动装箱
+System.out.println(e==f);
+// 虽然“==”比较的是引用的是否是同一对象，但这里有算术运算，如果该引用为包装器类型则会导致自动拆箱
+System.out.println(c==(a+b));
+// equals 比较的是引用的对象的内容（值）是否相等，但这里有算术运算，如果该引用为包装器类型则会导
+ // 致自动拆箱，再自动装箱
+// a+b触发自动拆箱得到值后，再自动装箱与c比较
+System.out.println(c.equals(a+b));
+// 首先a+b触发自动拆箱后值为int型，所以比较的是值是否相等
+System.out.println(g==(a+b));
+// 首先a+b触发自动拆箱后值为int型，自动装箱后为Integer型，然后g为Long型
+System.out.println(g.equals(a+b));
+// 首先a+h触发自动拆箱后值为long型，因为int型的a会自动转型为long型的g然后自动装箱后为Long型，
+ // 而g也为Long型
+System.out.println(g.equals(a+h));
+  
+}
+输出：
+
+true
+false
+true
+true
+true
+false
+true
+
+这里面需要注意的是：当 “==”运算符的两个操作数都是包装器类型的引用，则是比较指向的是否是同一个对象，而如果其中有一个操作数是表达式（即包含算术运算）则比较的是数值（即会触发自动拆箱的过程）另外，对于包装器类型，equals方法并不会进行类型转换。

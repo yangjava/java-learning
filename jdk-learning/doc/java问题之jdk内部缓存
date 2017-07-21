@@ -1,0 +1,224 @@
+摘要
+
+本文先给出一个看似很简单实则有深意的Java笔试面试题，引出JDK内部的缓存。
+
+JDK内部的缓存，主要是为了提高Java程序的性能。
+
+你能答对这道“看似简单，实则有深意”的Java题目？
+
+我们首先来看一个简单的程序：
+
+public class IntCacheDemo {
+
+    /**
+     * 一道经典的Java笔试面试题
+     */
+    public static void main(String[] args) {
+        Integer a = 2013;
+        Integer b = 2013;
+        if (a == b) {
+            System.out.println("a==b");
+        } else if (a.equals(b)) {
+            System.out.println("a equals b");
+        }
+
+        Integer c = 24;
+        Integer d = 24;
+        if (c == d) {
+            System.out.println("c==d");
+        } else if (a.equals(b)) {
+            System.out.println("c equals d");
+        }
+    }
+
+}
+
+程序运行结果
+
+a equals b
+c==d
+
+解释说明
+
+Integer等包装类型是引用类型，引用类型的对象之间的==比较，是比较2个引用是否指向同一个对象。
+
+因此，a==b不成立，a equals b成立，是很容易理解的。
+
+容易产生误解的是c==d竟然成立，你敢信？
+
+这是因为JDK内部默认会对-128到127之间的整数，进行缓存，2个对象其实是同一个，因此c和d这2个引用指向同一个对象。
+
+JDK内部缓存
+
+    
+
+/**
+
+     *缓存，为了支持从-128到127（包含）的自动包装类型的“对象同一性语义”，这是Java语言规范所规定的。
+
+     *缓存，在第一次使用的时候初始化。缓存的大小可以通过“-XX:AutoBoxCacheMax=<size>”选项控制。
+
+     *在VM初始化期间，java.lang.Integer.IntegerCache.high属性可以被设置和保存在私有的系统属性sun.misc.VM class中。
+
+     */
+
+     /**(担心翻译不够准确，误导大众，特给出英文注释)
+     * Cache to support the object identity semantics of autoboxing for values
+     * between -128 and 127 (inclusive) as required by JLS.
+     *
+     * The cache is initialized on first usage. The size of the cache may be
+     * controlled by the -XX:AutoBoxCacheMax=<size> option. During VM
+     * initialization, java.lang.Integer.IntegerCache.high property may be set
+     * and saved in the private system properties in the sun.misc.VM class.
+     */
+
+     // IntegerCache，一个内部类，注意它的属性都是定义为static final   
+
+    private static class IntegerCache {
+
+        //缓存的下界，-128，不可变
+        static final int low = -128;
+
+        //缓存上界，暂为null 
+        static final int high;
+
+        //缓存的整型数组   
+
+        static final Integer cache[];
+
+        static {
+            // 缓存上届，可以通过JVM属性来配置
+            int h = 127;
+            String integerCacheHighPropValue = sun.misc.VM
+                    .getSavedProperty("java.lang.Integer.IntegerCache.high");
+            if (integerCacheHighPropValue != null) {
+                int i = parseInt(integerCacheHighPropValue);
+                i = Math.max(i, 127);
+                //最大的数组值是Integer.MAX_VALUE
+                h = Math.min(i, Integer.MAX_VALUE - (-low));
+            }
+            high = h;
+
+            cache = new Integer[(high - low) + 1];
+            int j = low;
+            for (int k = 0; k < cache.length; k++)
+                cache[k] = new Integer(j++);
+        }
+
+        private IntegerCache() {
+        }
+    }
+
+    //128到127之间的是有缓存的
+    public static Integer valueOf(int i) {
+        assert IntegerCache.high >= 127;
+        if (i >= IntegerCache.low && i <= IntegerCache.high)
+            return IntegerCache.cache[i + (-IntegerCache.low)];
+        return new Integer(i);
+    }
+
+疑问：为什么上界high是可以配置的，而下界low却不能？
+
+类似的内部缓存还有
+
+ 
+
+private static class ByteCache {
+        private ByteCache(){}
+
+        static final Byte cache[] = new Byte[-(-128) + 127 + 1];
+
+        static {
+            for(int i = 0; i < cache.length; i++)
+                cache[i] = new Byte((byte)(i - 128));
+        }
+    }
+
+ 
+
+private static class ShortCache {
+        private ShortCache(){}
+
+        static final Short cache[] = new Short[-(-128) + 127 + 1];
+
+        static {
+            for(int i = 0; i < cache.length; i++)
+                cache[i] = new Short((short)(i - 128));
+        }
+    }
+
+ 
+
+private static class LongCache {
+        private LongCache(){}
+
+        static final Long cache[] = new Long[-(-128) + 127 + 1];
+
+        static {
+            for(int i = 0; i < cache.length; i++)
+                cache[i] = new Long(i - 128);
+        }
+    }
+
+ 
+
+private static class CharacterCache {
+        private CharacterCache(){}
+
+        static final Character cache[] = new Character[127 + 1];
+
+        static {
+            for (int i = 0; i < cache.length; i++)
+                cache[i] = new Character((char)i);
+        }
+    }
+
+更多JDK内部缓存不再一一列出，有兴趣的可以自行查看JDK源码，或者OpenJDK源码。
+
+代码示例
+
+public class AllCacheDemo {
+
+    /**
+     * 演示JDK内部缓存
+     */
+    public static void main(String[] args) {
+        Integer a = 28;
+        Integer b = 28;
+        println(a == b);
+
+        Byte c = 25;
+        Byte d = 25;
+        println(c==d);
+        
+        Short p=12;
+        Short q=12;
+        println(p==q);
+        
+        Long x=127L;
+        Long y=127L;
+        println(x==y);
+        
+        Character m='M';
+        Character n='M';
+        println(m==n);
+    }
+    
+    public static void println(Object o){
+        System.out.println(o);
+    }
+
+}
+
+运行结果
+
+
+有兴趣的同学，自己去执行下上面的这段程序。
+
+结束语
+
+OpenJDK源码中，包含了IntegerCache、LongCache、ShortCache、ByteCache、CharacterCache等很多类型的内部用的缓存。
+
+这些缓存，对提高Java程序的性能有着很重要的作用。
+
+JDK几乎是一切Java程序的基础，因此OpenJDK源码值得研究和学习。

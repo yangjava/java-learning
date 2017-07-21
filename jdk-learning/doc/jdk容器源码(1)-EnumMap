@@ -1,0 +1,114 @@
+EnumMap是一种键为枚举类型的特殊的Map实现。所有的Key也必须是一种枚举类型，EnumMap是使用数组来实现的。
+
+源码解读
+
+类声明
+
+public class EnumMap<K extends Enum<K>, V> extends AbstractMap<K, V>
+    implements java.io.Serializable, Cloneable
+可以看出，key的类型继承自Enum，说明key必须是枚举类型。
+
+变量
+
+//Key的类型，自定义类型使用类名.class表示
+private final Class<K> keyType;
+
+//保存枚举类的成员
+private transient K[] keyUniverse;
+
+//enum数据结构
+private transient Object[] vals;
+
+// 键值对数量
+private transient int size = 0;
+构造函数
+
+public EnumMap(Class<K> keyType) {
+    this.keyType = keyType;
+    keyUniverse = getKeyUniverse(keyType);
+    vals = new Object[keyUniverse.length];
+}
+
+public EnumMap(EnumMap<K, ? extends V> m) {
+    keyType = m.keyType;
+    keyUniverse = m.keyUniverse;
+    vals = m.vals.clone();
+    size = m.size;
+}
+
+public EnumMap(Map<K, ? extends V> m) {
+    if (m instanceof EnumMap) {
+        EnumMap<K, ? extends V> em = (EnumMap<K, ? extends V>) m;
+        keyType = em.keyType;
+        keyUniverse = em.keyUniverse;
+        vals = em.vals.clone();
+        size = em.size;
+    } else {
+        if (m.isEmpty())
+            throw new IllegalArgumentException("Specified map is empty");
+        keyType = m.keySet().iterator().next().getDeclaringClass();
+        keyUniverse = getKeyUniverse(keyType);
+        vals = new Object[keyUniverse.length];
+        putAll(m);
+    }
+}
+第一个构造函数，指定key的类型，构造默认大小的EnumMap。其中调用getKeyUniverse 来获取枚举类型的所有成员。
+
+private static <K extends Enum<K>> K[] getKeyUniverse(Class<K> keyType) {
+    //sun.misc.SharedSecrets类
+    return SharedSecrets.getJavaLangAccess().getEnumConstantsShared(keyType);
+    }
+第二个构造函数使用已存在的EnumMap的初始化现在的EnumMap； 第三个构造函数，从Map的所有子类中，探测key的类型，转为EnumMap，如果一般的Map的key不是enum类型的，则会报错。
+
+核心方法
+
+put
+
+public V put(K key, V value) {
+    //检查key的类型是不是声明EnumMap时指明的key类型或是其子类
+    typeCheck(key);
+
+    int index = key.ordinal();
+    Object oldValue = vals[index];
+    vals[index] = maskNull(value);
+    if (oldValue == null)//是新插入的值，键值对大小增加
+        size++;
+    return unmaskNull(oldValue);
+}
+get
+
+public V get(Object key) {
+    return (isValidKey(key) ? unmaskNull(vals[((Enum<?>)key).ordinal()]) : null);
+    }
+判断key的类型，并且key不能为null。
+
+remove
+
+public V remove(Object key) {
+    if (!isValidKey(key))
+        return null;
+    int index = ((Enum<?>)key).ordinal();
+    Object oldValue = vals[index];
+    vals[index] = null;
+    if (oldValue != null)
+         size--;
+    return unmaskNull(oldValue);
+}
+先判断key的类型，然后判断当前是否有 该key对应的value，成功删除键值对后，size减小。
+
+EnumMapIterator的迭代
+
+public boolean hasNext() {
+    while (index < vals.length && vals[index] == null)
+    index++;
+    return index != vals.length;
+}
+hasNext 自动跳过value为null的节点，保证了key的自然顺序。
+
+总结
+
+EnumMap维持键值的自然顺序(即枚举类型常量声明的顺序)。
+全部的键值必须来自一个单一的enum类型。EnumMap内部用数组表示效率更高。
+集合视图返回的迭代器是弱一致的：遍历时候不会抛出ConcurrentModificationException。遍历过程中若对容器进行改动。改动产生的影响遍历过程可能可见也可能不可见。
+key不能为null，插入空值将会抛出NullPointerException；值可以为null。
+EnumMap不保证线程安全

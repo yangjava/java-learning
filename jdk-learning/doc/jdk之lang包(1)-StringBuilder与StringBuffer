@@ -1,0 +1,845 @@
+面试的时候想必大家基本上都会被问到一个问题：StringBuilder是否线程安全？StringBuffer是否线程安全？这已经是一个被问烂的问题，但是现在面试的时候仍然乐此不疲，但是你们是否关注过它们的具体实现呢。
+
+输入图片说明
+
+StringBuilder和StringBuffer都继承自抽象类AbstractStringBuilder，AbstractStringBuilder实现了Appendable接口的append功能。接下来我们来看看AbstractStringBuilder的代码（当然也是被我阉割过了）。
+
+package java.lang;
+
+import sun.misc.FloatingDecimal;
+import java.util.Arrays;
+
+abstract class AbstractStringBuilder implements Appendable, CharSequence {
+
+    char[] value;
+
+    int count;
+
+    AbstractStringBuilder() {
+    }
+
+    AbstractStringBuilder(int capacity) {
+        value = new char[capacity];
+    }
+
+    @Override
+    public int length() {
+        return count;
+    }
+
+    public int capacity() {
+        return value.length;
+    }
+
+    public void ensureCapacity(int minimumCapacity) {
+        if (minimumCapacity > 0)
+            ensureCapacityInternal(minimumCapacity);
+    }
+
+    private void ensureCapacityInternal(int minimumCapacity) {
+        // overflow-conscious code
+        if (minimumCapacity - value.length > 0) {
+            value = Arrays.copyOf(value,
+                    newCapacity(minimumCapacity));
+        }
+    }
+
+    private static final int MAX_ARRAY_SIZE = Integer.MAX_VALUE - 8;
+
+    private int newCapacity(int minCapacity) {
+        // overflow-conscious code
+        int newCapacity = (value.length << 1) + 2;
+        if (newCapacity - minCapacity < 0) {
+            newCapacity = minCapacity;
+        }
+        return (newCapacity <= 0 || MAX_ARRAY_SIZE - newCapacity < 0)
+            ? hugeCapacity(minCapacity)
+            : newCapacity;
+    }
+
+    private int hugeCapacity(int minCapacity) {
+        if (Integer.MAX_VALUE - minCapacity < 0) { // overflow
+            throw new OutOfMemoryError();
+        }
+        return (minCapacity > MAX_ARRAY_SIZE)
+            ? minCapacity : MAX_ARRAY_SIZE;
+    }
+
+    public void trimToSize() {
+        if (count < value.length) {
+            value = Arrays.copyOf(value, count);
+        }
+    }
+
+    public void setLength(int newLength) {
+        if (newLength < 0)
+            throw new StringIndexOutOfBoundsException(newLength);
+        ensureCapacityInternal(newLength);
+
+        if (count < newLength) {
+            Arrays.fill(value, count, newLength, '\0');
+        }
+
+        count = newLength;
+    }
+
+    @Override
+    public char charAt(int index) {
+        if ((index < 0) || (index >= count))
+            throw new StringIndexOutOfBoundsException(index);
+        return value[index];
+    }
+
+    public void getChars(int srcBegin, int srcEnd, char[] dst, int dstBegin)
+    {
+        if (srcBegin < 0)
+            throw new StringIndexOutOfBoundsException(srcBegin);
+        if ((srcEnd < 0) || (srcEnd > count))
+            throw new StringIndexOutOfBoundsException(srcEnd);
+        if (srcBegin > srcEnd)
+            throw new StringIndexOutOfBoundsException("srcBegin > srcEnd");
+        System.arraycopy(value, srcBegin, dst, dstBegin, srcEnd - srcBegin);
+    }
+
+    public void setCharAt(int index, char ch) {
+        if ((index < 0) || (index >= count))
+            throw new StringIndexOutOfBoundsException(index);
+        value[index] = ch;
+    }
+
+    public AbstractStringBuilder append(Object obj) {
+        return append(String.valueOf(obj));
+    }
+
+    public AbstractStringBuilder append(String str) {
+        if (str == null)
+            return appendNull();
+        int len = str.length();
+        ensureCapacityInternal(count + len);
+        str.getChars(0, len, value, count);
+        count += len;
+        return this;
+    }
+
+    // Documentation in subclasses because of synchro difference
+    public AbstractStringBuilder append(StringBuffer sb) {
+        if (sb == null)
+            return appendNull();
+        int len = sb.length();
+        ensureCapacityInternal(count + len);
+        sb.getChars(0, len, value, count);
+        count += len;
+        return this;
+    }
+
+    /**
+     * @since 1.8
+     */
+    AbstractStringBuilder append(AbstractStringBuilder asb) {
+        if (asb == null)
+            return appendNull();
+        int len = asb.length();
+        ensureCapacityInternal(count + len);
+        asb.getChars(0, len, value, count);
+        count += len;
+        return this;
+    }
+
+    @Override
+    public AbstractStringBuilder append(CharSequence s, int start, int end) {
+        if (s == null)
+            s = "null";
+        if ((start < 0) || (start > end) || (end > s.length()))
+            throw new IndexOutOfBoundsException(
+                "start " + start + ", end " + end + ", s.length() "
+                + s.length());
+        int len = end - start;
+        ensureCapacityInternal(count + len);
+        for (int i = start, j = count; i < end; i++, j++)
+            value[j] = s.charAt(i);
+        count += len;
+        return this;
+    }
+
+    public AbstractStringBuilder delete(int start, int end) {
+        if (start < 0)
+            throw new StringIndexOutOfBoundsException(start);
+        if (end > count)
+            end = count;
+        if (start > end)
+            throw new StringIndexOutOfBoundsException();
+        int len = end - start;
+        if (len > 0) {
+            System.arraycopy(value, start+len, value, start, count-end);
+            count -= len;
+        }
+        return this;
+    }
+
+    public AbstractStringBuilder deleteCharAt(int index) {
+        if ((index < 0) || (index >= count))
+            throw new StringIndexOutOfBoundsException(index);
+        System.arraycopy(value, index+1, value, index, count-index-1);
+        count--;
+        return this;
+    }
+
+    public AbstractStringBuilder replace(int start, int end, String str) {
+        if (start < 0)
+            throw new StringIndexOutOfBoundsException(start);
+        if (start > count)
+            throw new StringIndexOutOfBoundsException("start > length()");
+        if (start > end)
+            throw new StringIndexOutOfBoundsException("start > end");
+
+        if (end > count)
+            end = count;
+        int len = str.length();
+        int newCount = count + len - (end - start);
+        ensureCapacityInternal(newCount);
+
+        System.arraycopy(value, end, value, start + len, count - end);
+        str.getChars(value, start);
+        count = newCount;
+        return this;
+    }
+
+    public String substring(int start, int end) {
+        if (start < 0)
+            throw new StringIndexOutOfBoundsException(start);
+        if (end > count)
+            throw new StringIndexOutOfBoundsException(end);
+        if (start > end)
+            throw new StringIndexOutOfBoundsException(end - start);
+        return new String(value, start, end - start);
+    }
+
+    public AbstractStringBuilder insert(int index, char[] str, int offset,
+                                        int len)
+    {
+        if ((index < 0) || (index > length()))
+            throw new StringIndexOutOfBoundsException(index);
+        if ((offset < 0) || (len < 0) || (offset > str.length - len))
+            throw new StringIndexOutOfBoundsException(
+                "offset " + offset + ", len " + len + ", str.length "
+                + str.length);
+        ensureCapacityInternal(count + len);
+        System.arraycopy(value, index, value, index + len, count - index);
+        System.arraycopy(str, offset, value, index, len);
+        count += len;
+        return this;
+    }
+
+    public AbstractStringBuilder insert(int offset, String str) {
+        if ((offset < 0) || (offset > length()))
+            throw new StringIndexOutOfBoundsException(offset);
+        if (str == null)
+            str = "null";
+        int len = str.length();
+        ensureCapacityInternal(count + len);
+        System.arraycopy(value, offset, value, offset + len, count - offset);
+        str.getChars(value, offset);
+        count += len;
+        return this;
+    }
+
+    public AbstractStringBuilder reverse() {
+        boolean hasSurrogates = false;
+        int n = count - 1;
+        for (int j = (n-1) >> 1; j >= 0; j--) {
+            int k = n - j;
+            char cj = value[j];
+            char ck = value[k];
+            value[j] = ck;
+            value[k] = cj;
+            if (Character.isSurrogate(cj) ||
+                Character.isSurrogate(ck)) {
+                hasSurrogates = true;
+            }
+        }
+        if (hasSurrogates) {
+            reverseAllValidSurrogatePairs();
+        }
+        return this;
+    }
+
+    private void reverseAllValidSurrogatePairs() {
+        for (int i = 0; i < count - 1; i++) {
+            char c2 = value[i];
+            if (Character.isLowSurrogate(c2)) {
+                char c1 = value[i + 1];
+                if (Character.isHighSurrogate(c1)) {
+                    value[i++] = c1;
+                    value[i] = c2;
+                }
+            }
+        }
+    }
+
+    @Override
+    public abstract String toString();
+
+    final char[] getValue() {
+        return value;
+    }
+}
+AbstractStringBuilder 也是用的char数组来存储字符串内容，跟String的设计是一样的。但是它与String不一样的一点在于，它没用final修饰符，所以这也就决定了它可以灵活的改变字符串内容。
+
+大家来看一下这个，很多地方都会出现这句，比如ArrayList。
+
+    private static final int MAX_ARRAY_SIZE = Integer.MAX_VALUE - 8;
+它的作用就是防止JVM内存溢出。
+
+    public void setLength(int newLength) {
+        if (newLength < 0)
+            throw new StringIndexOutOfBoundsException(newLength);
+        ensureCapacityInternal(newLength);
+        if (count < newLength) {
+            Arrays.fill(value, count, newLength, '\0');
+        }
+        count = newLength;
+    }
+StringBuilder和StringBuffer都是沿用这个设置字符串长度，假如设置的长度很长，则用‘\0’占着。
+
+    public AbstractStringBuilder append(String str) {
+        if (str == null)
+            return appendNull();
+        int len = str.length();
+        ensureCapacityInternal(count + len);
+        str.getChars(0, len, value, count);
+        count += len;
+        return this;
+    }
+经常用到的函数append，主要是把要拼接的字符串复制到value数组上，更新一下count。同学们看看这里用System.arraycopy可不可以呢？（肯定是不行了，为啥不行呢，百度一下这个函数的用法就懂了）
+
+    public AbstractStringBuilder insert(int offset, String str) {
+        if ((offset < 0) || (offset > length()))
+            throw new StringIndexOutOfBoundsException(offset);
+        if (str == null)
+            str = "null";
+        int len = str.length();
+        ensureCapacityInternal(count + len);
+        System.arraycopy(value, offset, value, offset + len, count - offset);
+        str.getChars(value, offset);
+        count += len;
+        return this;
+    }
+字符串的插入主要是先把字符后移出合适的长度，然后把要插入的字符串复制到指定的位置上，因为那块位置上的元素已经后移，所以不担心被覆盖。
+
+下面看一段在这个类里面比较精彩的代码，这个方法涉及一些延伸知识。
+
+    public AbstractStringBuilder reverse() {
+        boolean hasSurrogates = false;
+        int n = count - 1;
+        for (int j = (n-1) >> 1; j >= 0; j--) {
+            int k = n - j;
+            char cj = value[j];
+            char ck = value[k];
+            value[j] = ck;
+            value[k] = cj;
+            if (Character.isSurrogate(cj) ||
+                Character.isSurrogate(ck)) {
+                hasSurrogates = true;
+            }
+        }
+        if (hasSurrogates) {
+            reverseAllValidSurrogatePairs();
+        }
+        return this;
+    }
+
+    private void reverseAllValidSurrogatePairs() {
+        for (int i = 0; i < count - 1; i++) {
+            char c2 = value[i];
+            if (Character.isLowSurrogate(c2)) {
+                char c1 = value[i + 1];
+                if (Character.isHighSurrogate(c1)) {
+                    value[i++] = c1;
+                    value[i] = c2;
+                }
+            }
+        }
+    }
+上面是一个字符串翻转算法，但是如果只是一个简单的翻转算法就算了，我也不拿出来了单独看了。它在翻转的过程中进行了超大字符集的检测以及纠正，什么是超大字符集？比如汉字，汉字需要两个字符来表示。它的纠正函数就是reverseAllValidSurrogatePairs，它的功能可以这样表示：假设翻转函数把一个超大字符给翻转了，假设A由xy字符表示，B由jk表示，那么AB翻转之后就是kjyx，那么如果不进行超大字符集的纠正就无法正确显示翻转后的结果，所以这个时候reverseAllValidSurrogatePairs的作用就是让kjyx变为jkxy，这就能正确的显示翻转后的结果了。
+
+
+
+看了StringBuilder与StringBuffer两者共同的抽象父类AbstractStringBuilder，其实StringBuilder与StringBuffer很多功能都是在这个AbstractStringBuilder类里面已经实现了，极少部分是继承时实现。别BB，show you the code。
+
+StringBuilder
+
+package java.lang;
+
+public final class StringBuilder
+    extends AbstractStringBuilder
+    implements java.io.Serializable, CharSequence
+{
+
+    static final long serialVersionUID = 4383685877147921099L;
+
+    public StringBuilder() {
+        super(16);
+    }
+
+
+    public StringBuilder(int capacity) {
+        super(capacity);
+    }
+
+    public StringBuilder(String str) {
+        super(str.length() + 16);
+        append(str);
+    }
+
+    @Override
+    public StringBuilder append(String str) {
+        super.append(str);
+        return this;
+    }
+
+    @Override
+    public StringBuilder delete(int start, int end) {
+        super.delete(start, end);
+        return this;
+    }
+
+    @Override
+    public StringBuilder replace(int start, int end, String str) {
+        super.replace(start, end, str);
+        return this;
+    }
+
+    @Override
+    public StringBuilder insert(int offset, Object obj) {
+            super.insert(offset, obj);
+            return this;
+    }
+
+    @Override
+    public StringBuilder reverse() {
+        super.reverse();
+        return this;
+    }
+
+    @Override
+    public String toString() {
+        // Create a copy, don't share the array
+        return new String(value, 0, count);
+    }
+
+    private void writeObject(java.io.ObjectOutputStream s)
+        throws java.io.IOException {
+        s.defaultWriteObject();
+        s.writeInt(count);
+        s.writeObject(value);
+    }
+
+    private void readObject(java.io.ObjectInputStream s)
+        throws java.io.IOException, ClassNotFoundException {
+        s.defaultReadObject();
+        count = s.readInt();
+        value = (char[]) s.readObject();
+    }
+
+}
+StringBuffer
+
+package java.lang;
+
+import java.util.Arrays;
+
+ public final class StringBuffer
+    extends AbstractStringBuilder
+    implements java.io.Serializable, CharSequence
+{
+
+    private transient char[] toStringCache;
+
+    static final long serialVersionUID = 3388685877147921107L;
+
+    public StringBuffer() {
+        super(16);
+    }
+
+    public StringBuffer(int capacity) {
+        super(capacity);
+    }
+
+    public StringBuffer(String str) {
+        super(str.length() + 16);
+        append(str);
+    }
+
+    public StringBuffer(CharSequence seq) {
+        this(seq.length() + 16);
+        append(seq);
+    }
+
+    @Override
+    public synchronized int length() {
+        return count;
+    }
+
+    @Override
+    public synchronized int capacity() {
+        return value.length;
+    }
+
+
+    @Override
+    public synchronized void ensureCapacity(int minimumCapacity) {
+        super.ensureCapacity(minimumCapacity);
+    }
+
+    @Override
+    public synchronized void trimToSize() {
+        super.trimToSize();
+    }
+
+    @Override
+    public synchronized void setLength(int newLength) {
+        toStringCache = null;
+        super.setLength(newLength);
+    }
+
+    @Override
+    public synchronized char charAt(int index) {
+        if ((index < 0) || (index >= count))
+            throw new StringIndexOutOfBoundsException(index);
+        return value[index];
+    }
+
+    @Override
+    public synchronized StringBuffer append(String str) {
+        toStringCache = null;
+        super.append(str);
+        return this;
+    }
+
+    public synchronized StringBuffer append(StringBuffer sb) {
+        toStringCache = null;
+        super.append(sb);
+        return this;
+    }
+
+    @Override
+    synchronized StringBuffer append(AbstractStringBuilder asb) {
+        toStringCache = null;
+        super.append(asb);
+        return this;
+    }
+
+
+    @Override
+    public synchronized StringBuffer delete(int start, int end) {
+        toStringCache = null;
+        super.delete(start, end);
+        return this;
+    }
+
+
+    @Override
+    public synchronized StringBuffer replace(int start, int end, String str) {
+        toStringCache = null;
+        super.replace(start, end, str);
+        return this;
+    }
+
+    @Override
+    public synchronized String substring(int start) {
+        return substring(start, count);
+    }
+
+
+    @Override
+    public synchronized StringBuffer insert(int offset, Object obj) {
+        toStringCache = null;
+        super.insert(offset, String.valueOf(obj));
+        return this;
+    }
+
+    @Override
+    public synchronized StringBuffer reverse() {
+        toStringCache = null;
+        super.reverse();
+        return this;
+    }
+
+    @Override
+    public synchronized String toString() {
+        if (toStringCache == null) {
+            toStringCache = Arrays.copyOfRange(value, 0, count);
+        }
+        return new String(toStringCache, true);
+    }
+}
+通过两个类的对比发现，两者的区别主要是一个关键字synchronized。我们知道synchronized是JVM级别的锁实现，所以JVM会对这个锁进行优化，但是这只是在并发量不高的情况下很好用，如果并发量很高的话，我建议是lock+StringBuilder。
+
+StringBuilder和StringBuffer的初始化大小都是16，扩容是原来的2倍加2。
+
+我们还注意到一个细节：
+
+    private transient char[] toStringCache;
+这个变量是用于最近一次toString()方法的缓存，任何时候只要StringBuffer被修改了这个变量会被赋值为null。这样做的作用只要是节省空间以及创建String的开销。
+
+总结一下：
+
+性能：StringBuilder > StringBuffer > String
+StringBuffer线程安全的机制是用了synchronized修饰符。
+如果要操作少量的数据用String，单线程操作字符串缓冲区 下操作大量数据StringBuilder，多线程操作字符串缓冲区 下操作大量数据StringBuffer。
+
+
+
+序言
+
+StringBuffer与StringBuilder是java.lang包下被大家熟知的两个类。
+
+其异同为：
+
+一、长度都是可扩充的；
+
+二、StringBuffer是线程安全的，StringBuilder是线程不安全的。
+
+那么他们的长度是如何实现动态扩充以及StringBuffer的线程安全是如何实现的呢？通过“深度”阅读它们的源代码，最终弄明白其中的缘由。
+
+正文
+
+首先上一张StringBuffer和StringBuilder类结构图：
+
+
+
+抽象类AbstractStringBuilder（也是核心实现类）实现了Appendable和CharSequence两个接口；StringBuffer与StringBuilder统统继承自AbstractStringBuilder，并且实现了java.io.Serializable和CharSequence接口。
+
+下面简单描述下这几个接口所起到的作用(引用自中文api)。
+
+Appendable： 能够被添加 char 序列和值的对象。如果某个类的实例打算接收 java.util. Formatter  的格式化输出，那么该类必须实现 Appendable 接口。要添加的字符应该是有效的 Unicode 字符，正如  Unicode Character Representation  中描述的那样。注意，增补字符可能由多个 16 位char 值组成。
+CharSequence：CharSequence 是 char 值的一个可读序列。此接口对许多不同种类的 char 序列提供统一的只读访问。char 值表示 Basic Multilingual Plane (BMP) 或代理项中的一个字符。有关详细信息，请参阅 Unicode 字符表示形式。此接口不修改 equals 和 hashCode 方法的常规协定。因此，通常未定义比较实现 CharSequence 的两个对象的结果。每个对象都可以通过一个不同的类实现，而且不能保证每个类能够测试其实例与其他类的实例的相等性。因此，使用任意 CharSequence 实例作为集合中的元素或映射中的键是不合适的。
+ 
+
+Serializable：类通过实现 java.io.Serializable 接口以启用其序列化功能。未实现此接口的类将无法使其任何状态序列化或反序列化。可序列化类的所有子类型本身都是可序列化的。序列化接口没有方法或字段，仅用于标识可序列化的语义。 
+ 
+
+AbstractStringBuilder这个抽象类提供了StringBuffer和StringBuilder绝大部分的实现。在 AbstractStringBuilder 的描述中说：如果去掉线程安全，那么 StringBuffer和StringBuilder是完全一致的。从实现的角度来说，StringBuffer所有方法(构造方法除外，因为没有必要)签名中都使用 synchronized 限定，也就是所有的方法都是同步的 。
+ eg：StringBuffer中replace()方法
+
+public synchronized StringBuffer replace(int start, int end, String str) {
+        super.replace(start, end, str);
+        return this;
+}
+StringBuilder中replace()：
+
+public StringBuilder replace(int start, int end, String str) {
+        super.replace(start, end, str);
+        return this;
+}
+区别仅仅在方法签名上是否有synchronized。
+
+另外需要稍稍注意的问题是：StringBuffer同步只同步目标，比如：sb.append("i am not synchronized"),sb是同步的，而其中的参数未必是同步的。
+
+ 
+
+而它们两个可扩展长度则是通过ensureCapacity(int minimumCapacity)来验证当前长度是否小于参数minimumCapacity，如果成立则进行分配空间。分配新空间的步长为（当前长度+1）的两倍。
+
+实现如下：
+
+public void ensureCapacity(int minimumCapacity) {
+        if (minimumCapacity > value.length) {
+            expandCapacity(minimumCapacity);
+        }
+}
+void expandCapacity(int minimumCapacity) {
+        int newCapacity = (value.length + 1) * 2;
+        if (newCapacity < 0) {
+            newCapacity = Integer.MAX_VALUE;
+        } else if (minimumCapacity > newCapacity) {
+            newCapacity = minimumCapacity;
+        }
+        value = Arrays.copyOf(value, newCapacity);
+}
+如果新的长度小于0(溢出了)，则使用Integer的最大值作为长度。
+
+ 
+
+另外，在阅读源码的过程中，发现两个有趣的问题，下面一一道来。
+
+ 
+
+第一个，就是reverse的实现。其实我是第一次看StringBuilder和StringBuffer的源码，这里面的reverse的实现是我所知道的java中的最高效的实现，没有之一。
+
+上源码，再做解释：
+
+public AbstractStringBuilder reverse() {
+        boolean hasSurrogate = false;
+        int n = count - 1;
+        for (int j = (n-1) >> 1; j >= 0; --j) {
+            char temp = value[j];
+            char temp2 = value[n - j];
+            if (!hasSurrogate) {
+                hasSurrogate = (temp >= Character.MIN_SURROGATE && temp <= Character.MAX_SURROGATE)
+                    || (temp2 >= Character.MIN_SURROGATE && temp2 <= Character.MAX_SURROGATE);
+            }
+            value[j] = temp2;
+            value[n - j] = temp;
+        }
+        if (hasSurrogate) {
+            // Reverse back all valid surrogate pairs
+            for (int i = 0; i < count - 1; i++) {
+                char c2 = value[i];
+                if (Character.isLowSurrogate(c2)) {
+                    char c1 = value[i + 1];
+                    if (Character.isHighSurrogate(c1)) {
+                        value[i++] = c1;
+                        value[i] = c2;
+                    }
+                }
+            }
+        }
+        return this;
+}
+reverse分成两个部分：前面一个循环与后面的判断。
+
+首先地一个循环很高效，循环次数为长度(count)的一半，而且使用>>位移运算，交换数组value[j]与value[n-j]的值。这里一是循环次数少，而是使用最高效的位移运算所以说这个reverse很高效。在反转过程中还完成了一件事：就是为hasSurrogate赋值。赋值的依据就是value[j]与value[n-j]两个字符时候有一个在\uD800和\uDFFF之间，如果有则赋值为true。
+
+而hasSurrogate的值作为下面一个if分支的依据，如果为true，则从头到尾循环一遍。至于为何要判断hasSurrogate，以及下面一个循环的意义，请移步这里：http://www.oschina.net/question/129471_37064 
+
+ 
+
+其实到这里应该已经结束了，在我整理StringBuffer和StringBuilder结构图时发现（“刨祖坟”行家啊），发现它们两个又再次实现了CharSequence接口，为何说再次呢，因为AbstractStringBuilder已经实现了一次，不知何为！经过几个人讨论，结果还要请您再次移步这里：http://www.oschina.net/question/129471_37096 
+
+ 
+
+如果不对，有知道它们底细的，要通知我哦。
+
+以上就是我在阅读StringBuffer和StringBuilder的收获，与大家分享。
+
+ 
+
+ 
+
+ 
+
+ 
+
+相信大家看到过很多比较String和StringBuffer区别的文章，也明白这两者的区别，然而自从Java 5.0发布以后，我们的比较列表上将多出一个对象了，这就是StringBuilder类。String类是不可变类，任何对String的改变都会引发新的String对象的生成；而StringBuffer则是可变类，任何对它所指代的字符串的改变都不会产生新的对象，可变和不可变类这一对对象已经齐全了，那么为什么还要引入新的StringBuilder类干吗？相信大家都有此疑问，我也如此。下面，我们就来看看引入该类的原因
+
+为什么会出现那么多比较String和StringBuffer的文章？
+
+      原因在于当改变字符串内容时，采用StringBuffer能获得更好的性能。既然是为了获得更好的性能，那么采用StringBuffer能够获得最好的性能吗？
+
+      答案是NO！
+
+      为什么？
+
+      如果你读过《Think in Java》，而且对里面描述HashTable和HashMap区别的那部分章节比较熟悉的话，你一定也明白了原因所在。对，就是支持线程同步保证线程安全而导致性能下降的问题。HashTable是线程安全的，很多方法都是synchronized方法，而HashMap不是线程安全的，但其在单线程程序中的性能比HashTable要高。StringBuffer和StringBuilder类的区别也在于此，新引入的StringBuilder类不是线程安全的，但其在单线程中的性能比StringBuffer高。如果你对此不太相信，可以试试下面的例子：
+
+package com.demo.test;
+
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+
+/**
+ * @author: chengtai.he
+ * @created:2009-12-9 上午09:59:57
+ */
+public class Test {
+	private static final String base = " base string. ";
+	private static final int count = 2000000;
+
+	public static void stringTest() {
+		long begin, end;
+		begin = System.currentTimeMillis();
+		String test = new String(base);
+		for (int i = 0; i < count / 100; i++) {
+			test = test + " add ";
+		}
+		end = System.currentTimeMillis();
+		System.out.println((end - begin) + " millis has elapsed when used String. ");
+	}
+
+	public static void stringBufferTest() {
+		long begin, end;
+		begin = System.currentTimeMillis();
+		StringBuffer test = new StringBuffer(base);
+		for (int i = 0; i < count; i++) {
+			test = test.append(" add ");
+		}
+		end = System.currentTimeMillis();
+		System.out.println((end - begin) + " millis has elapsed when used StringBuffer. ");
+	}
+
+	public static void stringBuilderTest() {
+		long begin, end;
+		begin = System.currentTimeMillis();
+		StringBuilder test = new StringBuilder(base);
+		for (int i = 0; i < count; i++) {
+			test = test.append(" add ");
+		}
+		end = System.currentTimeMillis();
+		System.out.println((end - begin) + " millis has elapsed when used StringBuilder. ");
+	}
+
+	public static String appendItemsToStringBuiler(List list) {
+		StringBuilder b = new StringBuilder();
+
+		for (Iterator i = list.iterator(); i.hasNext();) {
+			b.append(i.next()).append(" ");
+		}
+
+		return b.toString();
+	}
+
+	public static void addToStringBuilder() {
+		List list = new ArrayList();
+		list.add(" I ");
+		list.add(" play ");
+		list.add(" Bourgeois ");
+		list.add(" guitars ");
+		list.add(" and ");
+		list.add(" Huber ");
+		list.add(" banjos ");
+
+		System.out.println(Test.appendItemsToStirngBuffer(list));
+	}
+
+	public static String appendItemsToStirngBuffer(List list) {
+		StringBuffer b = new StringBuffer();
+
+		for (Iterator i = list.iterator(); i.hasNext();) {
+			b.append(i.next()).append(" ");
+		}
+
+		return b.toString();
+	}
+
+	public static void addToStringBuffer() {
+		List list = new ArrayList();
+		list.add(" I ");
+		list.add(" play ");
+		list.add(" Bourgeois ");
+		list.add(" guitars ");
+		list.add(" and ");
+		list.add(" Huber ");
+		list.add(" banjos ");
+
+		System.out.println(Test.appendItemsToStirngBuffer(list));
+	}
+
+	public static void main(String[] args) {
+		stringTest();
+		stringBufferTest();
+		stringBuilderTest();
+		addToStringBuffer();
+		addToStringBuilder();
+	}
+}
+上面的程序结果如下：
+5266 millis has elapsed when used String. 
+375 millis has elapsed when used StringBuffer. 
+281 millis has elapsed when used StringBuilder. 
+ I   play   Bourgeois   guitars   and   Huber   banjos  
+ I   play   Bourgeois   guitars   and   Huber   banjos 
+从上面的结果来看，这三个类在单线程程序中的性能差别一目了然，采用String对象时，即使运行次数仅是采用其他对象的1/100，其执行时间仍然比其他对象高出25倍以上；而采用StringBuffer对象和采用StringBuilder对象的差别也比较明显，前者是后者的1.5倍左右。由此可见，如果我们的程序是在单线程下运行，或者是不必考虑到线程同步问题，我们应该优先使用StringBuilder类；当然，如果要保证线程安全，自然非StringBuffer莫属了。
+
+除了对多线程的支持不一样外，这两个类的使用几乎没有任何差别，上面的例子就是个很好的说明。appendItemsToStringBuiler和appendItemsToStirngBuffer两个方法除了采用的对象分别为StringBuilder和StringBuffer外，其他完全相同，而效果也完全相同。
+

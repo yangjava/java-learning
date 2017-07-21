@@ -1,0 +1,115 @@
+1. Threads 和 Runnables
+
+　　所有的现代操作系统都通过进程和线程来支持并发。进程是通常彼此独立运行的程序的实例，比如，如果你启动了一个Java程序，操作系统产生一个新的进程，与其他程序一起并行执行。在这些进程的内部，我们使用线程并发执行代码，因此，我们可以最大限度的利用CPU可用的核心（core）。Java从JDK1.0开始执行线程。在开始一个新的线程之前，你必须指定由这个线程执行的代码，通常称为task。这可以通过实现Runnable：一个定义了一个无返回值无参数的run()方法的函数接口，如下面的代码所示：
+
+复制代码
+
+复制代码
+
+Runnable task = () -> {     //JDK 1.8中的 Lambda 表达式
+    String threadName = Thread.currentThread().getName();
+    System.out.println("Hello " + threadName);
+};
+task.run();
+
+Thread thread = new Thread(task);
+thread.start();
+
+System.out.println("Done!");
+复制代码
+
+复制代码
+
+2. java 线程池的使用
+
+　　上面继承Thread类和实现Runnable接口，可以实现多线程。但是如果并发的线程数量很多，并且每个线程都是执行一个时间很短的任务就结束了，这样频繁创建线程就会大大降低系统的效率，因为频繁创建线程和销毁线程需要时间。那么有没有一种办法使得线程可以复用，就是执行完一个任务，并不被销毁，而是可以继续执行其他的任务？在Java中可以通过线程池来达到这样的效果。今天我们就来详细讲解一下Java的线程池，首先我们从最核心的ThreadPoolExecutor类中的方法讲起，然后再讲述它的实现原理，接着给出了它的使用示例，最后讨论了一下如何合理配置线程池的大小。
+
+　　Java中的ThreadPoolExecutor类，java..uitl.concurrent.ThreadPoolExecutor类是线程池中最核心的一个类，因此如果要透彻地了解Java中的线程池，必须先了解这个类。下面我们来看一下ThreadPoolExecutor类的具体实现源码。
+
+复制代码
+
+复制代码
+
+public class ThreadPoolExecutor extends AbstractExecutorService {    
+    public ThreadPoolExecutor(int corePoolSize,int maximumPoolSize,long keepAliveTime,TimeUnit unit,
+            BlockingQueue<Runnable> workQueue); 
+    public ThreadPoolExecutor(int corePoolSize,int maximumPoolSize,long keepAliveTime,TimeUnit unit,
+            BlockingQueue<Runnable> workQueue,ThreadFactory threadFactory); 
+    public ThreadPoolExecutor(int corePoolSize,int maximumPoolSize,long keepAliveTime,TimeUnit unit,
+            BlockingQueue<Runnable> workQueue,RejectedExecutionHandler handler); 
+    public ThreadPoolExecutor(int corePoolSize,int maximumPoolSize,long keepAliveTime,TimeUnit unit,
+        BlockingQueue<Runnable> workQueue,ThreadFactory threadFactory,RejectedExecutionHandler handler);
+   
+}
+复制代码
+
+复制代码
+
+从上面的代码可以得知，ThreadPoolExecutor继承了AbstractExecutorService类，并提供了四个构造器，事实上，通过观察每个构造器的源码具体实现，发现前面三个构造器都是调用的第四个构造器进行的初始化工作。下面解释下一下构造器中各个参数的含义：
+
+最主流的Java后台框架 springmvc spring mybatis SSM 项目源码　下载地址 
+
+　　coorPoolSize：核心池的大小，这个参数跟后面讲述的线程池的实现原理有非常大的关系。在创建了线程池后，默认情况下，线程池中并没有任何线程，而是等待有任务到来才创建线程去执行任务，除非调用了prestartAllCoreThreads()或者prestartCoreThread()方法，从这2个方法的名字就可以看出，是预创建线程的意思，即在没有任务到来之前就创建corePoolSize个线程或者一个线程。默认情况下，在创建了线程池后，线程池中的线程数为0，当有任务来之后，就会创建一个线程去执行任务，当线程池中的线程数目达到corePoolSize后，就会把到达的任务放到缓存队列当中；maximumPoolSize：线程池最大线程数，这个参数也是一个非常重要的参数，它表示在线程池中最多能创建多少个线程；keepAliveTime：表示线程没有任务执行时最多保持多久时间会终止。默认情况下，只有当线程池中的线程数大于corePoolSize时，keepAliveTime才会起作用，直到线程池中的线程数不大于corePoolSize，即当线程池中的线程数大于corePoolSize时，如果一个线程空闲的时间达到keepAliveTime，则会终止，直到线程池中的线程数不超过corePoolSize。但是如果调用了allowCoreThreadTimeOut(boolean)方法，在线程池中的线程数不大于corePoolSize时，keepAliveTime参数也会起作用，直到线程池中的线程数为0；unit参数：keepAliveTime的时间单位，有7种取值，在TimeUnit类中有7种静态属性：
+
+复制代码
+
+复制代码
+
+TimeUnit.DAYS;               //天TimeUnit.HOURS;             //小时TimeUnit.MINUTES;           //分钟TimeUnit.SECONDS;           //秒TimeUnit.MILLISECONDS;      //毫秒TimeUnit.MICROSECONDS;      //微妙TimeUnit.NANOSECONDS;       //纳秒
+复制代码
+
+复制代码
+
+workQueue：一个阻塞队列，用来存储等待执行的任务，这个参数的选择也很重要，会对线程池的运行过程产生重大影响，一般来说，这里的阻塞队列有以下几种选择：
+
+
+
+1、Runnable接口源码：
+1 public interface Runnable { 2 public abstract void run(); 3 }
+　　2、Thread类与Runnable接口的继承关系
+
+1 public class Thread implements Runnable{ 2 3 }
+　　Runnable接口仅有一个run()方法，Thread类实现了Runnable接口，所以，Thread类也实现了Runnable接口。
+
+　　3、构造函数
+
+1 public Thread() { 2 init(null, null, "Thread-" + nextThreadNum(), 0); 3 }
+1 public Thread(Runnable target) { 2 init(null, target, "Thread-" + nextThreadNum(), 0); 3 }
+1 public Thread(ThreadGroup group, Runnable target) { 2 init(group, target, "Thread-" + nextThreadNum(), 0); 3 }
+1 public Thread(String name) { 2 init(null, null, name, 0); 3 } 　　　　　　　　　　　　　　　　　　还有其它的构造方法，此处省略。。。
+　　这里的第三个参数是设置线程的名称，从下面的代码中可以看出，生成名称的规则是：”Thread-”加上创建的线程的个数（第几个）。
+
+继续查看init方法：
+
+复制代码
+ 1 /**  2  * Initializes a Thread.  3  *  4  * @param g the Thread group  5  * @param target the object whose run() method gets called  6  * @param name the name of the new Thread  7  * @param stackSize the desired stack size for the new thread, or  8  * zero to indicate that this parameter is to be ignored.  9 */ 　　　　//ThreadGroup：线程组表示一个线程的集合。此外，线程组也可以包含其他线程组。线程组构成一棵树，在树中，除了初始线程组外，每个线程组都有一个父线程组。  10 private void init(ThreadGroup g, Runnable target, String name, 11 long stackSize) { 12 Thread parent = currentThread(); 13 SecurityManager security = System.getSecurityManager(); 14 if (g == null) { 15 /* Determine if it's an applet or not */ 16 17 /* If there is a security manager, ask the security manager 18  what to do. */ 19 if (security != null) { 20 g = security.getThreadGroup(); 21  } 22 23 /* If the security doesn't have a strong opinion of the matter 24  use the parent thread group. */ 25 if (g == null) { 26 g = parent.getThreadGroup(); 27  } 28  } 29 30 /* checkAccess regardless of whether or not threadgroup is 31  explicitly passed in. */ 32  g.checkAccess(); 33 34 /* 35  * Do we have the required permissions? 36 */ 37 if (security != null) { 38 if (isCCLOverridden(getClass())) { 39  security.checkPermission(SUBCLASS_IMPLEMENTATION_PERMISSION); 40  } 41  } 42 43 44  g.addUnstarted(); 45 46 this.group = g; 
+　　　　//每个线程都有一个优先级，高优先级线程的执行优先于低优先级线程。每个线程都可以或不可以标记为一个守护程序。当某个线程中运行的代码创建一个新Thread对象时，该新线程的初始优先级被设定为创建线程的优先级，并且当且仅当创建线程是守护线程时，新线程才是守护程序。 
+
+47 this.daemon = parent.isDaemon(); 48 this.priority = parent.getPriority(); 49 this.name = name.toCharArray(); 50 if (security == null || isCCLOverridden(parent.getClass())) 51 this.contextClassLoader = parent.getContextClassLoader(); 52 else 53 this.contextClassLoader = parent.contextClassLoader; 54 this.inheritedAccessControlContext = AccessController.getContext(); 55 this.target = target; 56  setPriority(priority); 57 if (parent.inheritableThreadLocals != null) 58 this.inheritableThreadLocals = 59  ThreadLocal.createInheritedMap(parent.inheritableThreadLocals); 60 /* Stash the specified stack size in case the VM cares */ 61 this.stackSize = stackSize; 62 63 /* Set thread ID */ 64 tid = nextThreadID(); 65 }
+复制代码
+　　初始化时设置了是否为守护线程，优先级，初始化名称。
+
+　　4、Thread的start方法的实现：
+
+复制代码
+ 1 public synchronized void start() {  2 /**  3  * This method is not invoked for the main method thread or "system"  4  * group threads created/set up by the VM. Any new functionality added  5  * to this method in the future may have to also be added to the VM.  6  *  7  * A zero status value corresponds to state "NEW".  8 */  9 if (threadStatus != 0) 10 throw new IllegalThreadStateException(); 11 group.add(this); 12  start0(); 13 if (stopBeforeStart) { 14  stop0(throwableFromStop); 15  } 16 }
+复制代码
+　　这里主要的是start0方法；查看其实现：
+
+ 1 private native void start0(); 
+　　这里使用了本地调用，通过C代码初始化线程需要的系统资源。可见，线程底层的实现是通过C代码去完成的。
+
+4、Thread的run方法的实现
+
+1 public void run() { 2 if (target != null) { 3  target.run(); 4  } 5 }
+　　这里的target实际上要保存的是一个Runnable接口的实现的引用：
+
+1 private Runnable target;
+　　所以使用继承Thread创建线程类时，需要重写run方法，因为默认的run方法什么也不干。
+
+　　而当我们使用Runnable接口实现线程类时，为了启动线程，需要先把该线程类实例初始化一个Thread，实际上就执行了如下构造函数：
+
+1 public Thread(Runnable target) { 2 init(null, target, "Thread-" + nextThreadNum(), 0); 3 }
+　　即是把线程类的引用保存到target中。这样，当调用Thread的run方法时，target就不为空了，而是继续调用了target的run方法，所以我们需要实现Runnable的run方法。这样通过Thread的run方法就调用到了Runnable实现类中的run方法。
+
+　　这也是Runnable接口实现的线程类需要这样启动的原因。

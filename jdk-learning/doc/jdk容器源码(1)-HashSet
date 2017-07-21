@@ -247,3 +247,90 @@ t 中。
 3.  相关说明
 1) 相关 HashMap 的实现原理，请参考我的上一遍总结：深入 Java 集合学习系列：HashMap 的实现原理。
 2) 对于 HashSet 中保存的对象，请注意正确重写其 equals 和 hashCode 方法，以保证放入的对象的唯一性。
+
+
+
+
+
+java集合框架源码剖析系列的源码全部基于JDK1.8.0版本。本博客将从源码角度带领大家学习关于HashSet的知识。
+
+一HashSet的定义：
+
+public class HashSet<E>
+    extends AbstractSet<E>
+    implements Set<E>, Cloneable, java.io.Serializable
+可以看到HashSet继承自AbstractSet同时实现了Set，Cloneable，Serializable三个接口，其中Cloneable，Serializable这两个接口基本上是java集合框架中所有的集合类都要实现的接口。 
+二HashSet中的重要属性：
+
+<strong>  </strong>private transient HashMap<E,Object> map;
+  private static final Object PRESENT = new Object();
+可以看到HashSet中的属性非常少，其中第一个属性是HashMap对象，是HashSet中用来存储数据的，据此可知HashSet的底层是基于HashMap的，关于HashMap的详细讲解请参看我的博客： 【java集合框架源码剖析系列】java源码剖析之HashMap，而第二个属性表示的是HashSet中HashMap实例的value，因为HashSet虽然底层是基于HashMap实现的，但是HashSet只用来存储Key，其Value是无意义，Value的值全部用第二个属性代替。 
+
+三HashSet内部的实现原理：我们来看一下其构造器
+
+public HashSet() {
+        map = new HashMap<>();
+    }
+
+ public HashSet(Collection<? extends E> c) {
+        map = new HashMap<>(Math.max((int) (c.size()/.75f) + 1, 16));
+        addAll(c);
+    }
+
+public HashSet(int initialCapacity, float loadFactor) {
+        map = new HashMap<>(initialCapacity, loadFactor);
+    }
+
+ public HashSet(int initialCapacity) {
+        map = new HashMap<>(initialCapacity);
+    }
+
+ HashSet(int initialCapacity, float loadFactor, boolean dummy) {
+        map = new LinkedHashMap<>(initialCapacity, loadFactor);
+    }
+可以看到HashSet供5个构造器，其中前四个都是在其内部创建一个HashMap的实例，（从这里更清楚的看到HashSet的底层是基于HashMap的）而第5个则是创建一个LinkedHashMap的实例，而且第5个构造器前面无public修饰，表明该构造器对外不公开，事实上仅仅供LinkedHashSet使用的。第二个构造器表明当使用一个集合c作为参数来构造一个HashSet的时候会调用addAll(c)，我们来看一下其源码：
+public boolean addAll(Collection<? extends E> c) {
+        boolean modified = false;
+        for (E e : c)
+            if (add(e))
+                modified = true;
+        return modified;
+    }
+
+ public boolean add(E e) {
+        return map.put(e, PRESENT)==null;
+    }
+
+可以看到在addAll中调用了add()，而在add(E)方法中可以清楚看到使用HashMap的put方法时第二个参数传入的都是PRESENT,这就说明了HashSet中只保存Key而不保存Value。 
+四HashSet中的重要方法：
+
+public boolean add(E e) {
+        return map.put(e, PRESENT)==null;
+
+    }
+
+public boolean remove(Object o) {
+        return map.remove(o)==PRESENT;
+    }
+
+ public void clear() {
+        map.clear();
+    }
+可以看到HashSet中与HashMap中同名的方法全部都是调用的HashMap中的方法来实现的。 
+
+五总结：经过前面HashMap的源码剖析可以看到HashSet非常简单
+
+1HashSet底层是基于HashMap的，但是仅仅用来保存Key，而不保存Value，因为HashSet的add()方法在调用HashMap的put方法的时候第二个参数传入的都是PRESENT这个固定的Object对象。
+
+2可以看到HashSet中的add与remove等方法均无synchronized关键字修饰，即HashSet不是线程安全的，如果要使用同步的HashSet需要使用Collections集合类的静态方法，即Set s=Collections.synchronizedSet(new HashSet());
+
+3HashSet中的值允许为null，因为HashSet底层是基于HashMap的，而HashMap允许插入null。
+
+4HashSet中的元素不允许重复，因为HashSet底层是基于HashMap的，而HashMap不允许存在重复元素，因为在put时如果key相同则会替换之前的V值。
+
+
+
+
+
+
+

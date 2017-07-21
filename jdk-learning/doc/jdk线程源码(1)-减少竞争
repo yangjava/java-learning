@@ -1,0 +1,138 @@
+降低锁的竞争可以提高并发程序的性能和可伸缩性，有3种方式可以降低锁的竞争： 
+1. 减少锁的持有时间（缩小锁的范围） 
+2. 降低锁的请求频率（降低锁的粒度） 
+3. 放弃使用独占锁，使用并发容器，原子变量，读写锁等等来代替它。 
+
+减少锁的持有时间（减小锁的范围）： 
+减少锁的持有时间实际上就是减小锁的控制范围，将一些并不需要锁的操作从同步代码块中移除。如下所示，需要进行同步操作的只有attributes.get(key);这一行代码。 
+
+Java代码下载   
+
+//可以优化的代码  
+class AttributeStore{  
+    private final Map<String,String> attributes=new HashMap<String,String>();  
+    public synchronized boolean userLocationMatches(String username,String regex){  
+        String key="user."+username;  
+        String location=attributes.get(key);  
+        if(location==null)  
+            return false;  
+        else  
+            return Pattern.matches(regex,location);  
+    }  
+}  
+
+缩小锁的范围如下，将不需要同步的内容移出代码块。 
+
+Java代码下载   
+
+//优化之后的代码  
+class AttributeStore{  
+    private final Map<String,String> attributes=new HashMap<String,String>();  
+    public boolean userLocationMatches(String username,String regex){  
+        String key="user."+username;  
+        String location;  
+        synchronized (this) {  
+            location=attributes.get(key);             
+        }  
+        if(location==null)  
+            return false;  
+        else  
+            return Pattern.matches(regex,location);  
+    }  
+}  
+
+降低锁的请求频率（降低锁的粒度）： 
+通过将粗粒度的锁分解为多个细粒度的锁，从而将原来到一个锁的请求分担到多个锁。常用的方案是锁分解或锁分段（一个锁分解为两个锁称为锁分解，一个锁分解为多个锁称为锁分段）。在代码中，当一个锁需要同时保护多个互相独立的共享状态变量的时候，可以考虑锁分解或锁分段。 
+先来看一个锁分解的例子： 
+
+Java代码下载   
+
+//可以锁分解的代码  
+class ServerStatus{  
+    private  Set<String> users;  
+    private  Set<String> queries;  
+    public synchronized void addUser(String user){  
+        users.add(user);  
+    }  
+    public synchronized void removeUser(String user){  
+        users.remove(user);  
+    }  
+      
+    public synchronized void addQuery(String query){  
+        queries.add(query);  
+    }  
+    public synchronized void removeQuery(String query){  
+        queries.remove(query);  
+    }     
+}  
+
+在上面的代码中，同一个ServerStatus对象锁用于保护2个独立的共享变量，可以使用锁分解。 
+
+Java代码下载   
+
+//优化后的代码  
+class ServerStatus{  
+    private  Set<String> users;  
+    private  Set<String> queries;  
+    public  void addUser(String user){  
+        synchronized (users) {  
+            users.add(user);  
+        }  
+    }  
+    public  void removeUser(String user){  
+        synchronized (users) {  
+            users.remove(user);  
+        }  
+    }  
+      
+    public  void addQuery(String query){  
+        synchronized (queries) {  
+            queries.add(query);  
+        }  
+    }  
+    public  void removeQuery(String query){  
+        synchronized (queries) {  
+            queries.remove(query);  
+        }  
+    }     
+}  
+
+锁分段的典型应用是ConcurrentHashMap。在Collections.synchronizedMap()方法中，使用组合的方式将传入Map的方法放入同步代码块中执行，所有的同步代码块使用同一个对象锁。为了提高容器的性能，在ConcurrentHashMap容器中使用16个对象锁，每个对象锁保护所有散列桶的1/16，其中第N个散列桶由第（N%16）个对象锁来保护。大致的思路如下： 
+
+Java代码下载   
+
+class MyMap<K,V>{  
+    static final class Node<K,V>{  
+        private K key;  
+        private V value;  
+        private Node<K,V> next;  
+        public Node<K, V> getNext() {  
+            return next;  
+        }  
+        //...set get equals hashCode...//  
+    }  
+    private final static int N_LOCKS=16;  
+    private Object[] mylocks;  
+    private Node<K,V>[] buckets;  
+    public MyMap(int num) {  
+        mylocks=new Object[N_LOCKS];  
+        for(int i=0;i<N_LOCKS;i++){  
+            mylocks[i]=new Object();  
+        }  
+        buckets=new Node[num];  
+    }  
+      
+    public V get(K key){  
+        int bucketIndex=key.hashCode()%buckets.length;//定位目标所在的桶  
+        synchronized (mylocks[bucketIndex%N_LOCKS]) {//获取桶对应的锁  
+            for(Node<K,V> node=buckets[bucketIndex];node!=null;node=node.getNext()){  
+                if(key.equals(node.key))  
+                    return node.value;  
+            }  
+            return null;  
+        }  
+    }  
+    //......  
+}  
+放弃使用独占锁： 
+我们可以放弃使用独占锁，使用并发容器，原子变量，读写锁等等来代替他。
