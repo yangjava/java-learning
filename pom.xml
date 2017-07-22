@@ -22,5 +22,6 @@
   	<module>dubbo-learning</module>
   	<module>mysql-learning</module>
   	<module>InternetFinance-learning</module>
+  	<module>dom4j-learning</module>
   </modules>
 </project>

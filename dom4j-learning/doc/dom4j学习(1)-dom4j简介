@@ -1,0 +1,52 @@
+DOM4J是dom4j.org出品的一个开源XML解析包，它的网站中这样定义：
+Dom4j is an easy to use, open source library for working with XML,
+XPath and XSLT on the Java platform using the Java Collections Framework and with
+full support for DOM, SAX and JAXP.
+Dom4j是一个易用的、开源的库，用于XML，XPath和XSLT。
+它应用于Java平台，采用了Java集合框架并完全支持DOM，SAX和JAXP。
+DOM4J使用起来非常简单。只要你了解基本的XML-DOM模型，就能使用。
+然而他自己带的指南只有短短一页（html），不过说的到挺全。国内的中文资料很少。
+因而俺写这个短小的教程方便大家使用，这篇文章仅谈及基本的用法，如需深入的使用，请……自己摸索或查找别的资料。
+之前看过IBM developer社区的文章（参见附录），提到一些XML解析包的性能比较，其中DOM4J的性能非常出色，在多项测试中名列前茅。
+（事实上DOM4J的官方文档中也引用了这个比较）所以这次的项目中我采用了DOM4J作为XML解析工具。
+在国内比较流行的是使用JDOM作为解析器，两者各擅其长，但DOM4J最大的特色是使用大量的接口，这也是它被认为比JDOM灵活的主要原因。
+大师不是说过么，“面向接口编程”。目前使用DOM4J的已经越来越多。如果你善于使用JDOM，不妨继续用下去，只看看本篇文章作为了解与比较，
+如果你正要采用一种解析器，不如就用DOM4J吧。
+
+
+dom4j是一个Java的XML API，类似于jdom，用来读写XML文件的。
+dom4j是一个非常非常优秀的Java XML API，具有性能优异、功能强大和极端易用使用的特点，
+同时它也是一个开放源代码的软件，可以在SourceForge上找到它.
+
+
+对主流的java XML API进行的性能、功能和易用性的评测，dom4j无论在那个方面都是非常出色的。
+如今你可以看到越来越多的Java软件都在使用dom4j来读写XML，例如hibernate，包括sun公司自己的JAXM也用了Dom4j。
+使用Dom4j开发，需下载dom4j相应的jar文件
+ 1.官网下载: http://www.dom4j.org/dom4j-1.6.1/
+2.dom4j是sourceforge.NET上的一个开源项目,因此可以到http://sourceforge.net/projects/dom4j下载其最新版
+我们只需要把dom4j-1.6.1.jar文件构建到我们开发的项目中就可以使用dom4j开发了.
+
+Dom4j是一个易用的、开源的库，用于XML，XPath和XSLT。
+它应用于Java平台，采用了Java集合框架并完全支持DOM，SAX和JAXP。
+(Hibernate用此项目来解析hbm映射文件)
+
+
+pom文件
+  <dependencies>   
+    <dependency>   
+      <groupId>junit</groupId>    
+      <artifactId>junit</artifactId>    
+      <version>4.11</version>   
+    </dependency>    
+    <dependency>   
+      <groupId>log4j</groupId>    
+      <artifactId>log4j</artifactId>    
+      <version>1.2.17</version>   
+    </dependency>    
+    <dependency>   
+      <groupId>dom4j</groupId>    
+      <artifactId>dom4j</artifactId>    
+      <version>1.6</version>   
+    </dependency>   
+  </dependencies>    
+
