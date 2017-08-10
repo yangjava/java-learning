@@ -1,0 +1,90 @@
+spring MVC之构造ModelAndView对象
+
+spring MVC之构造ModelAndView对象
+----------
+ 
+构造ModelAndView对象
+ 
+当控制器处理完请求时，通常会将包含视图名称或视图对象以及一些模型属性的ModelAndView对象返回到DispatcherServlet。因此，经常需要在控制器中构造ModelAndView对象。ModelAndView类提供了几个重载的构造器和一些方便的方法，让你可以根据自己的喜好来构造ModelAndView对象。这些构造器和方法以类似的方式支持视图名称和视图对象。
+ 
+ 
+当你只有一个模型属性要返回时，可以在构造器中指定该属性来构造ModelAndView对象：
+Java代码  收藏代码
+package com.apress.springrecipes.court.web;  
+...  
+import org.springframework.web.servlet.ModelAndView;  
+import org.springframework.web.servlet.mvc.AbstractController;  
+public class WelcomeController extends AbstractController{  
+    public ModelAndView handleRequestInternal(HttpServletRequest request,  
+        HttpServletResponse response)throws Exception{  
+        Date today = new Date();  
+        return new ModelAndView("welcome","today",today);  
+    }  
+}  
+ 
+ 
+如果有不止一个属性要返回，可以先将它们传递到一个Map中再来构造ModelAndView对象。
+Java代码  收藏代码
+package com.apress.springrecipes.court.web;  
+...  
+import org.springframework.web.servlet.ModelAndView;  
+import org. springframework.web.servlet.mvc.AbstractController;  
+public class ReservationQueryController extends AbstractController{  
+    ...  
+    public ModelAndView handleRequestInternal(HttpServletRequest request,  
+        HttpServletResponse response)throws Exception{  
+        ...  
+        Map<String,Object> model = new HashMap<String,Object>();  
+        if(courtName != null){  
+            model.put("courtName",courtName);  
+            model.put("reservations",reservationService.query(courtName));  
+        }  
+        return new ModelAndView("reservationQuery",model);  
+    }  
+}  
+ 
+ 
+Spring也提供了ModelMap,这是java.util.Map实现，可以根据模型属性的具体类型自动生成模型属性的名称。 
+Java代码  收藏代码
+package com.apress.springrecipes.court.web;  
+...  
+import org.springframework.ui.ModelMap;  
+import org.springframework.web.servlet.ModelAndView;  
+import org.springframework.web.servlet.mvc.AbstractController;  
+public class ReservationQueryController extends AbstractController{  
+    ...  
+    public ModelAndView handleRequestInternal(HttpServletRequest request,  
+        HttpServletResponse response)throws Exception{  
+        ...  
+        ModelMap model = new ModelMap();  
+        if(courtName != null){  
+            model.addAttribute("courtName",courtName);  
+            model.addAttribute("reservations",reservationService.query(courtName));  
+        }  
+        return new ModelAndView("reservationQuery",model);  
+    }  
+}  
+由于这两个模型属性的类型为String和List<Reservation>，ModelMap会为它们生成默认的名称----string和reservationList。如果你不喜欢这些名称，可以显式地指定它们。
+ 
+ 
+构造完ModelAndView对象之后，仍然可以利用addobject()方法为它添加模型属性。这个方法返回ModelAndView对象
+本身，因此可以在一个语句中构造ModelAndView对象。请注意，你也可以省略addObject()方法的属性名称。在这种情况下，这个方法会与ModeMap生成相同的属性名称。
+Java代码  收藏代码
+package com.apress.springrecipes.court.web;  
+...  
+import org.springframework.web.servlet.ModelAndView;  
+import org.springframework.web.servlet.mvc.AbstractController;  
+public class ReservationQueryController extends AbstractController{  
+    ...  
+    public ModelAndView handleRequestInternal(HttpServletRequest request,  
+        HttpServletResponse response)throws Exception{  
+        ....  
+        List<Reservation> reservations = null;  
+        if(courtName != null){  
+            reservations = reservationService.query(courtName);  
+        }  
+        return new ModelAndView("reservationQuery","courtName",courtName)  
+            .addObject("reservations",reservations);  
+    }  
+}  
+事实上，返回的模型和视图都是可选的。在有些情况下，你只返回视图，模型中没有任何属性。或者只返回模型，让Spring MVC根据请求URL来决定视图。有时候，如果让控制器直接处理HttpServletResponse对象，甚至可以返回null，例如在将二进制文件返回给用户的时候。

@@ -1,0 +1,574 @@
+5.1、处理器拦截器简介
+
+spring Web MVC的处理器拦截器（如无特殊说明，下文所说的拦截器即处理器拦截器）
+
+类似于Servlet开发中的过滤器Filter，用于对处理器进行预处理和后处理。
+
+5.1.1、常见应用场景
+
+1、日志记录：记录请求信息的日志，以便进行信息监控、信息统计、计算PV（Page View）等。
+
+2、权限检查：如登录检测，进入处理器检测检测是否登录，如果没有直接返回到登录页面；
+
+3、性能监控：有时候系统在某段时间莫名其妙的慢，可以通过拦截器在进入处理器之前记录开始时间，在处理完后记录结束时间，从而得到该请求的处理时间（如果有反向代理，如apache可以自动记录）；
+
+4、通用行为：读取cookie得到用户信息并将用户对象放入请求，从而方便后续流程使用，还有如提取Locale、Theme信息等，只要是多个处理器都需要的即可使用拦截器实现。
+
+5、OpenSessionInView：如hibernate，在进入处理器打开Session，在完成后关闭Session。
+
+…………本质也是AOP（面向切面编程），也就是说符合横切关注点的所有功能都可以放入拦截器实现。
+
+5.1.2、拦截器接口
+
+java代码：
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+package org.springframework.web.servlet;
+public interface HandlerInterceptor {
+    boolean preHandle(
+            HttpServletRequest request, HttpServletResponse response, 
+            Object handler) 
+            throws Exception;
+ 
+    void postHandle(
+            HttpServletRequest request, HttpServletResponse response, 
+            Object handler, ModelAndView modelAndView) 
+            throws Exception;
+ 
+    void afterCompletion(
+            HttpServletRequest request, HttpServletResponse response, 
+            Object handler, Exception ex)
+            throws Exception;
+}
+我们可能注意到拦截器一个有3个回调方法，而一般的过滤器Filter才两个，这是怎么回事呢？马上分析。
+
+preHandle：预处理回调方法，实现处理器的预处理（如登录检查），第三个参数为响应的处理器（如我们上一章的Controller实现）；
+
+     返回值：true表示继续流程（如调用下一个拦截器或处理器）；
+
+false表示流程中断（如登录检查失败），不会继续调用其他的拦截器或处理器，此时我们需要通过response来产生响应；
+
+postHandle：后处理回调方法，实现处理器的后处理（但在渲染视图之前），此时我们可以通过modelAndView（模型和视图对象）对模型数据进行处理或对视图进行处理，modelAndView也可能为null。
+
+afterCompletion：整个请求处理完毕回调方法，即在视图渲染完毕时回调，如性能监控中我们可以在此记录结束时间并输出消耗时间，还可以进行一些资源清理，类似于try-catch-finally中的finally，但仅调用处理器执行链中preHandle返回true的拦截器的afterCompletion。
+
+5.1.3、拦截器适配器
+
+有时候我们可能只需要实现三个回调方法中的某一个，如果实现HandlerInterceptor接口的话，三个方法必须实现，不管你需不需要，此时spring提供了一个HandlerInterceptorAdapter适配器（一种适配器设计模式的实现），允许我们只实现需要的回调方法。
+
+java代码：
+1
+2
+3
+public abstract class HandlerInterceptorAdapter implements HandlerInterceptor {
+     //省略代码 此处所以三个回调方法都是空实现，preHandle返回true。
+}
+5.1.4、运行流程图
+
+
+
+图5-1 正常流程
+
+ 
+
+图5-2 中断流程
+
+中断流程中，比如是HandlerInterceptor2中断的流程（preHandle返回false），此处仅调用它之前拦截器的preHandle返回true的afterCompletion方法。
+
+接下来看一下DispatcherServlet内部到底是如何工作的吧：
+
+java代码：
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+//doDispatch方法
+//1、处理器拦截器的预处理（正序执行）
+HandlerInterceptor[] interceptors = mappedHandler.getInterceptors();
+if (interceptors != null) {
+    for (int i = 0; i < interceptors.length; i++) {
+    HandlerInterceptor interceptor = interceptors[i];
+        if (!interceptor.preHandle(processedRequest, response, mappedHandler.getHandler())) {
+            //1.1、失败时触发afterCompletion的调用
+            triggerAfterCompletion(mappedHandler, interceptorIndex, processedRequest, response, null);
+            return;
+        }
+        interceptorIndex = i;//1.2、记录当前预处理成功的索引
+}
+}
+//2、处理器适配器调用我们的处理器
+mv = ha.handle(processedRequest, response, mappedHandler.getHandler());
+//当我们返回null或没有返回逻辑视图名时的默认视图名翻译（详解4.15.5 RequestToViewNameTranslator）
+if (mv != null && !mv.hasView()) {
+    mv.setViewName(getDefaultViewName(request));
+}
+//3、处理器拦截器的后处理（逆序）
+if (interceptors != null) {
+for (int i = interceptors.length - 1; i >= 0; i--) {
+      HandlerInterceptor interceptor = interceptors[i];
+      interceptor.postHandle(processedRequest, response, mappedHandler.getHandler(), mv);
+}
+}
+//4、视图的渲染
+if (mv != null && !mv.wasCleared()) {
+render(mv, processedRequest, response);
+    if (errorView) {
+        WebUtils.clearErrorRequestAttributes(request);
+}
+//5、触发整个请求处理完毕回调方法afterCompletion
+triggerAfterCompletion(mappedHandler, interceptorIndex, processedRequest, response, null);
+注：以上是流程的简化代码，中间省略了部分代码，不完整。
+
+java代码：
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+// triggerAfterCompletion方法
+private void triggerAfterCompletion(HandlerExecutionChain mappedHandler, int interceptorIndex,
+            HttpServletRequest request, HttpServletResponse response, Exception ex) throws Exception {
+        // 5、触发整个请求处理完毕回调方法afterCompletion （逆序从1.2中的预处理成功的索引处的拦截器执行）
+        if (mappedHandler != null) {
+            HandlerInterceptor[] interceptors = mappedHandler.getInterceptors();
+            if (interceptors != null) {
+                for (int i = interceptorIndex; i >= 0; i--) {
+                    HandlerInterceptor interceptor = interceptors[i];
+                    try {
+                        interceptor.afterCompletion(request, response, mappedHandler.getHandler(), ex);
+                    }
+                    catch (Throwable ex2) {
+                        logger.error("HandlerInterceptor.afterCompletion threw exception", ex2);
+                    }
+                }
+            }
+        }
+    }
+5.2、入门
+
+具体内容详见工程springmvc-chapter5。
+
+5.2.1、正常流程
+
+（1、拦截器实现
+
+java代码：
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+package cn.javass.chapter5.web.interceptor;
+//省略import
+public class HandlerInterceptor1 extends HandlerInterceptorAdapter {//此处一般继承HandlerInterceptorAdapter适配器即可
+    @Override
+    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
+        System.out.println("===========HandlerInterceptor1 preHandle");
+        return true;
+    }
+    @Override
+    public void postHandle(HttpServletRequest request, HttpServletResponse response, Object handler, ModelAndView modelAndView) throws Exception {
+        System.out.println("===========HandlerInterceptor1 postHandle");
+    }
+    @Override
+    public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
+        System.out.println("===========HandlerInterceptor1 afterCompletion");
+    }
+}
+以上是HandlerInterceptor1实现，HandlerInterceptor2同理 只是输出内容为“HandlerInterceptor2”。
+
+（2、控制器
+
+java代码：
+1
+2
+3
+4
+5
+6
+7
+8
+9
+package cn.javass.chapter5.web.controller;
+//省略import
+public class TestController implements Controller {
+    @Override
+    public ModelAndView handleRequest(HttpServletRequest req, HttpServletResponse resp) throws Exception {
+        System.out.println("===========TestController");
+        return new ModelAndView("test");
+    }
+}
+（3、Spring配置文件chapter5-servlet.xml
+
+java代码：
+1
+2
+3
+4
+5
+<bean name="/test" class="cn.javass.chapter5.web.controller.TestController"/>
+<bean id="handlerInterceptor1"
+class="cn.javass.chapter5.web.interceptor.HandlerInterceptor1"/>
+<bean id="handlerInterceptor2"
+class="cn.javass.chapter5.web.interceptor.HandlerInterceptor2"/>
+java代码：
+1
+2
+3
+4
+5
+6
+7
+8
+<bean class="org.springframework.web.servlet.handler.BeanNameUrlHandlerMapping">
+    <property name="interceptors">
+        <list>
+           <ref bean="handlerInterceptor1"/>
+          <ref bean="handlerInterceptor2"/>
+        </list>
+    </property>
+</bean>
+interceptors：指定拦截器链，拦截器的执行顺序就是此处添加拦截器的顺序；
+
+（4、视图页面WEB-INF/jsp/test.jsp
+
+java代码：
+1
+2
+3
+<%@ page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8"%>
+<%System.out.println("==========test.jsp");%>
+test page
+在控制台输出 test.jsp
+
+（5、启动服务器测试
+
+输入网址：http://localhost:9080/springmvc-chapter5/test
+
+控制台输出：
+
+java代码：
+1
+2
+3
+4
+5
+6
+7
+8
+===========HandlerInterceptor1 preHandle
+===========HandlerInterceptor2 preHandle
+===========TestController
+===========HandlerInterceptor2 postHandle
+===========HandlerInterceptor1 postHandle
+==========test.jsp
+===========HandlerInterceptor2 afterCompletion
+===========HandlerInterceptor1 afterCompletion
+到此一个正常流程的演示完毕。和图5-1一样，接下来看一下中断的流程。
+
+5.2.2、中断流程
+
+（1、拦截器
+
+HandlerInterceptor3和HandlerInterceptor4 与 之前的 HandlerInteceptor1和HandlerInterceptor2一样，只是在HandlerInterceptor4的preHandle方法返回false：
+
+java代码：
+1
+2
+3
+4
+5
+6
+    @Override
+    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
+        System.out.println("===========HandlerInterceptor1 preHandle");
+response.getWriter().print("break");//流程中断的话需要我们进行响应的处理
+        return false;//返回false表示流程中断    
+}
+（2、控制器
+
+流程中断不会执行到控制器，使用之前的TestController控制器。
+
+（3、Spring配置文件chapter5-servlet.xml
+
+java代码：
+1
+2
+3
+4
+<bean id="handlerInterceptor3"
+class="cn.javass.chapter5.web.interceptor.HandlerInterceptor3"/>
+<bean id="handlerInterceptor4"
+class="cn.javass.chapter5.web.interceptor.HandlerInterceptor4"/>
+java代码：
+1
+2
+3
+4
+<bean id="handlerInterceptor3"
+class="cn.javass.chapter5.web.interceptor.HandlerInterceptor3"/>
+<bean id="handlerInterceptor4"
+class="cn.javass.chapter5.web.interceptor.HandlerInterceptor4"/>
+java代码：
+1
+2
+3
+4
+5
+6
+7
+8
+<bean class="org.springframework.web.servlet.handler.BeanNameUrlHandlerMapping">
+    <property name="interceptors">
+        <list>
+           <ref bean="handlerInterceptor3"/>
+          <ref bean="handlerInterceptor4"/>
+        </list>
+    </property>
+</bean>
+interceptors：指定拦截器链，拦截器的执行顺序就是此处添加拦截器的顺序；
+
+（4、视图页面
+
+流程中断，不会执行到视图渲染。
+
+（5、启动服务器测试
+
+输入网址：http://localhost:9080/springmvc-chapter5/test
+
+控制台输出：
+
+java代码：
+1
+2
+3
+===========HandlerInterceptor3 preHandle
+===========HandlerInterceptor4 preHandle
+===========HandlerInterceptor3 afterCompletion
+此处我们可以看到只有HandlerInterceptor3的afterCompletion执行，否和图5-2的中断流程。
+
+而且页面上会显示我们在HandlerInterceptor4 preHandle 直接写出的响应“break”。
+
+5.3、应用
+
+5.3.1、性能监控
+
+如记录一下请求的处理时间，得到一些慢请求（如处理时间超过500毫秒），从而进行性能改进，一般的反向代理服务器如apache都具有这个功能，但此处我们演示一下使用拦截器怎么实现。
+
+实现分析：
+
+1、在进入处理器之前记录开始时间，即在拦截器的preHandle记录开始时间；
+
+2、在结束请求处理之后记录结束时间，即在拦截器的afterCompletion记录结束实现，并用结束时间-开始时间得到这次请求的处理时间。
+
+问题：
+
+我们的拦截器是单例，因此不管用户请求多少次都只有一个拦截器实现，即线程不安全，那我们应该怎么记录时间呢？
+
+解决方案是使用ThreadLocal，它是线程绑定的变量，提供线程局部变量（一个线程一个ThreadLocal，A线程的ThreadLocal只能看到A线程的ThreadLocal，不能看到B线程的ThreadLocal）。
+
+代码实现：
+
+java代码：
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+package cn.javass.chapter5.web.interceptor;
+public class StopWatchHandlerInterceptor extends HandlerInterceptorAdapter {
+    private NamedThreadLocal<Long>  startTimeThreadLocal = 
+new NamedThreadLocal<Long>("StopWatch-StartTime");
+    @Override
+    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, 
+Object handler) throws Exception {
+        long beginTime = System.currentTimeMillis();//1、开始时间
+        startTimeThreadLocal.set(beginTime);//线程绑定变量（该数据只有当前请求的线程可见）
+        return true;//继续流程
+    }
+ 
+    @Override
+    public void afterCompletion(HttpServletRequest request, HttpServletResponse response, 
+Object handler, Exception ex) throws Exception {
+        long endTime = System.currentTimeMillis();//2、结束时间
+        long beginTime = startTimeThreadLocal.get();//得到线程绑定的局部变量（开始时间）
+        long consumeTime = endTime - beginTime;//3、消耗的时间
+        if(consumeTime > 500) {//此处认为处理时间超过500毫秒的请求为慢请求
+            //TODO 记录到日志文件
+            System.out.println(
+String.format("%s consume %d millis", request.getRequestURI(), consumeTime));
+        }        
+    }
+}
+NamedThreadLocal：Spring提供的一个命名的ThreadLocal实现。
+
+在测试时需要把stopWatchHandlerInterceptor放在拦截器链的第一个，这样得到的时间才是比较准确的。
+
+5.3.2、登录检测
+
+在访问某些资源时（如订单页面），需要用户登录后才能查看，因此需要进行登录检测。
+
+流程：
+
+1、访问需要登录的资源时，由拦截器重定向到登录页面；
+
+2、如果访问的是登录页面，拦截器不应该拦截；
+
+3、用户登录成功后，往cookie/session添加登录成功的标识（如用户编号）；
+
+4、下次请求时，拦截器通过判断cookie/session中是否有该标识来决定继续流程还是到登录页面；
+
+5、在此拦截器还应该允许游客访问的资源。
+
+拦截器代码如下所示：
+
+java代码：
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+@Override
+public boolean preHandle(HttpServletRequest request, HttpServletResponse response, 
+Object handler) throws Exception {
+    //1、请求到登录页面 放行
+    if(request.getServletPath().startsWith(loginUrl)) {
+        return true;
+    }
+ 
+    //2、TODO 比如退出、首页等页面无需登录，即此处要放行 允许游客的请求
+ 
+    //3、如果用户已经登录 放行  
+    if(request.getSession().getAttribute("username") != null) {
+        //更好的实现方式的使用cookie
+        return true;
+    }
+ 
+    //4、非法请求 即这些请求需要登录后才能访问
+    //重定向到登录页面
+    response.sendRedirect(request.getContextPath() + loginUrl);
+    return false;
+}
+提示：推荐能使用servlet规范中的过滤器Filter实现的功能就用Filter实现，因为HandlerInteceptor只有在Spring Web MVC环境下才能使用，因此Filter是最通用的、最先应该使用的。如登录这种拦截器最好使用Filter来实现。
+
+
+
+
+
+
+
+
+
+
+
+
+
+

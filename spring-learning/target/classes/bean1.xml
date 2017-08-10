@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	   xmlns:p="http://www.springframework.org/schema/p"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="
+http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd">
+
+<bean id="helloWorldService" class="com.java.spring.ioc.HelloWorldServiceImpl"></bean>
+<bean id="helloWorldService-constructor" class="com.java.spring.ioc.HelloWorldServiceConstructor">
+<constructor-arg name="msg" value="java"></constructor-arg>
+</bean>
+
+<bean id="helloWorldService-null" class="com.java.spring.ioc.HelloWorldServiceNull">
+<property name="msg" >
+<null></null>
+</property>
+</bean>
+
+<bean id="helloWorldService-static" class="com.java.spring.ioc.HelloWorldServiceFacotry" 
+factory-method="getHelloWorldService"></bean>
+<bean id="helloWorldServiceFacotryBean" class="com.java.spring.ioc.HelloWorldServiceFacotryBean"></bean>
+<bean id="helloWorldService-bean"  factory-bean="helloWorldServiceFacotryBean"  factory-method="getHelloWorldService"></bean>
+
+<bean id="helloWorldInit"  class="com.java.spring.ioc.HelloWorldInit"  init-method="init" destroy-method="cleanUp"></bean>
+<bean id="HelloWorldInitBean" class="com.java.spring.ioc.HelloWorldInitBean"></bean>
+
+<bean id="date" class="java.util.Date"></bean>
+
+<bean id="user" class="com.java.spring.ioc.User">
+<property name="name" value="yang"></property>
+</bean>
+
+<bean id="helloWorldAutowirebyType" class="com.java.spring.ioc.HelloWorldAutowire" autowire="byType">
+</bean>
+<bean id="helloWorldAutowirebyName" class="com.java.spring.ioc.HelloWorldAutowire" autowire="byName">
+</bean> 
+
+<bean id="helloWorldAutowireconstructor" class="com.java.spring.ioc.HelloWorldAutowire" autowire="constructor">
+</bean> 
+
+<bean id="helloWorldAutowireno" class="com.java.spring.ioc.HelloWorldAutowire" autowire="no">
+<property name="user" ref="user">
+</property>
+</bean>
+
+
+
+<bean id="helloWorld"  class="com.java.spring.ioc.HelloWorld">
+<property name="msg" value="HelloWorld"></property>
+<property name="date" ref="date"></property>
+</bean>
+
+</beans>

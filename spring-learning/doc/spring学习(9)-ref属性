@@ -1,0 +1,33 @@
+在<constructor-arg/>或<property/>元素内部还可以使用ref元素。该元素用来将bean中指定属性的值设置为对容器中的另外一个bean的引用。如前所述，该引用bean将被作为依赖注入，而且在注入之前会被初始化（如果是singleton bean则已被容器初始化）。尽管都是对另外一个对象的引用，但是通过id/name指向另外一个对象却有三种不同的形式，不同的形式将决定如何处理作用域及验证。
+
+第一种形式也是最常见的形式是通过使用<ref/>标记指定bean属性的目标bean，通过该标签可以引用同一容器或父容器内的任何bean（无论是否在同一XML文件中）。XML 'bean'元素的值既可以是指定bean的id值也可以是其name值。
+
+<ref bean="someBean"/>
+第二种形式是使用ref的local属性指定目标bean，它可以利用XML解析器来验证所引用的bean是否存在同一文件中。local属性值必须是目标bean的id属性值。如果在同一配置文件中没有找到引用的bean，XML解析器将抛出一个例外。如果目标bean是在同一文件内，使用local方式就是最好的选择（为了尽早地发现错误）。
+
+<ref local="someBean"/>
+第三种方式是通过使用ref的parent属性来引用当前容器的父容器中的bean。parent属性值既可以是目标bean的id值，也可以是name属性值。而且目标bean必须在当前容器的父容器中。使用parent属性的主要用途是为了用某个与父容器中的bean同名的代理来包装父容器中的一个bean(例如，子上下文中的一个bean定义覆盖了他的父bean)。
+
+<!-- in the parent context -->
+<bean id="accountService" class="com.foo.SimpleAccountService">
+    <!-- insert dependencies as required as here -->
+</bean>
+<!-- in the child (descendant) context -->
+<bean id="accountService"  <-- notice that the name of this bean is the same as the name of the 'parent' bean
+      class="org.springframework.aop.framework.ProxyFactoryBean">
+      <property name="target">
+          <ref parent="accountService"/>  <-- notice how we refer to the parent bean
+      </property>
+    <!-- insert other configuration and dependencies as required as here -->
+</bean>
+
+
+1 、用 local 属性指定目标 bean 可以利用 xml 解析器的能力在同一个文件中验证 xml id 引用 . 如果在同一个文件中没有匹 配的元素 ,xml 解析器就会产生一个 error, 所以如果目标 bean 在同一个 xml 文件中 , 那么用 local 形式是最好的选择 .
+
+2 、可以这么说， <ref bean 是寻找全局中的 bean; <ref local 是寻找本 xml 文件中的 bean 
+
+
+3 、 <ref> 提供了如下几方面的属性 :
+1)bean: 在当前 Spring XML 配置文件中，或者在同一 BeanFactory(ApplicationContext) 中的其他 JavaBean 中 .
+2)local: 在当前 Spring XML 配置文件中 . 其依赖的 JavaBean 必须存在于当前 Spring XML 培植文件中 . 如果借助 于 Spring IDE, 则在编译期可以对其依赖的 JavaBean 进行验证。基于 local 方式，开发者能够使用到 XML 本身提供 的优势，而进行验证。 
+3)parent: 用于指定其依赖的父 JavaBean 定义。

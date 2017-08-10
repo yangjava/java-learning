@@ -23,5 +23,6 @@
   	<module>mysql-learning</module>
   	<module>InternetFinance-learning</module>
   	<module>dom4j-learning</module>
+  	<module>freemarker-learning</module>
   </modules>
 </project>

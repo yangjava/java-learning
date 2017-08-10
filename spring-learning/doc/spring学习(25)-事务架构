@@ -1,0 +1,448 @@
+1. 引言  事务特性
+
+事务是并发控制的单元，是用户定义的一个操作序列。这些操作要么都做，要么都不做，是一个不可分割的工作单位。通过事务将逻辑相关的一组操作绑定在一起，以便服务器 保持数据的完整性。事务通常是以begin transaction开始，以commit或rollback结束。Commint表示提交，即提交事务的所有操作。具体地说就是将事务中所有对数据的更新写回到磁盘上的物理数据库中去，事务正常结束。Rollback表示回滚，即在事务运行的过程中发生了某种故障，事务不能继续进行，系统将事务中对数据库的所有已完成的操作全部撤消，滚回到事务开始的状态。
+
+　　原子性(Atomic) 对数据的修改要么全部执行，要么全部不执行。
+
+　　一致性(Consistent) 在事务执行前后，数据状态保持一致性。
+
+　　隔离性(Isolated) 一个事务的处理不能影响另一个事务的处理。
+
+　　持续性(Durable) 事务处理结束，其效果在数据库中持久化。
+
+ 2. Java事务的类型
+
+    Java事务的类型有三种：JDBC事务、JTA（Java Transaction API）事务、容器事务。
+
+    1、JDBC事务
+
+    JDBC 事务是用 Connection 对象控制的。JDBC Connection 接口（ java.sql.Connection ）提供了两种事务模式：自动提交和手工提交。 java.sql.Connection 提供了以下控制事务的方法：
+
+　　public void setAutoCommit(boolean)
+　　public boolean getAutoCommit()
+　　public void commit()
+　　public void rollback()
+
+
+    使用 JDBC 事务界定时，您可以将多个 SQL 语句结合到一个事务中。JDBC 事务的一个缺点是事务的范围局限于一个数据库连接。一个 JDBC 事务不能跨越多个数据库。
+
+ 
+
+    2、JTA（Java Transaction API）事务
+
+    JTA是一种高层的，与实现无关的，与协议无关的API，应用程序和应用服务器可以使用JTA来访问事务。
+
+    JTA允许应用程序执行分布式事务处理——在两个或多个网络计算机资源上访问并且更新数据，这些数据可以分布在多个数据库上。JDBC驱动程序的JTA支持极大地增强了数据访问能力。
+
+    如果计划用 JTA 界定事务，那么就需要有一个实现 javax.sql.XADataSource 、 javax.sql.XAConnection 和 javax.sql.XAResource 接口的 JDBC 驱动程序。一个实现了这些接口的驱动程序将可以参与 JTA 事务。一个 XADataSource 对象就是一个 XAConnection 对象的工厂。 XAConnection s 是参与 JTA 事务的 JDBC 连接。
+
+    您将需要用应用服务器的管理工具设置 XADataSource .从应用服务器和 JDBC 驱动程序的文档中可以了解到相关的指导。
+
+     J2EE应用程序用 JNDI 查询数据源。一旦应用程序找到了数据源对象，它就调用 javax.sql.DataSource.getConnection（） 以获得到数据库的连接。
+
+    XA 连接与非 XA 连接不同。一定要记住 XA 连接参与了 JTA 事务。这意味着 XA 连接不支持 JDBC 的自动提交功能。同时，应用程序一定不要对 XA 连接调用 java.sql.Connection.commit（） 或者 java.sql.Connection.rollback（） .
+
+    相反，应用程序应该使用 UserTransaction.begin（）、 UserTransaction.commit（） 和 serTransaction.rollback（） .
+
+ 
+
+    3、容器事务
+
+    容器事务主要是J2EE应用服务器提供的，容器事务大多是基于JTA完成，这是一个基于JNDI的，相当复杂的API实现。相对编码实现JTA事务管理， 我们可以通过EJB容器提供的容器事务管理机制（CMT）完成同一个功能，这项功能由J2EE应用服务器提供。这使得我们可以简单的指定将哪个方法加入事 务，一旦指定，容器将负责事务管理任务。这是我们土建的解决方式，因为通过这种方式我们可以将事务代码排除在逻辑编码之外，同时将所有困难交给J2EE容 器去解决。使用EJB CMT的另外一个好处就是程序员无需关心JTA API的编码，不过，理论上我们必须使用EJB.
+
+    4、三种Java事务差异
+
+    　　JDBC事务控制的局限性在一个数据库连接内，但是其使用简单。
+
+   　　 JTA事务的功能强大，事务可以跨越多个数据库或多个DAO，使用也比较复杂。
+
+    　　容器事务，主要指的是J2EE应用服务器提供的事务管理，局限于EJB应用使用。
+
+    5、应用场景
+
+    Java事务控制是构建J2EE应用不可缺少的一部分，合理选择应用何种事务对整个应用系统来说至关重要。一般说来，在单个JDBC 连接连接的情况下可以选择JDBC事务，在跨多个连接或者数据库情况下，需要选择使用JTA事务，如果用到了EJB，则可以考虑使用EJB容器事务 
+
+ 
+3. spring事务实现源码分析
+ 
+　3.1 dao模块
+　　　　dao模块定义了数据库层的各种异常，其中异常的结构已经在spring-jdbc模块中介绍过了，在这里主要是dao的支持和异常的转译，其数据库支持和转译结构如下所示：
+
+dao 支持
+提供了对hibernate、jdbc,cci的支持。我们都想到熟悉，对cci可能有些陌生，下面的章节会讲到。
+dao异常转译
+  PersistenceExceptionTranslationPostProcessor：自动将标示为@repository的bean的持久化异常进行转译。它增加一个PersistenceExceptionTranslationAdvisor来代理相应的已经存在的aop代理或者实现了目标接口的新产生的代理。它将本地资源异常转换为spring的DataAccessException及其子类上。
+
+  PersistenceExceptionTranslationAdvisor是一个spring aop的异常转译类，它应用到respository层或者dao层。它基于给定的PersistenceExceptionTranslator来将本地持久化异常转换为spring的DataAccessException族。
+
+　PersistenceExceptionTranslationInterceptor：一个aop 方法拦截器(MethodInterceptor).提供基于PersistenceExceptionTranslator的异常转换，它是PersistenceExceptionTranslator的代理，将运行时抛出的异常转换为spring 的DataAccessException族。
+
+  PersistenceExceptionTranslator spring集成其它数据获取技术（如jpa、toplink、jdo、hibernate等）抛出运行时异常的接口。
+
+3.2 jca模块
+   1. cci模块
+
+   
+
+J2EE提供JCA（Java Connector Architecture）规范来标准化对EIS（Enterprise Information System）的访问。这个规范被分为几个不同的部分： 
+
+　　SPI（Service provider interfaces）是连接器提供者（connector provider）必须实现的接口。 这些接口组成了一个能被部署在J2EE应用服务器上的资源适配器（resource adapter）。 在这种情况下，由服务器来管理连接池（connection pooling）、事务和安全（托管模式（managed mode））。 应用服务器还负责管理客户端应用程序之外所拥有的配置。连接器（connector）同样能在脱离应用服务器的情况下使用；在这种情况下，应用程序必须直接对它进行配置（非托管模式（non-managed mode））。 
+
+　　CCI （Common Client Interface）是应用程序用来与连接器交互并与EIS通信的接口。同样还为本地事务划界提供了API。 
+
+　　Spring对CCI的支持，目的是为了提供以典型的Spring方式来访问CCI连接器的类，并有效地使用Spring的通用资源和事务管理工具。 
+
+注意： 
+连接器的客户端不必总是使用CCI。 某些连接器暴露它们自己的API，只提供JCA资源适配器（resource adapter） 以使用J2EE容器的某些系统契约（system contracts）（连接池（connection pooling），全局事务（global transactions），安全（security））。 Spring并没有为这类连接器特有（connector-specific）的API提供特殊的支持。
+ 2. context模块
+    ResourceAdapterApplicationContext：一个jca ResourceAdapter的applicationContext实现，需要于jca的bootstrapContext一同初始化，最后传递到实现了BootstrapContextAware的spring 受管理bean。
+复制代码
+    @Override
+    protected void postProcessBeanFactory(ConfigurableListableBeanFactory beanFactory) throws BeansException {
+        beanFactory.addBeanPostProcessor(new BootstrapContextAwareProcessor(this.bootstrapContext));
+        beanFactory.ignoreDependencyInterface(BootstrapContextAware.class);
+        beanFactory.registerResolvableDependency(BootstrapContext.class, this.bootstrapContext);
+
+        // JCA WorkManager resolved lazily - may not be available.
+        beanFactory.registerResolvableDependency(WorkManager.class, new ObjectFactory<WorkManager>() {
+            @Override
+            public WorkManager getObject() {
+                return bootstrapContext.getWorkManager();
+            }
+        });
+    }
+复制代码
+BootstrapContextAwareProcessor：传递BootstrapContext到实现了BootStrapContextAware接口的spring bean。它在内部bean factory中自动注册。
+BootstrapContextAware：需要通知BootStrapContext的实现类。
+BootstrapContext：提供一种机制，这种机制将一个Bootstrap的上下文传递到一个资源适配器实例。
+3.endpoint模块
+  AbstractMessageEndpointFactory：实现了jca 1.5、1.6、1.7版本的javax.resource.spi.endpoint.MessageEndpointFactory接口，它提供了事务管理能力。
+  GenericMessageEndpointFactory实现了抽象方法，对任意类型的消息监听对象（javax.jms.MessageListener）或者javax.resource.cci.MessageListener对象提供了事务管理的能力。
+  GenericMessageEndpointManager管理类，对上述方法进行管理。
+ 4.support模块
+   LocalConnectionFactoryBean：创建一个本地JCA连接工厂。
+   ResourceAdapterFactoryBean ：使用BootStrapContext启动一个jca 1.5指定的ResouceAdapter。
+ 5. work模块
+   结构如下：
+
+WorkManager提供了提交Work(Work继承了Runnable)可执行实例的便利类。
+3.3 transaction模块
+
+spring事务架构
+
+3.3.1 事务管理PlatformTransactionManager的架构
+
+如下图所示：
+
+PlatformTransactionManager：spring事务的核心接口。 
+
+
+
+ 
+
+ 
+
+ 
+
+3.3.2 事务定义TransactionDefinition的架构
+
+如下图所示：
+
+
+
+TransactionDefinition：定义spring容器事务属性的接口。
+
+包括事务传播行为类型和事务隔离级别：
+
+事务传播行为类型
+
+事务传播行为类型
+
+说明
+
+PROPAGATION_REQUIRED
+
+如果当前没有事务，就新建一个事务，如果已经存在一个事务中，加入到这个事务中。这是最常见的选择。
+
+PROPAGATION_SUPPORTS
+
+支持当前事务，如果当前没有事务，就以非事务方式执行。
+
+PROPAGATION_MANDATORY
+
+使用当前的事务，如果当前没有事务，就抛出异常。
+
+PROPAGATION_REQUIRES_NEW
+
+新建事务，如果当前存在事务，把当前事务挂起。
+
+PROPAGATION_NOT_SUPPORTED
+
+以非事务方式执行操作，如果当前存在事务，就把当前事务挂起。
+
+PROPAGATION_NEVER
+
+以非事务方式执行，如果当前存在事务，则抛出异常。
+
+PROPAGATION_NESTED
+
+如果当前存在事务，则在嵌套事务内执行。如果当前没有事务，则执行与PROPAGATION_REQUIRED类似的操作。
+
+当使用PROPAGATION_NESTED时，底层的数据源必须基于JDBC 3.0，并且实现者需要支持保存点事务机制。
+
+隔离级别：
+
+为了避免上面出现几种情况在标准SQL规范中定义了4个事务隔离级别，不同隔离级别对事务处理不同
+
+　　1. 未授权读取（Read Uncommitted）：也称未提交读。防止更新丢失（这不对应一级锁吗），如果一个事务已经开始写数据则另外一个数据则不允许同时进行写操作但允许其他事务读此行数据。该隔离级别可以通过“排他写锁”实现。事务隔离的最低级别，仅可保证不读取物理损坏的数据。与READ COMMITTED 隔离级相反，它允许读取已经被其它用户修改但尚未提交确定的数据。
+
+　　2. 授权读取（Read Committed）：也称提交读。1之上防止脏读取（这不对应二级锁吗）。这可以通过“瞬间共享读锁”和“排他写锁”实现，读取数据的事务允许其他事务继续访问该行数据，但是未提交写事务将会禁止其他事务访问该行。SQL Server 默认的级别。在此隔离级下，SELECT 命令不会返回尚未提交（Committed） 的数据，也不能返回脏数据。
+
+　　3. 可重复读取（Repeatable Read）：2之上防止不可重复读取（这不对应三级锁吗）。但是有时可能出现幻影数据，这可以通过“共享读锁”和“排他写锁”实现，读取数据事务将会禁止写事务（但允许读事务），写事务则禁止任何其他事务。在此隔离级下，用SELECT 命令读取的数据在整个命令执行过程中不会被更改。此选项会影响系统的效能，非必要情况最好不用此隔离级。
+
+　　三级封锁协议并不能阻止幻读，修改的不能再被读取，但是新增（删除）的记录数可以统计。
+
+　　4. 串行（Serializable）：也称可串行读（这不对应两段锁吗）。提供严格的事务隔离，它要求事务序列化执行，事务只能一个接着一个地执行，但不能并发执行。如果仅仅通过 “行级锁”是无法实现事务序列化的，必须通过其他机制保证新插入的数据不会被刚执行查询操作事务访问到。事务隔离的最高级别，事务之间完全隔离。如果事务在可串行读隔离级别上运行，则可以保证任何并发重叠事务均是串行的。
+
+
+
+　　LU丢失更新 DR脏读 NRR非重复读SLU二类丢失更新 PR幻像读
+
+为了解决与“多个线程请求相同数据”相关的问题，事务之间用锁相互隔开。多数主流的数据库支持不同类型的锁；因此，JDBC API 支持不同类型的事务，它们由 Connection 对象指派或确定。 
+        为了在性能与一致性之间寻求平衡才出现了上面的几种级别。事务保护的级别越高，性能损失就越大。
+        假定您的数据库和 JDBC 驱动程序支持这个特性，则给定一个 Connection 对象，您可以明确地设置想要的事务级别：
+        conn.setTransactionLevel(TRANSACTION_SERIALIZABLE) ;
+        可以通过下面的方法确定当前事务的级别：
+            int level = conn.getTransactionIsolation();
+SavepointManager：管理事务savepoint的编程式API接口。
+
+JDBC定义了SavePoint接口，提供在一个更细粒度的事务控制机制。当设置了一个保存点后，可以rollback到该保存点处的状态，而不是rollback整个事务。Connection接口的setSavepoint和releaseSavepoint方法可以设置和释放保存点。
+
+ 
+
+ 
+
+TransactionStatus：事务状态表现形式。
+
+
+
+ 3.3.3 spring事务实现机制
+
+   1 高层
+
+     比较好的方式有：1.基于持久层api的模板方法；2.使用具有事务工厂bean的本地ORM api；3使用代理管理本地资源工厂。
+
+   2 底层
+
+      DataSourceUtils (用作JDBC事务), EntityManagerFactoryUtils (用作JPA事务), SessionFactoryUtils (用作Hibernate事务),PersistenceManagerFactoryUtils (用作JDO事务)等等，
+
+    例如：在使用jdbc时，你可以不通过DataSource的getConnection()方法获取connection，而是使用以下方法获取：
+
+  Connection conn = DataSourceUtils.getConnection(dataSource);
+3 最低层
+   TransactionAwareDataSourceProxy是事务的最底层，它代理了DataSource，并增加了spring管理事务功能。
+   
+   
+   
+   
+   
+   
+   /**********************************/
+   
+   下面就以Spring实现事务的一种方式来分析这个过程。
+[html] view plain copy
+<bean id="baseTransactionProxy" class="org.springframework.transaction.interceptor.TransactionProxyFactoryBean"  
+     abstract="true">  
+   <property name="transactionManager" ref="transactionManager"/>  
+   <property name="transactionAttributes">  
+     <props>  
+       <prop key="insert*">PROPAGATION_REQUIRED</prop>  
+       <prop key="update*">PROPAGATION_REQUIRED</prop>  
+       <prop key="*">PROPAGATION_REQUIRED,readOnly</prop>  
+     </props>  
+   </property>  
+ </bean>  
+  
+ <bean id="myProxy" parent="baseTransactionProxy">  
+   <property name="target" ref="myTarget"/>  
+ </bean>  
+  
+ <bean id="yourProxy" parent="baseTransactionProxy">  
+   <property name="target" ref="yourTarget"/>  
+ </bean>  
+
+spring 读取到配置文件的信息时会去解析相关的元素，关于spring bean的解析原理及如何生成bean可参考文章：基于Spring可扩展Schema提供自定义配置支持。这里就不再细说。
+TransactionProxyFactoryBean类是代理bean工厂，简化事务处理。
+[java] view plain copy
+public class TransactionProxyFactoryBean extends AbstractSingletonProxyFactoryBean  
+        implements BeanFactoryAware   
+
+继承AbstractSingletonProxyFactoryBean， 该类提供了创建事务bean代理对象的方法。
+[java] view plain copy
+public void afterPropertiesSet() {  
+        if (this.target == null) {  
+            throw new IllegalArgumentException("Property 'target' is required");  
+        }  
+        if (this.target instanceof String) {  
+            throw new IllegalArgumentException("'target' needs to be a bean reference, not a bean name as value");  
+        }  
+        if (this.proxyClassLoader == null) {  
+            this.proxyClassLoader = ClassUtils.getDefaultClassLoader();  
+        }  
+  
+        ProxyFactory proxyFactory = new ProxyFactory();  
+  
+        if (this.preInterceptors != null) {  
+            for (Object interceptor : this.preInterceptors) {  
+                proxyFactory.addAdvisor(this.advisorAdapterRegistry.wrap(interceptor));  
+            }  
+        }  
+  
+        // Add the main interceptor (typically an Advisor).  
+        proxyFactory.addAdvisor(this.advisorAdapterRegistry.wrap(createMainInterceptor()));  
+  
+        if (this.postInterceptors != null) {  
+            for (Object interceptor : this.postInterceptors) {  
+                proxyFactory.addAdvisor(this.advisorAdapterRegistry.wrap(interceptor));  
+            }  
+        }  
+  
+        proxyFactory.copyFrom(this);  
+  
+        TargetSource targetSource = createTargetSource(this.target);  
+        proxyFactory.setTargetSource(targetSource);  
+  
+        if (this.proxyInterfaces != null) {  
+            proxyFactory.setInterfaces(this.proxyInterfaces);  
+        }  
+        else if (!isProxyTargetClass()) {  
+            // Rely on AOP infrastructure to tell us what interfaces to proxy.  
+            proxyFactory.setInterfaces(  
+                    ClassUtils.getAllInterfacesForClass(targetSource.getTargetClass(), this.proxyClassLoader));  
+        }  
+  
+        this.proxy = proxyFactory.getProxy(this.proxyClassLoader);/**此处创建了代理对象**/  
+    }  
+而在该方法中调用了createMainInterceptor方法，该方法很重要，获取到事务的拦截对象，进入到该方法中：
+[java] view plain copy
+protected Object createMainInterceptor() {  
+        this.transactionInterceptor.afterPropertiesSet();  
+        if (this.pointcut != null) {  
+            return new DefaultPointcutAdvisor(this.pointcut, this.transactionInterceptor);  
+        }  
+        else {  
+            // Rely on default pointcut.  
+            return new TransactionAttributeSourceAdvisor(this.transactionInterceptor);  
+        }  
+    }  
+这样，当我们调用业务bean的处理方法时，实际上是调用代理对象Interceptor的Invoker方法：
+[java] view plain copy
+public class TransactionInterceptor extends TransactionAspectSupport implements MethodInterceptor,Serializable {  
+   
+    public Object invoke(final MethodInvocationinvocation) throws Throwable {  
+                                                                                                                                                  .......  
+              //就在这一句开启事务  
+              TransactionInfotxInfo = createTransactionIfNecessary(tm, txAttr,joinpointIdentification);  
+              ......  
+              retVal= invocation.proceed();   //执行下一个拦截器 或 执行代理目标的方法  
+              ......                                                                                                                                        
+              commitTransactionAfterReturning(txInfo);  <span style="font-family: Arial, Helvetica, sans-serif;">//提交事务           </span>  
+                                                                     
+              return retVal;  
+              .......  
+    }   
+}  
+该方法中实现了真正的在业务bean方法中加入事务处理，现在我们来分析下这段源码。
+我们注意到这段代码：TransactionInfo txInfo = createTransactionIfNecessary(tm, txAttr, joinpointIdentification)，该代码就决定了是否启用事务处理。深入到该方法内部，
+该方法调用了status = tm.getTransaction(txAttr)，这里就是获取事务的关键部分。进入该方法的实现：
+[java] view plain copy
+public abstract class AbstractPlatformTransactionManager implements PlatformTransactionManager, Serializable {  
+ ......  
+   public final TransactionStatus getTransaction(TransactionDefinitiondefinition) throws TransactionException {  
+              </span>  
+[java] view plain copy
+              //这里是取得当前已绑定到TransactionSynchronizationManager的上下文的事务,主要为事务传播行为而设  
+              Object transaction =doGetTransaction();  
+              ........  
+              //如果事务已存在,根据事务传播行为来处理,  
+              if(isExistingTransaction(transaction)) {  
+                     // Existingtransaction found -> check propagation behavior to find out how to behave.  
+                     return handleExistingTransaction(definition, transaction, debugEnabled);  
+              }  
+              ......  
+              //这里最关键,开启一个新的事务,并放进TransactionSynchronizationManager的上下文中,并绑定到当前线程)  
+              doBegin(transaction,definition);  
+              return status;  
+              .......  
+       }  
+......  
+}  
+AbstractPlatformTransactionManager抽象类是spring事务处理中的一个核心类，该类实现接口PlatformTransactionManager，他们之间的关系如下图示：
+
+[java] view plain copy
+如上图所示，spring实现了几种方式的事务处理，其中有JTA,DataSource,Hibernate,JDO,JPA,CCI。现在我们进入HibernateTransactionManager的doGenTransaction的方法内部，查看他是如何处理的，其他的几个都是类似的。  
+
+[java] view plain copy
+public class HibernateTransactionManager extends AbstractPlatformTransactionManager  
+        implements ResourceTransactionManager, InitializingBean {  
+  
+    protected Object doGetTransaction() {  
+        HibernateTransactionObject txObject = new HibernateTransactionObject();  
+        ......  
+  
+        //在TransactionSynchronizationManager的上下文中查找当前的Session(实质上也是与线程绑定的)  
+        SessionHolder sessionHolder = (SessionHolder) TransactionSynchronizationManager.getResource(getSessionFactory());  
+  
+        ......  
+        return txObject;  
+    }  
+  
+}  
+该方法尝试获取当前已绑定到TransactionSynchronizationManager的上下文的事务,主要为事务传播行为而设定。然后进入doBegin()方法，该方法尝试开启一个新的事务,并放进TransactionSynchronizationManager的上下文(ThreadLocal的Map)中,绑定到当前线程中（线程的ThreadLocal变量中）。
+[java] view plain copy
+public class HibernateTransactionManager extends AbstractPlatformTransactionManager  
+        implements ResourceTransactionManager, InitializingBean {  
+......  
+     protected void doBegin(Object transaction, TransactionDefinition definition) {  
+                HibernateTransactionObject txObject = (HibernateTransactionObject) transaction;  
+        .........  
+        try {  
+            if (txObject.getSessionHolder() == null || txObject.getSessionHolder().isSynchronizedWithTransaction()) {  
+                //这里才真正的打开Session  
+                Session newSession = SessionFactoryUtils.openSession(getSessionFactory());  
+                .........  
+            }  
+            session = txObject.getSessionHolder().getSession();  
+                        .........  
+            Transaction hibTx;  
+            // Register transaction timeout.  
+            .........  
+            if (timeout != TransactionDefinition.TIMEOUT_DEFAULT) {  
+                .........  
+            }  
+            else {  
+                //这里才真正地开启事务  
+                hibTx = session.beginTransaction();  
+            }  
+            .........  
+                        //如果这新开启的Session,则将SessionHolder(Session和Transaction)放到TransactionSynchronizationManager的上下文中(绑定到当前线程)  
+            // Bind the session holder to the thread.  
+            if (txObject.isNewSessionHolder()) {                                                                                                
+                                //以键值对<SessionFactory,SessionHolder>形式绑定到TransactionSynchronizationManager的上下文中  
+                TransactionSynchronizationManager.bindResource(getSessionFactory(), txObject.getSessionHolder());  
+            }         
+            .......  
+        }  
+        .........  
+     }  
+......  
+}  
+主要是理解TransactionSynchronizationManager, 要懂得Spring的TransactionManager开启事务后是以键值对<SessionFactory,SessionHolder>形式 存放到 TransactionSynchronizationManager的上下文(ThreadLocal的Map)中(以ThreadLocal的方式与当前线程绑定)。
+[java] view plain copy
+在获取Session，开启事务后，又回到TransactionInterceptor 的Invoker方法中，进行实际业务的处理：retVal= invocation.proceed()，处理完之后，则开始提交事务或者回滚事务。  
+[java] view plain copy
+成功后提交事务：commitTransactionAfterReturning(txInfo)，进入该方法内部就可发现是调用了PlatformTransactionManager.commin方法进行提交。  
+[java] view plain copy
+失败后回滚事务：completeTransactionAfterThrowing(txInfo, ex)也是类似。  
+[java] view plain copy
+至此Spring的基于动态代理方式实现事务处理的流程就讲完了。  

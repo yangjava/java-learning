@@ -1,0 +1,296 @@
+依赖检查与自动装配结合使用，因为依赖检查能够分别对每个bean应用或取消应用，而自动装配完全是自动的，
+
+用依赖检查来对自动装配bean进行显示配置,没有自动装配就没有依赖检查。
+
+spring默认情况下是不检查依赖的，如果要使用依赖检查需要手动的在配置文件中设置。
+
+依赖检查有四种模式：simple,objects,all,none
+
+都通过bean的dependency-check属性进行模式设置。
+一，simple模式
+
+使用simple模式是对基本类型、字符串和集合进行依赖检查，理解这句话不太好理解，看看实例解释就知道是怎么依赖检查的。
+
+实例：
+
+HelloWorld类：
+
+[java] view plain copy
+package com.lanhuigu.spring.action;  
+  
+  
+public class HelloWorld{  
+    private String msg;  
+    private RefTest refTest;  
+    //有参构造器  
+    /*public HelloWorld(RefTest refTest){ 
+        this.refTest = refTest; 
+    }*/  
+    //通过set方法注入属性值  
+    public void setMsg(String msg) {  
+        this.msg = msg;  
+    }  
+      
+    public String getMsg() {  
+        return msg;  
+    }  
+  
+    public RefTest getRefTest() {  
+        return refTest;  
+    }  
+  
+    public void setRefTest(RefTest refTest) {  
+        this.refTest = refTest;  
+    }  
+      
+}  
+spring对simple的配置：
+[html] view plain copy
+<?xml version="1.0" encoding="UTF-8"?>  
+  
+<!--  
+  - Application context definition for JPetStore's business layer.  
+  - Contains bean references to the transaction manager and to the DAOs in  
+  - dataAccessContext-local/jta.xml (see web.xml's "contextConfigLocation").  
+  -->  
+<beans xmlns="http://www.springframework.org/schema/beans"  
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"  
+        xmlns:aop="http://www.springframework.org/schema/aop"  
+        xmlns:tx="http://www.springframework.org/schema/tx"  
+        xsi:schemaLocation="  
+            http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-2.5.xsd  
+            http://www.springframework.org/schema/aop http://www.springframework.org/schema/aop/spring-aop-2.5.xsd  
+            http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx-2.5.xsd">  
+    <!-- 定义一个id为sayHello的bean,  
+    通过spring配置文件变换实现类，实现不同的功能，无需修改别的程序 -->  
+    <bean id="sayHello" class="com.lanhuigu.spring.action.HelloWorld"   
+        autowire="autodetect" dependency-check="simple">  
+        <!-- 将变量msg值依赖注入 -->  
+        <property name="msg">  
+            <value>测试</value>  
+        </property>    
+        <!-- refTest为HelloWorld的一个属性，通过ref指定依赖关系，  
+            也就是说你依赖于哪个类，或者接口，直接把这个类通过set方式注入 ，  
+            看看HelloWorld的属性定义就明白了-->  
+        <!-- <property name="refTest">  
+            <ref bean="refTest"/>  
+        </property> -->   
+    </bean>  
+    <!-- RefTest类 -->  
+    <bean id="refTest" class="com.lanhuigu.spring.action.RefTest">  
+        <!-- myRef为RefTest类的一个属性 -->  
+        <property name="myRef">  
+            <value>依赖关系测试</value>  
+        </property>  
+    </bean>  
+</beans>  
+对实例进行说明：
+所为的依赖检查就是HelloWorld类根据定义的属性private String msg;去spring里面寻找msg这样的属性设置，
+
+这就是依赖检查的含义，依赖于HelloWorld的msg属性，去spring配置文件中进行检查。
+simple模式对private String msg;进行检索，如果在spring配置文件中，将
+
+<property name="msg">
+            <value>测试</value>
+</property>
+
+的配置去掉，报错如下：
+
+[java] view plain copy
+org.springframework.beans.factory.UnsatisfiedDependencyException: Error creating bean with name 'sayHello' defined in class path resource [applicationContext.xml]: Unsatisfied dependency expressed through bean property 'msg': Set this property value or disable dependency checking for this bean.  
+    at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.checkDependencies(AbstractAutowireCapableBeanFactory.java:1184)  
+    at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.populateBean(AbstractAutowireCapableBeanFactory.java:1006)  
+    at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.doCreateBean(AbstractAutowireCapableBeanFactory.java:472)  
+    at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory$1.run(AbstractAutowireCapableBeanFactory.java:409)  
+    at java.security.AccessController.doPrivileged(Native Method)  
+    at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.createBean(AbstractAutowireCapableBeanFactory.java:380)  
+    at org.springframework.beans.factory.support.AbstractBeanFactory$1.getObject(AbstractBeanFactory.java:264)  
+    at org.springframework.beans.factory.support.DefaultSingletonBeanRegistry.getSingleton(DefaultSingletonBeanRegistry.java:222)  
+    at org.springframework.beans.factory.support.AbstractBeanFactory.doGetBean(AbstractBeanFactory.java:261)  
+    at org.springframework.beans.factory.support.AbstractBeanFactory.getBean(AbstractBeanFactory.java:185)  
+    at org.springframework.beans.factory.support.AbstractBeanFactory.getBean(AbstractBeanFactory.java:164)  
+    at org.springframework.beans.factory.support.DefaultListableBeanFactory.preInstantiateSingletons(DefaultListableBeanFactory.java:429)  
+    at org.springframework.context.support.AbstractApplicationContext.finishBeanFactoryInitialization(AbstractApplicationContext.java:728)  
+    at org.springframework.context.support.AbstractApplicationContext.refresh(AbstractApplicationContext.java:380)  
+    at org.springframework.context.support.ClassPathXmlApplicationContext.<init>(ClassPathXmlApplicationContext.java:139)  
+    at org.springframework.context.support.ClassPathXmlApplicationContext.<init>(ClassPathXmlApplicationContext.java:83)  
+    at com.lanhuigu.spring.test.TestHelloWorld.testMyHelloWorld(TestHelloWorld.java:14)  
+    at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)  
+    at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)  
+    at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)  
+    at java.lang.reflect.Method.invoke(Method.java:597)  
+    at org.junit.internal.runners.TestMethod.invoke(TestMethod.java:59)  
+    at org.junit.internal.runners.MethodRoadie.runTestMethod(MethodRoadie.java:98)  
+    at org.junit.internal.runners.MethodRoadie$2.run(MethodRoadie.java:79)  
+    at org.junit.internal.runners.MethodRoadie.runBeforesThenTestThenAfters(MethodRoadie.java:87)  
+    at org.junit.internal.runners.MethodRoadie.runTest(MethodRoadie.java:77)  
+    at org.junit.internal.runners.MethodRoadie.run(MethodRoadie.java:42)  
+    at org.junit.internal.runners.JUnit4ClassRunner.invokeTestMethod(JUnit4ClassRunner.java:88)  
+    at org.junit.internal.runners.JUnit4ClassRunner.runMethods(JUnit4ClassRunner.java:51)  
+    at org.junit.internal.runners.JUnit4ClassRunner$1.run(JUnit4ClassRunner.java:44)  
+    at org.junit.internal.runners.ClassRoadie.runUnprotected(ClassRoadie.java:27)  
+    at org.junit.internal.runners.ClassRoadie.runProtected(ClassRoadie.java:37)  
+    at org.junit.internal.runners.JUnit4ClassRunner.run(JUnit4ClassRunner.java:42)  
+    at org.eclipse.jdt.internal.junit4.runner.JUnit4TestReference.run(JUnit4TestReference.java:50)  
+    at org.eclipse.jdt.internal.junit.runner.TestExecution.run(TestExecution.java:38)  
+    at org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.runTests(RemoteTestRunner.java:467)  
+    at org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.runTests(RemoteTestRunner.java:683)  
+    at org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.run(RemoteTestRunner.java:390)  
+    at org.eclipse.jdt.internal.junit.runner.RemoteTestRunner.main(RemoteTestRunner.java:197)  
+该错误告诉我们，sayHello这个bean在使用时不满足依赖检查设置的模式，也就是说HelloWorld类根据msg去spring配置文件
+检查关于msg的配置，发现是一场空，狠得报错了！
+二，objects模式
+
+objects模式顾名思义就是对依赖对象进行依赖检查。
+
+实例：
+
+HelloWorld类：
+
+[java] view plain copy
+package com.lanhuigu.spring.action;  
+  
+  
+public class HelloWorld{  
+    private String msg;  
+    private RefTest refTest;  
+    //有参构造器  
+    /*public HelloWorld(RefTest refTest){ 
+        this.refTest = refTest; 
+    }*/  
+    //通过set方法注入属性值  
+    public void setMsg(String msg) {  
+        this.msg = msg;  
+    }  
+      
+    public String getMsg() {  
+        return msg;  
+    }  
+  
+    public RefTest getRefTest() {  
+        return refTest;  
+    }  
+  
+    public void setRefTest(RefTest refTest) {  
+        this.refTest = refTest;  
+    }  
+      
+}  
+spring配置文件：
+[html] view plain copy
+<?xml version="1.0" encoding="UTF-8"?>  
+  
+<!--  
+  - Application context definition for JPetStore's business layer.  
+  - Contains bean references to the transaction manager and to the DAOs in  
+  - dataAccessContext-local/jta.xml (see web.xml's "contextConfigLocation").  
+  -->  
+<beans xmlns="http://www.springframework.org/schema/beans"  
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"  
+        xmlns:aop="http://www.springframework.org/schema/aop"  
+        xmlns:tx="http://www.springframework.org/schema/tx"  
+        xsi:schemaLocation="  
+            http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-2.5.xsd  
+            http://www.springframework.org/schema/aop http://www.springframework.org/schema/aop/spring-aop-2.5.xsd  
+            http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx-2.5.xsd">  
+    <!-- 定义一个id为sayHello的bean,  
+    通过spring配置文件变换实现类，实现不同的功能，无需修改别的程序 -->  
+    <bean id="sayHello" class="com.lanhuigu.spring.action.HelloWorld"   
+        autowire="autodetect" dependency-check="objects">  
+        <!-- 将变量msg值依赖注入 -->  
+        <!-- <property name="msg">  
+            <value>测试</value>  
+        </property> -->    
+        <!-- refTest为HelloWorld的一个属性，通过ref指定依赖关系，  
+            也就是说你依赖于哪个类，或者接口，直接把这个类通过set方式注入 ，  
+            看看HelloWorld的属性定义就明白了-->  
+        <!-- <property name="refTest">  
+            <ref bean="refTest"/>  
+        </property> -->   
+    </bean>  
+    <!-- RefTest类 -->  
+    <bean id="refTest" class="com.lanhuigu.spring.action.RefTest">  
+        <!-- myRef为RefTest类的一个属性 -->  
+        <property name="myRef">  
+            <value>依赖关系测试</value>  
+        </property>  
+    </bean>  
+</beans>  
+测试程序：
+[java] view plain copy
+package com.lanhuigu.spring.test;  
+  
+import org.junit.Test;  
+import org.springframework.context.ApplicationContext;  
+import org.springframework.context.support.ClassPathXmlApplicationContext;  
+  
+import com.lanhuigu.spring.action.HelloWorld;  
+  
+public class TestHelloWorld {  
+    @Test  
+    public void testMyHelloWorld(){  
+        //1.读取spring初始化的配置文件  
+        ApplicationContext acxt =   
+                new ClassPathXmlApplicationContext("/applicationContext.xml");  
+        //2.根据bean获取ISayHello实现类对象  
+        HelloWorld hello = (HelloWorld) acxt.getBean("sayHello");  
+        //3.调用接口方法  
+        System.out.println(hello.getMsg());  
+        //先获取依赖的类RefTest,在从依赖类中获取依赖类的属性  
+        System.out.println(hello.getRefTest().getMyRef());  
+    }  
+}  
+关于objects的实例跟simple的实例除了配置文件中依赖检查模式不一样，其他的都一样，为什么不报错？
+因为我们设置的依赖检查模式是依赖于对象检查bean，也就是说在HelloWorld类中，依赖属性private RefTest refTest，
+
+在spring中寻找bean，而msg就是有就设置，没有就是null ,因为我们设置的是依赖检查模式，至于别的不是必须的。
+
+如果我们将spring中关于对象RefTest配置部分去掉，也就是去掉：
+
+<bean id="refTest" class="com.lanhuigu.spring.action.RefTest">
+        <!-- myRef为RefTest类的一个属性 -->
+        <property name="myRef">
+            <value>依赖关系测试</value>
+        </property>
+    </bean>
+
+运行测试程序报错，因为你让HelloWorld类依赖对象private RefTest refTest去检查bean,而这个时候没有找到，就报错，
+
+感情被欺骗了！
+三，all模式
+
+对全部属性进行依赖检查。
+
+实例：
+
+将spring中配置依赖检查部分换成all
+四，none模式
+
+不进行依赖检查。
+
+实例：
+
+将spring中配置依赖检查部分换成none,这个时候任意去掉msg或refTest配置都不会报错，因为没有强制去检查，
+
+一旦使用依赖检查模式，就会根据设定模式去spring配置文件中寻找目标，找不到就报错。
+
+
+关于四大依赖检查的总结：
+
+（1）一定要清楚依赖检查的概念，也就是什么依赖于什么去什么地方检查。比如：
+
+在上面的实例中，都是HelloWorld的属性根据设定的检查模式去spring配置文件中检查需要的东西。
+
+重复用objects模式的实例说一下依赖检查的含义：
+
+HelloWorld类中依赖于private RefTest refTest属性，根据设定的对象检索模式去spring配置文件中
+
+检索refTest对象，这就是依赖检索的含义。
+
+（2）依赖检索的意义在于跟自动装配一起使用，方能显出其能耐。开头说过，自动装配是根据设定的
+
+自动装配模式不分青红皂白的去装配，而依赖检索则根据设定的检索模式选择装配对象。
+
+一言以蔽之，自动只要满足自动装配模式，都装；依赖检索是根据检索模式把自动装配的对象进行选择性转配，
+
+这就是两者配合的地方。

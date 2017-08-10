@@ -1,0 +1,101 @@
+1、问题
+Java代码  收藏代码
+Connection conn =   
+    DataSourceUtils.getConnection();  
+ //开启事务  
+conn.setAutoCommit(false);  
+try {  
+    Object retVal =   
+        callback.doInConnection(conn);  
+    conn.commit(); //提交事务  
+    return retVal;  
+}catch (Exception e) {  
+    conn.rollback();//回滚事务  
+    throw e;  
+}finally {  
+    conn.close();  
+}   
+Java代码  收藏代码
+Session session = null;  
+Transaction transaction = null;  
+try {  
+    session = factory.openSession();  
+    //开启事务  
+    transaction = session.beginTransaction();  
+    transation.begin();  
+    session.save(user);  
+    transaction.commit();//提交事务  
+} catch (Exception e) {  
+    e.printStackTrace();  
+    transaction.rollback();//回滚事务  
+    return false;  
+}finally{  
+    session.close();  
+}  
+  缺点：不一致的事务管理，复杂 
+ 
+2、高层次解决方案(编程式实现事务)
+Java代码  收藏代码
+public interface PlatformTransactionManager {  
+    TransactionStatus getTransaction(TransactionDefinition definition)  
+        throws TransactionException;  
+    void commit(TransactionStatus status) throws TransactionException;  
+    void rollback(TransactionStatus status) throws TransactionException;  
+}  
+ 
+Java代码  收藏代码
+//1.获取事务管理器  
+PlatformTransactionManager txManager = (PlatformTransactionManager)               
+     ctx.getBean("txManager");  
+//2.定义事务属性  
+DefaultTransactionDefinition td = new DefaultTransactionDefinition();  
+td.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);  
+//3开启事务,得到事务状态  
+TransactionStatus status = txManager.getTransaction(td);  
+try {  
+    //4.执行数据库操作  
+    System.out.println(jdbcTempate.queryForInt("select count(*) from tbl_doc"));  
+    //5、提交事务  
+    txManager.commit(status);  
+      
+}catch (Exception e) {  
+    //6、回滚事务  
+    txManager.rollback(status);  
+}  
+ 
+3、高层次解决方案（模板解决方案）
+Java代码  收藏代码
+//1.获取事务管理器  
+PlatformTransactionManager txManager = (PlatformTransactionManager)   
+       ctx.getBean("txManager");          
+//2、定义事务管理的模板  
+TransactionTemplate transactionTemplate = new TransactionTemplate(txManager);  
+//3.定义事务属性  
+transactionTemplate.  
+    setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);  
+//4.回调，执行真正的数据库操作，如果需要返回值需要在回调里返回  
+transactionTemplate.execute(new TransactionCallback() {  
+    @Override  
+    public Object doInTransaction(TransactionStatus status) {  
+    //5.执行数据库操作  
+    System.out.println(jdbcTempate.queryForInt("select count(*) from tbl_doc"));  
+    return null;  
+    }  
+});  
+ 
+4、AOP解决方案
+nSpring框架提供了一致的事务管理抽象，这带来了以下好处：
+1：为复杂的事务API提供了一致的编程模型，如JTA、JDBC、Hibernate、JPA和JDO
+2：支持声明式事务管理
+3：提供比复杂的事务API（诸如JTA）更简单的、更易于使用的编程式事务管理API
+4：非常好地整合Spring的各种数据访问抽象
+实施事务的步骤
+1、定义(资源)DataSource/SessionFactory……
+2、定义事务管理器（管理资源的事务）
+3、定义事务通知：定义了如何实施事务（实施事务的方法名和对应的事务属性），需要使用事务管理器管理事务，定义了如何选择目标对象的方法及实施的事务属性
+4、定义advisor（切入点和事务通知）：切入点选择需要实施事务的目标对象
+5、Spring织入事务通知到目标对象（AOP代理）
+
+实施流程：
+
+

@@ -1,0 +1,671 @@
+基本知识
+其实, 接触了这么久的 AOP, 我感觉, AOP 给人难以理解的一个关键点是它的概念比较多, 而且坑爹的是, 这些概念经过了中文翻译后, 变得面目全非, 相同的一个术语, 在不同的翻译下, 含义总有着各种莫名其妙的差别. 鉴于此, 我在本章的开头, 着重为为大家介绍一个 Spring AOP 的各项术语的基本含义. 为了术语传达的准确性, 我在接下来的叙述中, 能使用英文术语的地方, 尽量使用英文.
+
+什么是 AOP
+AOP(Aspect-Oriented Programming), 即 面向切面编程, 它与 OOP( Object-Oriented Programming, 面向对象编程) 相辅相成, 提供了与 OOP 不同的抽象软件结构的视角.
+在 OOP 中, 我们以类(class)作为我们的基本单元, 而 AOP 中的基本单元是 Aspect(切面)
+
+术语
+Aspect(切面)
+
+aspect 由 pointcount 和 advice 组成, 它既包含了横切逻辑的定义, 也包括了连接点的定义. Spring AOP就是负责实施切面的框架, 它将切面所定义的横切逻辑织入到切面所指定的连接点中.
+AOP的工作重心在于如何将增强织入目标对象的连接点上, 这里包含两个工作:
+
+如何通过 pointcut 和 advice 定位到特定的 joinpoint 上
+如何在 advice 中编写切面代码.
+可以简单地认为, 使用 @Aspect 注解的类就是切面.
+
+advice(增强)
+
+由 aspect 添加到特定的 join point(即满足 point cut 规则的 join point) 的一段代码.
+许多 AOP框架, 包括 Spring AOP, 会将 advice 模拟为一个拦截器(interceptor), 并且在 join point 上维护多个 advice, 进行层层拦截.
+例如 HTTP 鉴权的实现, 我们可以为每个使用 RequestMapping 标注的方法织入 advice, 当 HTTP 请求到来时, 首先进入到 advice 代码中, 在这里我们可以分析这个 HTTP 请求是否有相应的权限, 如果有, 则执行 Controller, 如果没有, 则抛出异常. 这里的 advice 就扮演着鉴权拦截器的角色了.
+
+连接点(join point)
+
+a point during the execution of a program, such as the execution of a method or the handling of an exception. In Spring AOP, a join point always represents a method execution.
+程序运行中的一些时间点, 例如一个方法的执行, 或者是一个异常的处理.
+在 Spring AOP 中, join point 总是方法的执行点, 即只有方法连接点.
+
+切点(point cut)
+
+匹配 join point 的谓词(a predicate that matches join points).
+Advice 是和特定的 point cut 关联的, 并且在 point cut 相匹配的 join point 中执行. 
+在 Spring 中, 所有的方法都可以认为是 joinpoint, 但是我们并不希望在所有的方法上都添加 Advice, 而 pointcut 的作用就是提供一组规则(使用 AspectJ pointcut expression language 来描述) 来匹配joinpoint, 给满足规则的 joinpoint 添加 Advice.
+
+关于join point 和 point cut 的区别
+
+在 Spring AOP 中, 所有的方法执行都是 join point. 而 point cut 是一个描述信息, 它修饰的是 join point, 通过 point cut, 我们就可以确定哪些 join point 可以被织入 Advice. 因此 join point 和 point cut 本质上就是两个不同纬度上的东西.
+advice 是在 join point 上执行的, 而 point cut 规定了哪些 join point 可以执行哪些 advice
+
+introduction
+
+为一个类型添加额外的方法或字段. Spring AOP 允许我们为 目标对象 引入新的接口(和对应的实现). 例如我们可以使用 introduction 来为一个 bean 实现 IsModified 接口, 并以此来简化 caching 的实现.
+
+目标对象(Target)
+
+织入 advice 的目标对象. 目标对象也被称为 advised object.
+因为 Spring AOP 使用运行时代理的方式来实现 aspect, 因此 adviced object 总是一个代理对象(proxied object)
+注意, adviced object 指的不是原来的类, 而是织入 advice 后所产生的代理类.
+
+AOP proxy
+
+一个类被 AOP 织入 advice, 就会产生一个结果类, 它是融合了原类和增强逻辑的代理类.
+在 Spring AOP 中, 一个 AOP 代理是一个 JDK 动态代理对象或 CGLIB 代理对象.
+
+织入(Weaving)
+
+将 aspect 和其他对象连接起来, 并创建 adviced object 的过程.
+根据不同的实现技术, AOP织入有三种方式:
+
+编译器织入, 这要求有特殊的Java编译器.
+类装载期织入, 这需要有特殊的类装载器.
+动态代理织入, 在运行期为目标类添加增强(Advice)生成子类的方式.
+Spring 采用动态代理织入, 而AspectJ采用编译器织入和类装载期织入.
+advice 的类型
+before advice, 在 join point 前被执行的 advice. 虽然 before advice 是在 join point 前被执行, 但是它并不能够阻止 join point 的执行, 除非发生了异常(即我们在 before advice 代码中, 不能人为地决定是否继续执行 join point 中的代码)
+after return advice, 在一个 join point 正常返回后执行的 advice
+after throwing advice, 当一个 join point 抛出异常后执行的 advice
+after(final) advice, 无论一个 join point 是正常退出还是发生了异常, 都会被执行的 advice.
+around advice, 在 join point 前和 joint point 退出后都执行的 advice. 这个是最常用的 advice.
+关于 AOP Proxy
+Spring AOP 默认使用标准的 JDK 动态代理(dynamic proxy)技术来实现 AOP 代理, 通过它, 我们可以为任意的接口实现代理.
+如果需要为一个类实现代理, 那么可以使用 CGLIB 代理. 当一个业务逻辑对象没有实现接口时, 那么Spring AOP 就默认使用 CGLIB 来作为 AOP 代理了. 即如果我们需要为一个方法织入 advice, 但是这个方法不是一个接口所提供的方法, 则此时 Spring AOP 会使用 CGLIB 来实现动态代理. 鉴于此, Spring AOP 建议基于接口编程, 对接口进行 AOP 而不是类.
+
+彻底理解 aspect, join point, point cut, advice
+看完了上面的理论部分知识, 我相信还是会有不少朋友感觉到 AOP 的概念还是很模糊, 对 AOP 中的各种概念理解的还不是很透彻. 其实这很正常, 因为 AOP 中的概念是在是太多了, 我当时也是花了老大劲才梳理清楚的.
+下面我以一个简单的例子来比喻一下 AOP 中 aspect, jointpoint, pointcut 与 advice 之间的关系.
+
+让我们来假设一下, 从前有一个叫爪哇的小县城, 在一个月黑风高的晚上, 这个县城中发生了命案. 作案的凶手十分狡猾, 现场没有留下什么有价值的线索. 不过万幸的是, 刚从隔壁回来的老王恰好在这时候无意中发现了凶手行凶的过程, 但是由于天色已晚, 加上凶手蒙着面, 老王并没有看清凶手的面目, 只知道凶手是个男性, 身高约七尺五寸. 爪哇县的县令根据老王的描述, 对守门的士兵下命令说: 凡是发现有身高七尺五寸的男性, 都要抓过来审问. 士兵当然不敢违背县令的命令, 只好把进出城的所有符合条件的人都抓了起来.
+
+来让我们看一下上面的一个小故事和 AOP 到底有什么对应关系.
+首先我们知道, 在 Spring AOP 中 join point 指代的是所有方法的执行点, 而 point cut 是一个描述信息, 它修饰的是 join point, 通过 point cut, 我们就可以确定哪些 join point 可以被织入 Advice. 对应到我们在上面举的例子, 我们可以做一个简单的类比, join point 就相当于 爪哇的小县城里的百姓, point cut 就相当于 老王所做的指控, 即凶手是个男性, 身高约七尺五寸, 而 advice 则是施加在符合老王所描述的嫌疑人的动作: 抓过来审问.
+为什么可以这样类比呢?
+
+join point --> 爪哇的小县城里的百姓: 因为根据定义, join point 是所有可能被织入 advice 的候选的点, 在 Spring AOP中, 则可以认为所有方法执行点都是 join point. 而在我们上面的例子中, 命案发生在小县城中, 按理说在此县城中的所有人都有可能是嫌疑人.
+point cut --> 男性, 身高约七尺五寸: 我们知道, 所有的方法(joint point) 都可以织入 advice, 但是我们并不希望在所有方法上都织入 advice, 而 pointcut 的作用就是提供一组规则来匹配joinpoint, 给满足规则的 joinpoint 添加 advice. 同理, 对于县令来说, 他再昏庸, 也知道不能把县城中的所有百姓都抓起来审问, 而是根据凶手是个男性, 身高约七尺五寸, 把符合条件的人抓起来. 在这里 凶手是个男性, 身高约七尺五寸 就是一个修饰谓语, 它限定了凶手的范围, 满足此修饰规则的百姓都是嫌疑人, 都需要抓起来审问.
+advice --> 抓过来审问, advice 是一个动作, 即一段 Java 代码, 这段 Java 代码是作用于 point cut 所限定的那些 join point 上的. 同理, 对比到我们的例子中, 抓过来审问 这个动作就是对作用于那些满足 男性, 身高约七尺五寸 的爪哇的小县城里的百姓.
+aspect: aspect 是 point cut 与 advice 的组合, 因此在这里我们就可以类比: "根据老王的线索, 凡是发现有身高七尺五寸的男性, 都要抓过来审问" 这一整个动作可以被认为是一个 aspect.
+或则我们也可以从语法的角度来简单类比一下. 我们在学英语时, 经常会接触什么 定语, 被动句 之类的概念, 那么可以做一个不严谨的类比, 即 joinpoint 可以认为是一个 宾语, 而 pointcut 则可以类比为修饰 joinpoint 的定语, 那么整个 aspect 就可以描述为: 满足 pointcut 规则的 joinpoint 会被添加相应的 advice 操作.
+
+@AspectJ 支持
+@AspectJ 是一种使用 Java 注解来实现 AOP 的编码风格.
+@AspectJ 风格的 AOP 是 AspectJ Project 在 AspectJ 5 中引入的, 并且 Spring 也支持@AspectJ 的 AOP 风格.
+
+使能 @AspectJ 支持
+@AspectJ 可以以 XML 的方式或以注解的方式来使能, 并且不论以哪种方式使能@ASpectJ, 我们都必须保证 aspectjweaver.jar 在 classpath 中.
+
+使用 Java Configuration 方式使能@AspectJ
+
+@Configuration
+@EnableAspectJAutoProxy
+public class AppConfig {
+}
+使用 XML 方式使能@AspectJ
+
+<aop:aspectj-autoproxy/>
+定义 aspect(切面)
+当使用注解 @Aspect 标注一个 Bean 后, 那么 Spring 框架会自动收集这些 Bean, 并添加到 Spring AOP 中, 例如:
+
+@Component
+@Aspect
+public class MyTest {
+}
+注意, 仅仅使用@Aspect 注解, 并不能将一个 Java 对象转换为 Bean, 因此我们还需要使用类似 @Component 之类的注解.
+注意, 如果一个 类被@Aspect 标注, 则这个类就不能是其他 aspect 的 **advised object** 了, 因为使用 @Aspect 后, 这个类就会被排除在 auto-proxying 机制之外.
+
+声明 pointcut
+一个 pointcut 的声明由两部分组成:
+
+一个方法签名, 包括方法名和相关参数
+一个 pointcut 表达式, 用来指定哪些方法执行是我们感兴趣的(即因此可以织入 advice).
+在@AspectJ 风格的 AOP 中, 我们使用一个方法来描述 pointcut, 即:
+
+@Pointcut("execution(* com.xys.service.UserService.*(..))") // 切点表达式
+private void dataAccessOperation() {} // 切点前面
+这个方法必须无返回值.
+这个方法本身就是 pointcut signature, pointcut 表达式使用@Pointcut 注解指定.
+上面我们简单地定义了一个 pointcut, 这个 pointcut 所描述的是: 匹配所有在包 com.xys.service.UserService 下的所有方法的执行.
+
+切点标志符(designator)
+
+AspectJ5 的切点表达式由标志符(designator)和操作参数组成. 如 "execution( greetTo(..))" 的切点表达式, execution 就是 标志符, 而圆括号里的 greetTo(..) 就是操作参数
+
+execution
+
+匹配 join point 的执行, 例如 "execution(* hello(..))" 表示匹配所有目标类中的 hello() 方法. 这个是最基本的 pointcut 标志符.
+
+within
+
+匹配特定包下的所有 join point, 例如 within(com.xys.*) 表示 com.xys 包中的所有连接点, 即包中的所有类的所有方法. 而 within(com.xys.service.*Service) 表示在 com.xys.service 包中所有以 Service 结尾的类的所有的连接点.
+
+this 与 target
+
+this 的作用是匹配一个 bean, 这个 bean(Spring AOP proxy) 是一个给定类型的实例(instance of). 而 target 匹配的是一个目标对象(target object, 即需要织入 advice 的原始的类), 此对象是一个给定类型的实例(instance of).
+
+bean
+
+匹配 bean 名字为指定值的 bean 下的所有方法, 例如:
+
+bean(*Service) // 匹配名字后缀为 Service 的 bean 下的所有方法
+bean(myService) // 匹配名字为 myService 的 bean 下的所有方法
+args
+
+匹配参数满足要求的的方法.
+例如:
+
+@Pointcut("within(com.xys.demo2.*)")
+public void pointcut2() {
+}
+
+@Before(value = "pointcut2()  &&  args(name)")
+public void doSomething(String name) {
+    logger.info("---page: {}---", name);
+}
+@Service
+public class NormalService {
+    private Logger logger = LoggerFactory.getLogger(getClass());
+
+    public void someMethod() {
+        logger.info("---NormalService: someMethod invoked---");
+    }
+
+
+    public String test(String name) {
+        logger.info("---NormalService: test invoked---");
+        return "服务一切正常";
+    }
+}
+当 NormalService.test 执行时, 则 advice doSomething 就会执行, test 方法的参数 name 就会传递到 doSomething 中.
+
+常用例子:
+
+// 匹配只有一个参数 name 的方法
+@Before(value = "aspectMethod()  &&  args(name)")
+public void doSomething(String name) {
+}
+
+// 匹配第一个参数为 name 的方法
+@Before(value = "aspectMethod()  &&  args(name, ..)")
+public void doSomething(String name) {
+}
+
+// 匹配第二个参数为 name 的方法
+Before(value = "aspectMethod()  &&  args(*, name, ..)")
+public void doSomething(String name) {
+}
+@annotation
+
+匹配由指定注解所标注的方法, 例如:
+
+@Pointcut("@annotation(com.xys.demo1.AuthChecker)")
+public void pointcut() {
+}
+则匹配由注解 AuthChecker 所标注的方法.
+
+常见的切点表达式
+
+匹配方法签名
+
+// 匹配指定包中的所有的方法
+execution(* com.xys.service.*(..))
+
+// 匹配当前包中的指定类的所有方法
+execution(* UserService.*(..))
+
+// 匹配指定包中的所有 public 方法
+execution(public * com.xys.service.*(..))
+
+// 匹配指定包中的所有 public 方法, 并且返回值是 int 类型的方法
+execution(public int com.xys.service.*(..))
+
+// 匹配指定包中的所有 public 方法, 并且第一个参数是 String, 返回值是 int 类型的方法
+execution(public int com.xys.service.*(String name, ..))
+匹配类型签名
+
+// 匹配指定包中的所有的方法, 但不包括子包
+within(com.xys.service.*)
+
+// 匹配指定包中的所有的方法, 包括子包
+within(com.xys.service..*)
+
+// 匹配当前包中的指定类中的方法
+within(UserService)
+
+
+// 匹配一个接口的所有实现类中的实现的方法
+within(UserDao+)
+匹配 Bean 名字
+
+// 匹配以指定名字结尾的 Bean 中的所有方法
+bean(*Service)
+切点表达式组合
+
+// 匹配以 Service 或 ServiceImpl 结尾的 bean
+bean(*Service || *ServiceImpl)
+
+// 匹配名字以 Service 结尾, 并且在包 com.xys.service 中的 bean
+bean(*Service) && within(com.xys.service.*)
+声明 advice
+advice 是和一个 pointcut 表达式关联在一起的, 并且会在匹配的 join point 的方法执行的前/后/周围 运行. pointcut 表达式可以是简单的一个 pointcut 名字的引用, 或者是完整的 pointcut 表达式.
+下面我们以几个简单的 advice 为例子, 来看一下一个 advice 是如何声明的.
+
+Before advice
+
+/**
+ * @author xiongyongshun
+ * @version 1.0
+ * @created 16/9/9 13:13
+ */
+@Component
+@Aspect
+public class BeforeAspectTest {
+    // 定义一个 Pointcut, 使用 切点表达式函数 来描述对哪些 Join point 使用 advise.
+    @Pointcut("execution(* com.xys.service.UserService.*(..))")
+    public void dataAccessOperation() {
+    }
+}
+@Component
+@Aspect
+public class AdviseDefine {
+    // 定义 advise
+    @Before("com.xys.aspect.PointcutDefine.dataAccessOperation()")
+    public void doBeforeAccessCheck(JoinPoint joinPoint) {
+        System.out.println("*****Before advise, method: " + joinPoint.getSignature().toShortString() + " *****");
+    }
+}
+这里, @Before 引用了一个 pointcut, 即 "com.xys.aspect.PointcutDefine.dataAccessOperation()" 是一个 pointcut 的名字.
+如果我们在 advice 在内置 pointcut, 则可以:
+
+@Component
+@Aspect
+public class AdviseDefine {
+    // 将 pointcut 和 advice 同时定义
+    @Before("within(com.xys.service..*)")
+    public void doAccessCheck(JoinPoint joinPoint) {
+        System.out.println("*****doAccessCheck, Before advise, method: " + joinPoint.getSignature().toShortString() + " *****");
+    }
+}
+around advice
+
+around advice 比较特别, 它可以在一个方法的之前之前和之后添加不同的操作, 并且甚至可以决定何时, 如何, 是否调用匹配到的方法.
+
+@Component
+@Aspect
+public class AdviseDefine {
+    // 定义 advise
+    @Around("com.xys.aspect.PointcutDefine.dataAccessOperation()")
+    public Object doAroundAccessCheck(ProceedingJoinPoint pjp) throws Throwable {
+        StopWatch stopWatch = new StopWatch();
+        stopWatch.start();
+        // 开始
+        Object retVal = pjp.proceed();
+        stopWatch.stop();
+        // 结束
+        System.out.println("invoke method: " + pjp.getSignature().getName() + ", elapsed time: " + stopWatch.getTotalTimeMillis());
+        return retVal;
+    }
+}
+around advice 和前面的 before advice 差不多, 只是我们把注解 @Before 改为了 @Around 了.
+
+
+
+
+Spring AOP 实战
+看了上面这么多的理论知识, 不知道大家有没有觉得枯燥哈. 不过不要急, 俗话说理论是实践的基础, 对 Spring AOP 有了基本的理论认识后, 我们来看一下下面几个具体的例子吧.
+下面的几个例子是我在工作中所遇见的比较常用的 Spring AOP 的使用场景, 我精简了很多有干扰我们学习的注意力的细枝末节, 以力求整个例子的简洁性.
+
+下面几个 Demo 的源码都可以在我的 Github 上下载到.
+
+HTTP 接口鉴权
+首先让我们来想象一下如下场景: 我们需要提供的 HTTP RESTful 服务, 这个服务会提供一些比较敏感的信息, 因此对于某些接口的调用会进行调用方权限的校验, 而某些不太敏感的接口则不设置权限, 或所需要的权限比较低(例如某些监控接口, 服务状态接口等).
+实现这样的需求的方法有很多, 例如我们可以在每个 HTTP 接口方法中对服务请求的调用方进行权限的检查, 当调用方权限不符时, 方法返回错误. 当然这样做并无不可, 不过如果我们的 api 接口很多, 每个接口都进行这样的判断, 无疑有很多冗余的代码, 并且很有可能有某个粗心的家伙忘记了对调用者的权限进行验证, 这样就会造成潜在的 bug.
+那么除了上面的所说的方法外, 还有没有别的比较优雅的方式来实现呢? 当然有啦, 不然我在这啰嗦半天干嘛呢, 它就是我们今天的主角: AOP.
+
+让我们来提炼一下我们的需求:
+
+可以定制地为某些指定的 HTTP RESTful api 提供权限验证功能.
+当调用方的权限不符时, 返回错误.
+根据上面所提出的需求, 我们可以进行如下设计:
+
+提供一个特殊的注解 AuthChecker, 这个是一个方法注解, 有此注解所标注的 Controller 需要进行调用方权限的认证.
+利用 Spring AOP, 以 @annotation 切点标志符来匹配有注解 AuthChecker 所标注的 joinpoint.
+在 advice 中, 简单地检查调用者请求中的 Cookie 中是否有我们指定的 token, 如果有, 则认为此调用者权限合法, 允许调用, 反之权限不合法, 范围错误.
+根据上面的设计, 我们来看一下具体的源码吧.
+首先是 AuthChecker 注解的定义:
+AuthChecker.java:
+
+@Target(ElementType.METHOD)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface AuthChecker {
+}
+AuthChecker 注解是一个方法注解, 它用于注解 RequestMapping 方法.
+
+有了注解的定义, 那我们再来看一下 aspect 的实现吧:
+HttpAopAdviseDefine.java:
+
+@Component
+@Aspect
+public class HttpAopAdviseDefine {
+
+    // 定义一个 Pointcut, 使用 切点表达式函数 来描述对哪些 Join point 使用 advise.
+    @Pointcut("@annotation(com.xys.demo1.AuthChecker)")
+    public void pointcut() {
+    }
+
+    // 定义 advise
+    @Around("pointcut()")
+    public Object checkAuth(ProceedingJoinPoint joinPoint) throws Throwable {
+        HttpServletRequest request = ((ServletRequestAttributes) RequestContextHolder.getRequestAttributes())
+                .getRequest();
+
+        // 检查用户所传递的 token 是否合法
+        String token = getUserToken(request);
+        if (!token.equalsIgnoreCase("123456")) {
+            return "错误, 权限不合法!";
+        }
+
+        return joinPoint.proceed();
+    }
+
+    private String getUserToken(HttpServletRequest request) {
+        Cookie[] cookies = request.getCookies();
+        if (cookies == null) {
+            return "";
+        }
+        for (Cookie cookie : cookies) {
+            if (cookie.getName().equalsIgnoreCase("user_token")) {
+                return cookie.getValue();
+            }
+        }
+        return "";
+    }
+}
+在这个 aspect 中, 我们首先定义了一个 pointcut, 以 @annotation 切点标志符来匹配有注解 AuthChecker 所标注的 joinpoint, 即:
+
+// 定义一个 Pointcut, 使用 切点表达式函数 来描述对哪些 Join point 使用 advise.
+@Pointcut("@annotation(com.xys.demo1.AuthChecker)")
+public void pointcut() {
+}
+然后再定义一个 advice:
+
+// 定义 advise
+@Around("pointcut()")
+public Object checkAuth(ProceedingJoinPoint joinPoint) throws Throwable {
+    HttpServletRequest request = ((ServletRequestAttributes) RequestContextHolder.getRequestAttributes())
+            .getRequest();
+
+    // 检查用户所传递的 token 是否合法
+    String token = getUserToken(request);
+    if (!token.equalsIgnoreCase("123456")) {
+        return "错误, 权限不合法!";
+    }
+
+    return joinPoint.proceed();
+}
+当被 AuthChecker 注解所标注的方法调用前, 会执行我们的这个 advice, 而这个 advice 的处理逻辑很简单, 即从 HTTP 请求中获取名为 user_token 的 cookie 的值, 如果它的值是 123456, 则我们认为此 HTTP 请求合法, 进而调用 joinPoint.proceed() 将 HTTP 请求转交给相应的控制器处理; 而如果user_token cookie 的值不是 123456, 或为空, 则认为此 HTTP 请求非法, 返回错误.
+
+接下来我们来写一个模拟的 HTTP 接口:
+DemoController.java:
+
+@RestController
+public class DemoController {
+    @RequestMapping("/aop/http/alive")
+    public String alive() {
+        return "服务一切正常";
+    }
+
+    @AuthChecker
+    @RequestMapping("/aop/http/user_info")
+    public String callSomeInterface() {
+        return "调用了 user_info 接口.";
+    }
+}
+注意到上面我们提供了两个 HTTP 接口, 其中 接口 /aop/http/alive 是没有 AuthChecker 标注的, 而 /aop/http/user_info 接口则用到了 @AuthChecker 标注. 那么自然地, 当请求了 /aop/http/user_info 接口时, 就会触发我们所设置的权限校验逻辑.
+
+接下来我们来验证一下, 我们所实现的功能是否有效吧.
+首先在 Postman 中, 调用 /aop/http/alive 接口, 请求头中不加任何参数:
+
+
+
+可以看到, 我们的 HTTP 请求完全没问题.
+
+那么再来看一下请求 /aop/http/user_info 接口会怎样呢:
+
+
+
+当我们请求 /aop/http/user_info 接口时, 服务返回一个权限异常的错误, 为什么会这样呢? 自然就是我们的权限认证系统起了作为: 当一个方法被调用并且这个方法有 AuthChecker 标注时, 那么首先会执行到我们的 around advice, 在这个 advice 中, 我们会校验 HTTP 请求的 cookie 字段中是否有携带 user_token 字段时, 如果没有, 则返回权限错误.
+那么为了能够正常地调用 /aop/http/user_info 接口, 我们可以在 Cookie 中添加 user_token=123456, 这样我们可以愉快的玩耍了:
+
+
+
+注意, Postman 默认是不支持 Cookie 的, 所以为了实现添加 Cookie 的功能, 我们需要安装 Postman 的 interceptor 插件. 安装方法可以看官网的文章
+完整源码
+
+HTTP 接口鉴权
+
+方法调用日志
+第二个 AOP 实例是记录一个方法调用的log. 这应该是一个很常见的功能了.
+首先假设我们有如下需求:
+
+某个服务下的方法的调用需要有 log: 记录调用的参数以及返回结果.
+当方法调用出异常时, 有特殊处理, 例如打印异常 log, 报警等.
+根据上面的需求, 我们可以使用 before advice 来在调用方法前打印调用的参数, 使用 after returning advice 在方法返回打印返回的结果. 而当方法调用失败后, 可以使用 after throwing advice 来做相应的处理.
+那么我们来看一下 aspect 的实现:
+
+@Component
+@Aspect
+public class LogAopAdviseDefine {
+    private Logger logger = LoggerFactory.getLogger(getClass());
+
+    // 定义一个 Pointcut, 使用 切点表达式函数 来描述对哪些 Join point 使用 advise.
+    @Pointcut("within(NeedLogService)")
+    public void pointcut() {
+    }
+
+    // 定义 advise
+    @Before("pointcut()")
+    public void logMethodInvokeParam(JoinPoint joinPoint) {
+        logger.info("---Before method {} invoke, param: {}---", joinPoint.getSignature().toShortString(), joinPoint.getArgs());
+    }
+
+    @AfterReturning(pointcut = "pointcut()", returning = "retVal")
+    public void logMethodInvokeResult(JoinPoint joinPoint, Object retVal) {
+        logger.info("---After method {} invoke, result: {}---", joinPoint.getSignature().toShortString(), joinPoint.getArgs());
+    }
+
+    @AfterThrowing(pointcut = "pointcut()", throwing = "exception")
+    public void logMethodInvokeException(JoinPoint joinPoint, Exception exception) {
+        logger.info("---method {} invoke exception: {}---", joinPoint.getSignature().toShortString(), exception.getMessage());
+    }
+}
+第一步, 自然是定义一个 pointcut, 以 within 切点标志符来匹配类 NeedLogService 下的所有 joinpoint, 即:
+
+@Pointcut("within(NeedLogService)")
+public void pointcut() {
+}
+接下来根据我们前面的设计, 我们分别定义了三个 advice, 第一个是一个 before advice:
+
+@Before("pointcut()")
+public void logMethodInvokeParam(JoinPoint joinPoint) {
+    logger.info("---Before method {} invoke, param: {}---", joinPoint.getSignature().toShortString(), joinPoint.getArgs());
+}
+它在一个符合要求的 joinpoint 方法调用前执行, 打印调用的方法名和调用的参数.
+
+第二个是 after return advice:
+
+@AfterReturning(pointcut = "pointcut()", returning = "retVal")
+public void logMethodInvokeResult(JoinPoint joinPoint, Object retVal) {
+    logger.info("---After method {} invoke, result: {}---", joinPoint.getSignature().toShortString(), joinPoint.getArgs());
+}
+这个 advice 会在方法调用成功后打印出方法名还反的参数.
+
+最后一个是 after throw advice:
+
+@AfterThrowing(pointcut = "pointcut()", throwing = "exception")
+public void logMethodInvokeException(JoinPoint joinPoint, Exception exception) {
+    logger.info("---method {} invoke exception: {}---", joinPoint.getSignature().toShortString(), exception.getMessage());
+}
+这个 advice 会在指定的 joinpoint 抛出异常时执行, 打印异常的信息.
+
+接下来我们再写两个 Service 类:
+NeedLogService.java:
+
+@Service
+public class NeedLogService {
+    private Logger logger = LoggerFactory.getLogger(getClass());
+    private Random random = new Random(System.currentTimeMillis());
+
+    public int logMethod(String someParam) {
+        logger.info("---NeedLogService: logMethod invoked, param: {}---", someParam);
+        return random.nextInt();
+    }
+
+    public void exceptionMethod() throws Exception {
+        logger.info("---NeedLogService: exceptionMethod invoked---");
+        throw new Exception("Something bad happened!");
+    }
+}
+NormalService.java:
+
+@Service
+public class NormalService {
+    private Logger logger = LoggerFactory.getLogger(getClass());
+
+    public void someMethod() {
+        logger.info("---NormalService: someMethod invoked---");
+    }
+}
+根据我们 pointcut 的规则, 类 NeedLogService 下的所有方法都会被织入 advice, 而类 NormalService 则不会.
+
+最后我们分别调用这几个方法:
+
+@PostConstruct
+public void test() {
+    needLogService.logMethod("xys");
+    try {
+        needLogService.exceptionMethod();
+    } catch (Exception e) {
+        // Ignore
+    }
+    normalService.someMethod();
+}
+我们可以看到有如下输出:
+
+---Before method NeedLogService.logMethod(..) invoke, param: [xys]---
+---NeedLogService: logMethod invoked, param: xys---
+---After method NeedLogService.logMethod(..) invoke, result: [xys]---
+
+---Before method NeedLogService.exceptionMethod() invoke, param: []---
+---NeedLogService: exceptionMethod invoked---
+---method NeedLogService.exceptionMethod() invoke exception: Something bad happened!---
+
+---NormalService: someMethod invoked---
+根据 log, 我们知道, NeedLogService.logMethod 执行的前后确实有 advice 执行了, 并且在 NeedLogService.exceptionMethod 抛出异常后, logMethodInvokeException 这个 advice 也被执行了. 而由于 pointcut 的匹配规则, 在 NormalService 类中的方法则不会织入 advice.
+
+完整源码
+
+方法调用日志
+
+方法耗时统计
+作为程序员, 我们都知道服务监控对于一个服务能够长期稳定运行的重要性, 因此很多公司都有自己内部的监控报警系统, 或者是使用一些开源的系统, 例如小米的 Falcon 监控系统.
+
+那么在程序监控中, AOP 有哪些用武之地呢? 我们来假想一下如下场景:
+
+有一天, leader 对小王说, "小王啊, 你负责的那个服务不太稳定啊, 经常有超时发生! 你有对这些服务接口进行过耗时统计吗?"
+耗时统计? 小王嘀咕了, 小声的回答到: "还没有加呢."
+leader: "你看着办吧, 我明天要看到各个时段的服务接口调用的耗时分布!"
+小王这就犯难了, 虽然说计算一个方法的调用耗时并不是一个很难的事情, 但是整个服务有二十来个接口呢, 一个一个地添加统计代码, 那还不是要累死人了.
+看着同事一个一个都下班回家了, 小王眉头更加紧了. 不过此时小王灵机一动: "噫, 有了!".
+小王想到了一个好方法, 立即动手, 吭哧吭哧地几分钟就搞定了.
+那么小王的解决方法是什么呢? 自然是我们的主角 AOP 啦.
+
+首先让我们来提炼一下需求:
+
+为服务中的每个方法调用进行调用耗时记录.
+将方法调用的时间戳, 方法名, 调用耗时上报到监控平台
+有了需求, 自然设计实现就很简单了. 首先我们可以使用 around advice, 然后在方法调用前, 记录一下开始时间, 然后在方法调用结束后, 记录结束时间, 它们的时间差就是方法的调用耗时.
+
+我们来看一下具体的 aspect 实现:
+
+ExpiredAopAdviseDefine.java:
+
+@Component
+@Aspect
+public class ExpiredAopAdviseDefine {
+    private Logger logger = LoggerFactory.getLogger(getClass());
+
+    // 定义一个 Pointcut, 使用 切点表达式函数 来描述对哪些 Join point 使用 advise.
+    @Pointcut("within(SomeService)")
+    public void pointcut() {
+    }
+
+    // 定义 advise
+    // 定义 advise
+    @Around("pointcut()")
+    public Object methodInvokeExpiredTime(ProceedingJoinPoint pjp) throws Throwable {
+        StopWatch stopWatch = new StopWatch();
+        stopWatch.start();
+        // 开始
+        Object retVal = pjp.proceed();
+        stopWatch.stop();
+        // 结束
+
+        // 上报到公司监控平台
+        reportToMonitorSystem(pjp.getSignature().toShortString(), stopWatch.getTotalTimeMillis());
+
+        return retVal;
+    }
+
+
+    public void reportToMonitorSystem(String methodName, long expiredTime) {
+        logger.info("---method {} invoked, expired time: {} ms---", methodName, expiredTime);
+        //
+    }
+}
+aspect 一开始定义了一个 pointcut, 匹配 SomeService 类下的所有的方法.
+接着呢, 定义了一个 around advice:
+
+@Around("pointcut()")
+public Object methodInvokeExpiredTime(ProceedingJoinPoint pjp) throws Throwable {
+    StopWatch stopWatch = new StopWatch();
+    stopWatch.start();
+    // 开始
+    Object retVal = pjp.proceed();
+    stopWatch.stop();
+    // 结束
+
+    // 上报到公司监控平台
+    reportToMonitorSystem(pjp.getSignature().toShortString(), stopWatch.getTotalTimeMillis());
+
+    return retVal;
+}
+advice 中的代码也很简单, 它使用了 Spring 提供的 StopWatch 来统计一段代码的执行时间. 首先我们先调用 stopWatch.start() 开始计时, 然后通过 pjp.proceed() 来调用我们实际的服务方法, 当调用结束后, 通过 stopWatch.stop() 来结束计时.
+
+接着我们来写一个简单的服务, 这个服务提供一个 someMethod 方法用于模拟一个耗时的方法调用:
+SomeService.java:
+
+@Service
+public class SomeService {
+    private Logger logger = LoggerFactory.getLogger(getClass());
+    private Random random = new Random(System.currentTimeMillis());
+
+    public void someMethod() {
+        logger.info("---SomeService: someMethod invoked---");
+        try {
+            // 模拟耗时任务
+            Thread.sleep(random.nextInt(500));
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
+}
+这样当 SomeService 类下的方法调用时, 我们所提供的 advice 就会被执行, 因此就可以自动地为我们统计此方法的调用耗时, 并自动上报到监控系统中了.
+看到 AOP 的威力了吧, 我们这里仅仅使用了寥寥数语就把一个需求完美地解决了, 并且还与原来的业务逻辑完全解耦, 扩展及其方便.
+
+完整源码
+
+方法耗时统计
+
+总结
+通过上面的几个简单例子, 我们对 Spring AOP 的使用应该有了一个更为深入的了解了. 其实 Spring AOP 的使用的地方不止这些, 例如 Spring 的 声明式事务 就是在 AOP 之上构建的. 读者朋友也可以根据自己的实际业务场景, 合理使用 Spring AOP, 发挥它的强大功能!

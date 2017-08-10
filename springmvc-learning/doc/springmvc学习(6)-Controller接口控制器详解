@@ -1,0 +1,1685 @@
+4.5、ServletForwardingController
+
+将接收到的请求转发到一个命名的servlet，具体示例如下：
+
+java代码：
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+package cn.javass.chapter4.web.servlet;
+public class ForwardingServlet extends HttpServlet {    
+    @Override
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp)
+    throws ServletException, IOException {
+ 
+        resp.getWriter().write("Controller forward to Servlet");
+ 
+    }
+}
+java代码：
+1
+2
+3
+4
+<servlet>
+    <servlet-name>forwarding</servlet-name>
+    <servlet-class>cn.javass.chapter4.web.servlet.ForwardingServlet</servlet-class>
+</servlet>
+java代码：
+1
+2
+3
+4
+5
+<!— 在chapter4-servlet.xml配置处理器 -->   
+<bean name="/forwardToServlet"
+class="org.springframework.web.servlet.mvc.ServletForwardingController">
+        <property name="servletName" value="forwarding"></property>
+</bean>
+当我们请求/forwardToServlet时，会被转发到名字为“forwarding”的servlet处理，该sevlet的servlet-mapping标签配置是可选的。
+
+4.6、BaseCommandController
+
+命令控制器通用基类，提供了以下功能支持：
+
+1、数据绑定：请求参数绑定到一个command object（命令对象，非GoF里的命令设计模式），这里的命令对象是指绑定请求参数的任何POJO对象；
+
+commandClass：表示命令对象实现类，如UserModel；
+
+commandName：表示放入请求的命令对象名字（默认command），request.setAttribute(commandName, commandObject);
+
+2、验证功能：提供Validator注册功能，注册的验证器会验证命令对象属性数据是否合法；
+
+validators：通过该属性注入验证器，验证器用来验证命令对象属性是否合法；
+
+该抽象类没有没有提供流程功能，只是提供了一些公共的功能，实际使用时需要使用它的子类。
+
+4.7、AbstractCommandController
+
+命令控制器之一，可以实现该控制器来创建命令控制器，该控制器能把自动封装请求参数到一个命令对象，而且提供了验证功能。
+
+1、创建命令类（就是普通的JavaBean类/POJO）
+
+java代码：
+1
+2
+3
+4
+5
+6
+package cn.javass.chapter4.model;
+public class UserModel {
+    private String username;
+    private String password;
+        //省略setter/getter
+}
+2、实现控制器
+
+java代码：
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+package cn.javass.chapter4.web.controller;
+//省略import
+public class MyAbstractCommandController extends AbstractCommandController {
+    public MyAbstractCommandController() {
+        //设置命令对象实现类
+        setCommandClass(UserModel.class);
+    }
+    @Override
+    protected ModelAndView handle(HttpServletRequest req, HttpServletResponse resp, Object command, BindException errors) throws Exception {
+        //将命令对象转换为实际类型
+        UserModel user = (UserModel) command;
+        ModelAndView mv = new ModelAndView();
+        mv.setViewName("abstractCommand");
+        mv.addObject("user", user);
+        return mv;
+    }
+}
+java代码：
+1
+2
+3
+4
+5
+6
+<!— 在chapter4-servlet.xml配置处理器 -->   
+<bean name="/abstractCommand"
+class="cn.javass.chapter4.web.controller.MyAbstractCommandController">
+        <!-- 也可以通过依赖注入 注入命令实现类 -->
+        <!-- property name="commandClass" value="cn.javass.chapter4.model.UserModel"/-->
+</bean>
+java代码：
+1
+2
+3
+<!— WEB-INF/jsp/abstractCommand.jsp视图下的主要内容 -->   
+ 
+${user.username }-${user.password }
+当我们在浏览器中输入“http://localhost:9080/springmvc-chapter4/abstractCommand?username=123&password=123”，会自动将请求参数username和password绑定到命令对象；绑定时按照JavaBean命名规范绑定；
+
+
+
+4.8、AbstractFormController
+
+用于支持带步骤的表单提交的命令控制器基类，使用该控制器可以完成：
+
+1、定义表单处理（表单的渲染），并从控制器获取命令对象构建表单；
+
+2、提交表单处理，当用户提交表单内容后，AbstractFormController可以将用户请求的数据绑定到命令对象，并可以验证表单内容、对命令对象进行处理。
+
+java代码：
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+    @Override
+protected ModelAndView handleRequestInternal(HttpServletRequest request, HttpServletResponse response)
+        throws Exception {
+   //1、是否是表单提交？ 该方法实现为（"POST".equals(request.getMethod())），即POST表示表单提交
+    if (isFormSubmission(request)) {
+        try {
+            Object command = getCommand(request);
+            ServletRequestDataBinder binder = bindAndValidate(request, command);
+            BindException errors = new BindException(binder.getBindingResult());
+            //表单提交应该放到该方法实现
+            return processFormSubmission(request, response, command, errors);
+        }
+        catch (HttpSessionRequiredException ex) {
+            //省略部分代码
+            return handleInvalidSubmit(request, response);
+        }
+    }
+    else {
+        //2、表示是表单展示，该方法又转调showForm方法，因此我们需要覆盖showForm来完成表单展示
+        return showNewForm(request, response);
+    }
+}
+bindOnNewForm：是否在进行表单展示时绑定请求参数到表单对象，默认false，不绑定；
+
+sessionForm：session表单模式，如果开启（true）则会将表单对象放置到session中，从而可以跨越多次请求保证数据不丢失（多步骤表单常使用该方式，详解AbstractWizardFormController），默认false；
+
+Object formBackingObject(HttpServletRequest request) ：提供给表单展示时使用的表单对象（form object表单要展示的默认数据），默认通过commandName暴露到请求给展示表单；
+
+Map referenceData(HttpServletRequest request, Object command, Errors errors)：展示表单时需要的一些引用数据（比如用户注册，可能需要选择工作地点，这些数据可以通过该方法提供），如：
+
+java代码：
+1
+2
+3
+4
+5
+protected Map referenceData(HttpServletRequest request) throws Exception {
+             Map model = new HashMap();
+             model.put("cityList", cityList);
+             return model;
+}
+这样就可以在表单展示页面获取cityList数据。
+
+SimpleFormController继承该类，而且提供了更简单的表单流程控制。
+
+4.9、SimpleFormController
+
+提供了更好的两步表单支持：
+
+1、准备要展示的数据，并到表单展示页面；
+
+2、提交数据数据进行处理。
+
+第一步，展示：
+
+
+
+第二步，提交表单：
+
+
+
+接下来咱们写一个用户注册的例子学习一下：
+
+（1、控制器
+
+java代码：
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+package cn.javass.chapter4.web.controller;
+//省略import
+public class RegisterSimpleFormController extends SimpleFormController {    
+    public RegisterSimpleFormController() {
+        setCommandClass(UserModel.class); //设置命令对象实现类
+        setCommandName("user");//设置命令对象的名字
+    }
+    //form object 表单对象，提供展示表单时的表单数据（使用commandName放入请求）
+    protected Object formBackingObject(HttpServletRequest request) throws Exception {
+        UserModel user = new UserModel();
+        user.setUsername("请输入用户名");
+        return user;
+    }
+    //提供展示表单时需要的一些其他数据  
+    protected Map referenceData(HttpServletRequest request) throws Exception {
+        Map map = new HashMap();
+        map.put("cityList", Arrays.asList("山东", "北京", "上海"));
+        return map;
+    }
+    protected void doSubmitAction(Object command) throws Exception {
+        UserModel user = (UserModel) command;
+        //TODO 调用业务对象处理
+        System.out.println(user);
+    }
+}
+setCommandClass和setCommandName：分别设置了命令对象的实现类和名字；
+
+formBackingObject和referenceData：提供了表单展示需要的视图；
+
+doSubmitAction：用于执行表单提交动作，由onSubmit方法调用，如果不需要请求/响应对象或进行数据验证，可以直接使用doSubmitAction方法进行功能处理。
+
+（2、spring配置（chapter4-servlet.xml）
+
+java代码：
+1
+2
+3
+4
+5
+6
+<bean name="/simpleForm"
+class="cn.javass.chapter4.web.controller.RegisterSimpleFormController">
+        <property name="formView" value="register"/>
+        <property name="successView" value="redirect:/success"/>
+</bean>
+<bean name="/success" class="cn.javass.chapter4.web.controller.SuccessController"/>
+formView：表示展示表单时显示的页面；
+
+successView：表示处理成功时显示的页面；“redirect:/success”表示成功处理后重定向到/success控制器；防止表单重复提交；
+
+“/success” bean的作用是显示成功页面，此处就不列举了。
+
+（3、视图页面
+
+java代码：
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+<!-- register.jsp 注册展示页面-->
+<form method="post">
+username:<input type="text" name="username" value="${user.username}">
+password:<input type="password" name="username">
+city:<select>
+  <c:forEach items="${cityList }" var="city">
+   <option>${city}</option>
+  </c:forEach>
+</select>
+<input type="submit" value="注册"/>
+</form>
+此处可以使用${user.username}获取到formBackingObject设置的表单对象、使用${cityList}获取referenceData设置的表单支持数据；
+
+到此一个简单的两步表单到此结束，但这个表单有重复提交表单的问题，而且表单对象到页面的绑定是通过手工绑定的，后边我们会学习spring标签库（提供自动绑定表单对象到页面）。
+
+4.10、CancellableFormController
+
+一个可取消的表单控制器，继承SimpleFormController，额外提供取消表单功能。
+
+1、表单展示：和SimpleFormController一样；
+
+2、表单取消：和SimpleFormController一样；
+
+3、表单成功提交：取消功能处理方法为：onCancel(Object command)，而且默认返回cancelView属性指定的逻辑视图名。
+
+那如何判断是取消呢？如果请求中有参数名为“_cancel”的参数，则表示表单取消。也可以通过cancelParamKey来修改参数名（如“_cancel.x”等）。
+
+
+
+示例：
+
+（1、控制器
+
+复制RegisterSimpleFormController一份命名为CanCancelRegisterSimpleFormController，添加取消功能处理方法实现：
+
+java代码：
+1
+2
+3
+4
+5
+6
+7
+@Override
+protected ModelAndView onCancel(Object command) throws Exception {
+    UserModel user = (UserModel) command;
+    //TODO 调用业务对象处理
+    System.out.println(user);
+    return super.onCancel(command);
+}
+onCancel：在该功能方法内实现取消逻辑，父类的onCancel方法默认返回cancelView属性指定的逻辑视图名。
+
+（2、spring配置（chapter4-servlet.xml）
+
+java代码：
+1
+2
+3
+4
+5
+6
+7
+<bean name="/canCancelForm"
+class="cn.javass.chapter4.web.controller.CanCancelRegisterSimpleFormController">
+        <property name="formView" value="register"/>
+        <property name="successView" value="redirect:/success"/>
+        <property name="cancelView" value="redirect:/cancel"/>
+</bean>
+<bean name="/cancel" class="cn.javass.chapter4.web.controller.CancelController"/>
+cancelParamKey：用于判断是否是取消的请求参数名，默认是_cancel，即如果请求参数数据中含有名字_cancel则表示是取消，将调用onCancel功能处理方法；
+
+cancelView：表示取消时时显示的页面；“redirect:/cancel”表示成功处理后重定向到/cancel控制器；防止表单重复提交；
+
+“/cancel” bean的作用是显示取消页面，此处就不列举了（详见代码）。
+
+（3、视图页面（修改register.jsp）
+
+java代码：
+1
+<input type="submit" name="_cancel" value="取消"/>
+该提交按钮的作用是取消，因为name=“_cancel”，即请求后会有一个名字为_cancel的参数，因此会执行onCancel功能处理方法。
+
+（4、测试：
+
+在浏览器输入“http://localhost:9080/springmvc-chapter4/canCancelForm”，则首先到展示视图页面，点击“取消按钮”将重定向到“http://localhost:9080/springmvc-chapter4/cancel”，说明取消成功了。
+
+实际项目可能会出现比如一些网站的完善个人资料都是多个页面（即多步），那应该怎么实现呢？接下来让我们看一下spring Web MVC提供的对多步表单的支持类AbstractWizardFormController。
+
+
+
+
+4.11、AbstractWizardFormController
+
+向导控制器类提供了多步骤（向导）表单的支持（如完善个人资料时分步骤填写基本信息、工作信息、学校信息等）
+
+假设现在做一个完善个人信息的功能，分三个页面展示：
+
+1、页面1完善基本信息；
+
+2、页面2完善学校信息；
+
+3、页面3完善工作信息。
+
+这里我们要注意的是当用户跳转到页面2时页面1的信息是需要保存起来的，还记得AbstractFormController中的sessionForm吗？ 如果为true则表单数据存放到session中，哈哈，AbstractWizardFormController就是使用了这个特性。
+
+
+向导中的页码从0开始；
+
+PARAM_TARGET = “_target”：
+
+用于选择向导中的要使用的页面参数名前缀，如“_target0”则选择第0个页面显示，即图中的“wizard/baseInfo”，以此类推，如“_target1”将选择第1页面，要得到的页码为去除前缀“_target”后的数字即是；
+
+PARAM_FINISH = “_finish”：
+
+如果请求参数中有名为“_finish”的参数，表示向导成功结束，将会调用processFinish方法进行完成时的功能处理；
+
+PARAM_CANCEL = “_cancel”：
+
+如果请求参数中有名为“_cancel”的参数，表示向导被取消，将会调用processCancel方法进行取消时的功能处理；
+
+向导中的命令对象：
+
+向导中的每一个步骤都会把相关的参数绑定到命令对象，该表单对象默认放置在session中，从而可以跨越多次请求得到该命令对象。
+
+接下来具体看一下如何使用吧。
+
+（1、修改我们的模型数据以支持多步骤提交：
+
+Java代码  
+1
+2
+3
+4
+5
+6
+7
+8
+public class UserModel {  
+    private String username;  
+    private String password;  
+    private String realname; //真实姓名  
+    private WorkInfoModel workInfo;  
+    private SchoolInfoModel schoolInfo;  
+    //省略getter/setter  
+}
+Java代码  
+1
+2
+3
+4
+5
+6
+public class SchoolInfoModel {  
+    private String schoolType; //学校类型：高中、中专、大学  
+    private String schoolName; //学校名称  
+    private String specialty; //专业  
+//省略getter/setter  
+}
+Java代码  
+1
+2
+3
+4
+5
+6
+public class WorkInfoModel {  
+    private String city; //所在城市  
+    private String job; //职位  
+    private String year; //工作年限  
+//省略getter/setter  
+}
+（2、控制器
+
+Java代码  
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+package cn.javass.chapter4.web.controller;  
+//省略import  
+public class InfoFillWizardFormController extends AbstractWizardFormController {      
+    public InfoFillWizardFormController() {  
+        setCommandClass(UserModel.class);  
+        setCommandName("user");  
+    }  
+    protected Map referenceData(HttpServletRequest request, int page) throws Exception {  
+        Map map = new HashMap();  
+        if(page==1) { //如果是填写学校信息页 需要学校类型信息  
+            map.put("schoolTypeList", Arrays.asList("高中", "中专", "大学"));  
+        }  
+        if(page==2) {//如果是填写工作信息页 需要工作城市信息  
+            map.put("cityList", Arrays.asList("济南", "北京", "上海"));  
+        }  
+        return map;  
+    }     
+    protected void validatePage(Object command, Errors errors, int page) {  
+        //提供每一页数据的验证处理方法  
+    }  
+    protected void postProcessPage(HttpServletRequest request, Object command, Errors errors, int page) throws Exception {  
+        //提供给每一页完成时的后处理方法  
+    }  
+    protected ModelAndView processFinish(HttpServletRequest req, HttpServletResponse resp, Object command, BindException errors) throws Exception {  
+        //成功后的处理方法  
+        System.out.println(command);  
+        return new ModelAndView("redirect:/success");  
+    }  
+    protected ModelAndView processCancel(HttpServletRequest request, HttpServletResponse response, Object command, BindException errors) throws Exception {  
+        //取消后的处理方法  
+        System.out.println(command);  
+        return new ModelAndView("redirect:/cancel");  
+    }  
+}
+page页码：是根据请求中以“_target”开头的参数名来确定的，如“_target0”，则页码为0；
+
+referenceData：提供每一页需要的表单支持对象，如完善学校信息需要学校类型，page页码从0开始（而且根据请求参数中以“_target”开头的参数来确定当前页码，如_target1，则page=1）；
+
+validatePage：验证当前页的命令对象数据，验证应根据page页码来分步骤验证；
+
+postProcessPage：验证成功后的后处理；
+
+processFinish：成功时执行的方法，此处直接重定向到/success控制器（详见CancelController）；
+
+processCancel：取消时执行的方法，此处直接重定向到/cancel控制器（详见SuccessController）；
+
+其他需要了解：
+
+allowDirtyBack和allowDirtyForward：决定在当前页面验证失败时，是否允许向导前移和后退，默认false不允许；
+
+onBindAndValidate(HttpServletRequest request, Object command, BindException errors, int page)：允许覆盖默认的绑定参数到命令对象和验证流程。
+
+（3、spring配置文件（chapter4-servlet.xml）
+
+Java代码  
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+<bean name="/infoFillWizard"  
+class="cn.javass.chapter4.web.controller.InfoFillWizardFormController">  
+    <property name="pages">  
+        <list>  
+            <value>wizard/baseInfo</value>  
+            <value>wizard/schoolInfo</value>  
+            <value>wizard/workInfo</value>  
+       </list>  
+    </property>  
+</bean>
+pages：表示向导中每一个步骤的逻辑视图名，当InfoFillWizardFormController的page=0，则将会选择“wizard/baseInfo”，以此类推，从而可以按步骤选择要展示的视图。
+
+（4、向导中的每一步视图
+
+（4.1、基本信息页面(第一步) baseInfo.jsp：
+
+Java代码  
+1
+2
+3
+4
+<form method="post">  
+真实姓名:<input type="text" name="realname" value="${user.realname}">  
+<input type="submit" name="_target1" value="下一步"/>  
+</form>
+当前页码为0；
+
+name=”_target1″：表示向导下一步要显示的页面的页码为1；
+
+（4.2、学校信息页面(第二步) schoolInfo.jsp：
+
+Java代码  
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+<form method="post">  
+学校类型：<select name="schoolInfo.schoolType">  
+  <c:forEach items="${schoolTypeList }" var="schoolType">  
+   <option value="${schoolType }"  
+       <c:if test="${user.schoolInfo.schoolType eq schoolType}">  
+           selected="selected" 
+       </c:if>  
+   >  
+       ${schoolType}  
+   </option>  
+  </c:forEach>  
+</select>  
+学校名称：<input type="text" name="schoolInfo.schoolName" value="${user.schoolInfo.schoolName}"/>  
+专业：<input type="text" name="schoolInfo.specialty" value="${user.schoolInfo.specialty}"/>  
+<input type="submit" name="_target0" value="上一步"/>  
+<input type="submit" name="_target2" value="下一步"/>  
+</form>
+（4.3、工作信息页面(第三步) workInfo.jsp：
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+<form method="post">  
+所在城市：<select name="workInfo.city">  
+  <c:forEach items="${cityList }" var="city">  
+   <option value="${city }"  
+       <c:if test="${user.workInfo.city eq city}">selected="selected"</c:if>  
+   >  
+     ${city}  
+   </option>  
+  </c:forEach>  
+</select>  
+职位：<input type="text" name="workInfo.job" value="${user.workInfo.job}"/>  
+工作年限：<input type="text" name="workInfo.year" value="${user.workInfo.year}"/>  
+<input type="submit" name="_target1" value="上一步"/>  
+<input type="submit" name="_finish" value="完成"/>  
+<input type="submit" name="_cancel" value="取消"/>  
+</form>
+当前页码为2；
+
+name=”_target1″：上一步，表示向导上一步要显示的页面的页码为1；
+
+name=”_finish”：向导完成，表示向导成功，将会调用向导控制器的processFinish方法；
+
+name=”_cancel”：向导取消，表示向导被取消，将会调用向导控制器的processCancel方法；
+
+到此向导控制器完成，此处的向导流程比较简单，如果需要更复杂的页面流程控制，可以选择使用Spring Web Flow框架。
+
+4.12、ParameterizableViewController
+
+参数化视图控制器，不进行功能处理（即静态视图），根据参数的逻辑视图名直接选择需要展示的视图。
+
+Java代码  
+1
+2
+3
+4
+<bean name="/parameterizableView"  
+class="org.springframework.web.servlet.mvc.ParameterizableViewController">  
+<property name="viewName" value="success"/>  
+</bean>
+该控制器接收到请求后直接选择参数化的视图，这样的好处是在配置文件中配置，从而避免程序的硬编码，比如像帮助页面等不需要进行功能处理，因此直接使用该控制器映射到视图。
+
+4.13、AbstractUrlViewController
+
+提供根据请求URL路径直接转化为逻辑视图名的支持基类，即不需要功能处理，直接根据URL计算出逻辑视图名，并选择具体视图进行展示：
+
+urlDecode：是否进行url解码，不指定则默认使用服务器编码进行解码（如Tomcat默认ISO-8859-1）；
+
+urlPathHelper：用于解析请求路径的工具类，默认为org.springframework.web.util.UrlPathHelper。
+
+UrlFilenameViewController是它的一个实现者，因此我们应该使用UrlFilenameViewController。
+
+4.14、UrlFilenameViewController
+
+将请求的URL路径转换为逻辑视图名并返回的转换控制器，即不需要功能处理，直接根据URL计算出逻辑视图名，并选择具体视图进行展示：
+
+根据请求URL路径计算逻辑视图名；
+
+Java代码  
+1
+2
+3
+4
+5
+6
+7
+8
+<bean name="/index1/*"  
+class="org.springframework.web.servlet.mvc.UrlFilenameViewController"/>  
+<bean name="/index2/**"  
+class="org.springframework.web.servlet.mvc.UrlFilenameViewController"/>  
+<bean name="/*.html"  
+class="org.springframework.web.servlet.mvc.UrlFilenameViewController"/>  
+<bean name="/index3/*.html"  
+class="org.springframework.web.servlet.mvc.UrlFilenameViewController"/>
+/index1/*：可以匹配/index1/demo，但不匹配/index1/demo/demo，如/index1/demo逻辑视图名为demo；
+
+/index2/**：可以匹配/index2路径下的所有子路径，如匹配/index2/demo，或/index2/demo/demo，“/index2/demo”的逻辑视图名为demo，而“/index2/demo/demo”逻辑视图名为demo/demo；
+
+/*.html：可以匹配如/abc.html，逻辑视图名为abc，后缀会被删除（不仅仅可以是html）；
+
+/index3/*.html：可以匹配/index3/abc.html，逻辑视图名也是abc;
+
+上述模式为Spring Web MVC使用的Ant-style 模式进行匹配的：
+
+Java代码  
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+?    匹配一个字符，如/index? 可以匹配 /index1 ， 但不能匹配 /index 或 /index12  
+*    匹配零个或多个字符，如/index1/*，可以匹配/index1/demo，但不匹配/index1/demo/demo 
+**   匹配零个或多个路径，如/index2/**：可以匹配/index2路径下的所有子路径，如匹配/index2/demo，或/index2/demo/demo 
+ 
+如果我有如下模式，那Spring该选择哪一个执行呢？当我的请求为“/long/long”时如下所示： 
+/long/long 
+/long/**/abc  
+/long/** 
+/** 
+Spring的AbstractUrlHandlerMapping使用：最长匹配优先； 
+如请求为“/long/long” 将匹配第一个“/long/long”，但请求“/long/acd” 则将匹配 “/long/**”，如请求“/long/aa/abc”则匹配“/long/**/abc”，如请求“/abc”则将匹配“/**”
+UrlFilenameViewController还提供了如下属性：
+
+prefix：生成逻辑视图名的前缀；
+
+suffix：生成逻辑视图名的后缀；
+
+Java代码  
+1
+2
+3
+protected String postProcessViewName(String viewName) {  
+        return getPrefix() + viewName + getSuffix();  
+}
+Java代码  
+1
+2
+3
+4
+<bean name="/*.htm" class="org.springframework.web.servlet.mvc.UrlFilenameViewController">  
+        <property name="prefix" value="test"/>  
+        <property name="suffix" value="test"/>  
+</bean>
+当prefix=“test”，suffix=“test”，如上所示的/*.htm：可以匹配如/abc.htm，但逻辑视图名将变为testabctest。
+
+
+
+4.12、ParameterizableViewController
+
+参数化视图控制器，不进行功能处理（即静态视图），根据参数的逻辑视图名直接选择需要展示的视图。
+
+Java代码  
+1
+2
+3
+4
+<bean name="/parameterizableView" 
+class="org.springframework.web.servlet.mvc.ParameterizableViewController">  
+<property name="viewName" value="success"/>  
+</bean>
+该控制器接收到请求后直接选择参数化的视图，这样的好处是在配置文件中配置，从而避免程序的硬编码，比如像帮助页面等不需要进行功能处理，因此直接使用该控制器映射到视图。
+
+4.13、AbstractUrlViewController
+
+提供根据请求URL路径直接转化为逻辑视图名的支持基类，即不需要功能处理，直接根据URL计算出逻辑视图名，并选择具体视图进行展示：
+
+urlDecode：是否进行url解码，不指定则默认使用服务器编码进行解码（如Tomcat默认ISO-8859-1）；
+
+urlPathHelper：用于解析请求路径的工具类，默认为org.springframework.web.util.UrlPathHelper。
+
+UrlFilenameViewController是它的一个实现者，因此我们应该使用UrlFilenameViewController。
+
+4.14、UrlFilenameViewController
+
+将请求的URL路径转换为逻辑视图名并返回的转换控制器，即不需要功能处理，直接根据URL计算出逻辑视图名，并选择具体视图进行展示：
+
+根据请求URL路径计算逻辑视图名；
+
+Java代码  
+1
+2
+3
+4
+5
+6
+7
+8
+<bean name="/index1/*"  
+class="org.springframework.web.servlet.mvc.UrlFilenameViewController"/>  
+<bean name="/index2/**"  
+class="org.springframework.web.servlet.mvc.UrlFilenameViewController"/>  
+<bean name="/*.html"  
+class="org.springframework.web.servlet.mvc.UrlFilenameViewController"/>  
+<bean name="/index3/*.html"  
+class="org.springframework.web.servlet.mvc.UrlFilenameViewController"/>
+/index1/*：可以匹配/index1/demo，但不匹配/index1/demo/demo，如/index1/demo逻辑视图名为demo；
+
+/index2/**：可以匹配/index2路径下的所有子路径，如匹配/index2/demo，或/index2/demo/demo，“/index2/demo”的逻辑视图名为demo，而“/index2/demo/demo”逻辑视图名为demo/demo；
+
+/*.html：可以匹配如/abc.html，逻辑视图名为abc，后缀会被删除（不仅仅可以是html）；
+
+/index3/*.html：可以匹配/index3/abc.html，逻辑视图名也是abc;
+
+上述模式为spring Web MVC使用的Ant-style 模式进行匹配的：
+
+Java代码  
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+?    匹配一个字符，如/index? 可以匹配 /index1 ， 但不能匹配 /index 或 /index12  
+*    匹配零个或多个字符，如/index1/*，可以匹配/index1/demo，但不匹配/index1/demo/demo 
+**   匹配零个或多个路径，如/index2/**：可以匹配/index2路径下的所有子路径，如匹配/index2/demo，或/index2/demo/demo 
+ 
+如果我有如下模式，那Spring该选择哪一个执行呢？当我的请求为“/long/long”时如下所示： 
+/long/long 
+/long/**/abc  
+/long/** 
+/** 
+Spring的AbstractUrlHandlerMapping使用：最长匹配优先； 
+如请求为“/long/long” 将匹配第一个“/long/long”，但请求“/long/acd” 则将匹配 “/long/**”，如请求“/long/aa/abc”则匹配“/long/**/abc”，如请求“/abc”则将匹配“/**”
+UrlFilenameViewController还提供了如下属性：
+
+prefix：生成逻辑视图名的前缀；
+
+suffix：生成逻辑视图名的后缀；
+
+Java代码  
+1
+2
+3
+protected String postProcessViewName(String viewName) {  
+        return getPrefix() + viewName + getSuffix();  
+}
+Java代码  
+1
+2
+3
+4
+<bean name="/*.htm" class="org.springframework.web.servlet.mvc.UrlFilenameViewController">  
+        <property name="prefix" value="test"/>  
+        <property name="suffix" value="test"/>  
+</bean>
+当prefix=“test”，suffix=“test”，如上所示的/*.htm：可以匹配如/abc.htm，但逻辑视图名将变为testabctest。
+
+
+
+
+4.15、MultiActionController
+
+之前学过的控制器如AbstractCommandController、SimpleFormController等一般对应一个功能处理方法（如新增），如果我要实现比如最简单的用户增删改查（CRUD Create-Read-Update-Delete），那该怎么办呢？
+
+4.15.1 解决方案
+1、每一个功能对应一个控制器，如果是CRUD则需要四个控制器，但这样我们的控制器会暴增，肯定不可取；
+
+2、使用spring Web MVC提供的MultiActionController，用于支持在一个控制器里添加多个功能处理方法，即将多个请求的处理方法放置到一个控制器里，这种方式不错。
+
+4.15.2 问题
+1、  MultiActionController如何将不同的请求映射不同的请求的功能处理方法呢？
+
+Spring Web MVC提供了MethodNameResolver（方法名解析器）用于解析当前请求到需要执行的功能处理方法的方法名。默认使用InternalPathMethodNameResolver实现类，另外还提供了ParameterMethodNameResolver和PropertiesMethodNameResolver，当然我们也可以自己来实现，稍候我们仔细研究下它们是如何工作的。
+
+2、那我们的功能处理方法应该怎么写呢？
+
+public (ModelAndView | Map | String | void) actionName(HttpServletRequest request, HttpServletResponse response, [,HttpSession session] [,AnyObject]);
+
+哦，原来如此，我们只需要按照如上格式写我们的功能处理方法即可；此处需要注意一下几点：
+
+1、返回值：即模型和视图部分；
+
+ModelAndView：模型和视图部分，之前已经见过了；
+
+Map：只返回模型数据，逻辑视图名会根据RequestToViewNameTranslator实现类来计算，稍候讨论；
+
+String：只返回逻辑视图名；
+
+void：表示该功能方法直接写出response响应（如果其他返回值类型（如Map）返回null则和void进行相同的处理）；
+
+2、actionName：功能方法名字；由methodNameResolver根据请求信息解析功能方法名，通过反射调用；
+
+3、形参列表：顺序固定，“[]”表示可选，我们来看看几个示例吧：
+
+//表示到新增页面
+
+public ModelAndView toAdd(HttpServletRequest request, HttpServletResponse response);
+
+//表示新增表单提交，在最后可以带着命令对象
+
+public ModelAndView add(HttpServletRequest request, HttpServletResponse response, UserModel user);
+
+//列表，但只返回模型数据，视图名会通过RequestToViewNameTranslator实现来计算
+
+public Map list(HttpServletRequest request, HttpServletResponse response);
+
+//文件下载，返回值类型为void，表示该功能方法直接写响应
+
+public void fileDownload(HttpServletRequest request, HttpServletResponse response)
+
+//第三个参数可以是session
+
+public ModelAndView sessionWith(HttpServletRequest request, HttpServletResponse response, HttpSession session);
+
+//如果第三个参数是session，那么第四个可以是命令对象，顺序必须是如下顺序
+
+public void sessionAndCommandWith(HttpServletRequest request, HttpServletResponse response, HttpSession session, UserModel user)
+
+4、异常处理方法，MultiActionController提供了简单的异常处理，即在请求的功能处理过程中遇到异常会交给异常处理方法进行处理，式如下所示：
+
+public ModelAndView anyMeaningfulName(HttpServletRequest request, HttpServletResponse response, ExceptionClass exception)
+
+MultiActionController会使用最接近的异常类型来匹配对应的异常处理方法，示例如下所示：
+
+//处理PayException
+
+public ModelAndView processPayException(HttpServletRequest request, HttpServletResponse response, PayException ex)
+
+//处理Exception
+
+public ModelAndView processException(HttpServletRequest request, HttpServletResponse response,  Exception ex)
+
+4.15.3 MultiActionController类实现
+类定义：public class MultiActionController extends AbstractController implements LastModified ，继承了AbstractController，并实现了LastModified接口，默认返回-1；
+
+核心属性：
+
+delegate：功能处理的委托对象，即我们要调用请求处理方法所在的对象，默认是this；
+
+methodNameResolver：功能处理方法名解析器，即根据请求信息来解析需要执行的delegate的功能处理方法的方法名。
+
+核心方法：
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+//判断方法是否是功能处理方法
+private boolean isHandlerMethod(Method method) {
+    //得到方法返回值类型
+    Class returnType = method.getReturnType();
+    //返回值类型必须是ModelAndView、Map、String、void中的一种，否则不是功能处理方法
+    if (ModelAndView.class.equals(returnType) || Map.class.equals(returnType) || String.class.equals(returnType) ||
+            void.class.equals(returnType)) {
+        Class[] parameterTypes = method.getParameterTypes();
+        //功能处理方法参数个数必须>=2，且第一个是HttpServletRequest类型、第二个是HttpServletResponse
+        //且不能Controller接口的handleRequest(HttpServletRequest request, HttpServletResponse response)，这个方法是由系统调用
+        return (parameterTypes.length >= 2 &&
+                HttpServletRequest.class.equals(parameterTypes[0]) &&
+                HttpServletResponse.class.equals(parameterTypes[1]) &&
+                !("handleRequest".equals(method.getName()) && parameterTypes.length == 2));
+    }
+    return false;
+}
+Java代码
+1
+2
+3
+4
+5
+6
+7
+//是否是异常处理方法
+private boolean isExceptionHandlerMethod(Method method) {
+    //异常处理方法必须是功能处理方法 且 参数长度为3、第三个参数类型是Throwable子类
+    return (isHandlerMethod(method) &&
+            method.getParameterTypes().length == 3 &&
+            Throwable.class.isAssignableFrom(method.getParameterTypes()[2]));
+}
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+private void registerHandlerMethods(Object delegate) {
+    //缓存Map清空
+    this.handlerMethodMap.clear();
+    this.lastModifiedMethodMap.clear();
+    this.exceptionHandlerMap.clear();
+ 
+    //得到委托对象的所有public方法
+    Method[] methods = delegate.getClass().getMethods();
+    for (Method method : methods) {
+        //验证是否是异常处理方法，如果是放入exceptionHandlerMap缓存map
+        if (isExceptionHandlerMethod(method)) {
+            registerExceptionHandlerMethod(method);
+        }
+        //验证是否是功能处理方法，如果是放入handlerMethodMap缓存map
+        else if (isHandlerMethod(method)) {
+            registerHandlerMethod(method);
+            registerLastModifiedMethodIfExists(delegate, method);
+        }
+    }
+}
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+protected ModelAndView handleRequestInternal(HttpServletRequest request, HttpServletResponse response)
+        throws Exception {
+    try {
+        //1、使用methodNameResolver 方法名解析器根据请求解析到要执行的功能方法的方法名
+        String methodName = this.methodNameResolver.getHandlerMethodName(request);
+        //2、调用功能方法（通过反射调用，此处就粘贴代码了）
+        return invokeNamedMethod(methodName, request, response);
+    }
+    catch (NoSuchRequestHandlingMethodException ex) {
+        return handleNoSuchRequestHandlingMethod(ex, request, response);
+    }
+}
+接下来，我们看一下MultiActionController如何使用MethodNameResolver来解析请求到功能处理方法的方法名。
+
+4.15.4 MethodNameResolver
+1、InternalPathMethodNameResolver：MultiActionController的默认实现，提供从请求URL路径解析功能方法的方法名，从请求的最后一个路径（/）开始，并忽略扩展名；如请求URL是“/user/list.html”，则解析的功能处理方法名为“list”，即调用list方法。该解析器还可以指定前缀和后缀，通过prefix和suffix属性，如指定prefix=”test_”,则功能方法名将变为test_list；
+
+2、ParameterMethodNameResolver：提供从请求参数解析功能处理方法的方法名，并按照如下顺序进行解析：
+
+（1、 methodParamNames：根据请求的参数名解析功能方法名（功能方法名和参数名同名）；
+
+Java代码
+1
+<property name="methodParamNames" value="list,create,update"/>
+  如上配置时，如果请求中含有参数名list、create、update时，则功能处理方法名为list、create、update，这种方式的可以在当一个表单有多个提交按钮时使用，不同的提交按钮名字不一样即可。
+
+  ParameterMethodNameResolver也考虑到图片提交按钮提交问题：
+
+    <input type="image" name="list"> 和submit类似可以提交表单，单击该图片后会发送两个参数“list.x=x轴坐标”和“list.y=y轴坐标”（如提交后会变为list.x=7&list.y=5）；因此我们配置的参数名（如list）在会加上“.x” 和 “.y”进行匹配。
+
+Java代码
+1
+2
+3
+4
+5
+for (String suffix : SUBMIT_IMAGE_SUFFIXES)  {//SUBMIT_IMAGE_SUFFIXES {“.x”, “.y”}
+    if (request.getParameter(name + suffix) != null) {// name是我们配置的methodParamNames
+        return true;
+    }
+}
+（2、paramName：根据请求参数名的值解析功能方法名，默认的参数名是action，即请求的参数中含有“action=query”，则功能处理方法名为query；
+
+（3、logicalMappings：逻辑功能方法名到真实功能方法名映射，如下所示：
+
+Java代码
+1
+2
+3
+4
+5
+<property name="logicalMappings">
+    <props>
+        <prop key="doList">list</prop>
+    </props>
+</property>
+  即如果步骤1或2解析出逻辑功能方法名为doList（逻辑的），将会被重新映射为list功能方法名（真正执行的）。
+
+（4、defaultMethodName：默认的方法名，当以上策略失败时默认调用的方法名。
+
+3、PropertiesMethodNameResolver：提供自定义的从请求URL解析功能方法的方法名，使用一组用户自定义的模式到功能方法名的映射，映射使用Properties对象存放，具体配置示例如下：
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+<bean id="propertiesMethodNameResolver"
+class="org.springframework.web.servlet.mvc.multiaction.PropertiesMethodNameResolver">
+    <property name="mappings">
+        <props>
+              <prop key="/create">create</prop>
+              <prop key="/update">update</prop>
+              <prop key="/delete">delete</prop>
+              <prop key="/list">list</prop>
+              <!-- 默认的行为 -->
+              <prop key="/**">list</prop>
+        </props>
+    </property>
+</bean>
+对于/create请求将调用create方法，Spring内部使用PathMatcher进行匹配（默认实现是AntPathMatcher）。
+
+4.15.5 RequestToViewNameTranslator
+
+用于直接将请求转换为逻辑视图名。默认实现为DefaultRequestToViewNameTranslator。
+
+1、DefaultRequestToViewNameTranslator：将请求URL转换为逻辑视图名，默认规则如下：
+
+  http://localhost:9080/web上下文/list -------> 逻辑视图名为list
+
+  http://localhost:9080/web上下文/list.html -------> 逻辑视图名为list(默认删除扩展名)
+
+  http://localhost:9080/web上下文/user/list.html -------> 逻辑视图名为user/list
+
+4.15.6 示例
+（1、控制器UserController
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+45
+46
+47
+48
+49
+50
+51
+52
+53
+54
+55
+56
+57
+58
+59
+60
+61
+62
+63
+package cn.javass.chapter4.web.controller;
+//省略import
+public class UserController extends MultiActionController {
+    //用户服务类
+    private UserService userService;
+    //逻辑视图名 通过依赖注入方式注入，可配置
+    private String createView;
+    private String updateView;
+    private String deleteView;
+    private String listView;
+    private String redirectToListView;
+    //省略setter/getter
+ 
+    public String create(HttpServletRequest request, HttpServletResponse response, UserModel user) {
+        if("GET".equals(request.getMethod())) {
+            //如果是get请求 我们转向 新增页面
+            return getCreateView();
+        }
+        userService.create(user);
+        //直接重定向到列表页面
+        return getRedirectToListView();
+    }
+    public ModelAndView update(HttpServletRequest request, HttpServletResponse response, UserModel user) {
+        if("GET".equals(request.getMethod())) {
+            //如果是get请求 我们转向更新页面
+            ModelAndView mv = new ModelAndView();
+            //查询要更新的数据
+            mv.addObject("command", userService.get(user.getUsername()));
+            mv.setViewName(getUpdateView());
+            return mv;
+        }
+        userService.update(user);
+        //直接重定向到列表页面
+        return new ModelAndView(getRedirectToListView());
+    }
+ 
+    public ModelAndView delete(HttpServletRequest request, HttpServletResponse response, UserModel user) {
+        if("GET".equals(request.getMethod())) {
+            //如果是get请求 我们转向删除页面
+            ModelAndView mv = new ModelAndView();
+            //查询要删除的数据
+            mv.addObject("command", userService.get(user.getUsername()));
+            mv.setViewName(getDeleteView());
+            return mv;
+        }
+        userService.delete(user);
+        //直接重定向到列表页面
+        return new ModelAndView(getRedirectToListView());
+    }   
+ 
+    public ModelAndView list(HttpServletRequest request, HttpServletResponse response) {
+        ModelAndView mv = new ModelAndView();
+        mv.addObject("userList", userService.list());
+        mv.setViewName(getListView());
+        return mv;
+    }
+ 
+    //如果使用委托方式，命令对象名称只能是command
+    protected String getCommandName(Object command) {
+        //命令对象的名字 默认command
+        return "command";
+    }
+}
+增删改：如果是GET请求方法，则表示到展示页面，POST请求方法表示真正的功能操作；
+
+  getCommandName：表示是命令对象名字，默认command，对于委托对象实现方式无法改变，因此我们就使用默认的吧。
+
+（2、spring配置文件chapter4-servlet.xml
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+<bean id="userService" class="cn.javass.chapter4.service.UserService"/>
+<bean name="/user/**" class="cn.javass.chapter4.web.controller.UserController">
+    <property name="userService" ref="userService"/>
+    <property name="createView" value="user/create"/>
+    <property name="updateView" value="user/update"/>
+    <property name="deleteView" value="user/delete"/>
+    <property name="listView" value="user/list"/>
+    <property name="redirectToListView" value="redirect:/user/list"/>
+    <!-- 使用PropertiesMethodNameResolver来解析功能处理方法名 -->       
+    <!--property name="methodNameResolver" ref="propertiesMethodNameResolver"/-->
+</bean>
+  userService：用户服务类，实现业务逻辑；
+
+  依赖注入：对于逻辑视图页面通过依赖注入方式注入，redirectToListView表示增删改成功后重定向的页面，防止重复表单提交；
+
+  默认使用InternalPathMethodNameResolver解析请求URL到功能方法名。
+
+（3、视图页面
+
+（3.1、list页面（WEB-INF/jsp/user/list.jsp）
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+<a href="${pageContext.request.contextPath}/user/create">用户新增</a>
+<table border="1" width="50%">
+   <tr>
+      <th>用户名</th>
+      <th>真实姓名</th>
+      <th>操作</th>
+   </tr> 
+   <c:forEach items="${userList}" var="user">
+   <tr>
+      <td>${user.username }</td>
+      <td>${user.realname }</td>
+      <td>
+          <a href="${pageContext.request.contextPath}/user/update?username=${user.username}">更新</a>
+          |
+          <a href="${pageContext.request.contextPath}/user/delete?username=${user.username}">删除</a>
+      </td>
+   </tr>
+   </c:forEach>   
+</table>
+（3.2、update页面（WEB-INF/jsp/user/update.jsp）
+
+Java代码
+1
+2
+3
+4
+5
+<form action="${pageContext.request.contextPath}/user/update" method="post">
+用户名： <input type="text" name="username" value="${command.username}"/>
+真实姓名：<input type="text" name="realname" value="${command.realname}"/>
+<input type="submit" value="更新"/>
+</form>
+（4、测试：
+
+默认的InternalPathMethodNameResolver将进行如下解析：
+
+http://localhost:9080/springmvc-chapter4/user/list————>list方法名；
+
+http://localhost:9080/springmvc-chapter4/user/create————>create方法名；
+
+http://localhost:9080/springmvc-chapter4/user/update————>update功能处理方法名；
+
+http://localhost:9080/springmvc-chapter4/user/delete————>delete功能处理方法名。
+
+我们可以将默认的InternalPathMethodNameResolver改为PropertiesMethodNameResolver：
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+<bean id="propertiesMethodNameResolver"
+class="org.springframework.web.servlet.mvc.multiaction.PropertiesMethodNameResolver">
+    <property name="mappings">
+        <props>
+              <prop key="/user/create">create</prop>
+              <prop key="<span style="font-size: 1em; line-height: 1.5;">/user/</span><span style="font-size: 1em; line-height: 1.5;">update">update</prop></span>
+              <prop key="<span style="font-size: 1em; line-height: 1.5;">/user/</span><span style="font-size: 1em; line-height: 1.5;">delete">delete</prop></span>
+              <prop key="<span style="font-size: 1em; line-height: 1.5;">/user/</span><span style="font-size: 1em; line-height: 1.5;">list">list</prop></span>
+              <prop key="/**">list</prop><!-- 默认的行为 -->
+          </props>
+    </property>
+    <property name="alwaysUseFullPath" value="false"/><!-- 不使用全路径 -->
+</bean>   
+<bean name="/user/**" class="cn.javass.chapter4.web.controller.UserController">
+       <!—省略其他配置，详见配置文件-->
+       <!-- 使用PropertiesMethodNameResolver来解析功能处理方法名 -->       
+       <property name="methodNameResolver" ref="propertiesMethodNameResolver"/>
+</bean>
+ /**表示默认解析到list功能处理方法。
+
+如上配置方式可以很好的工作，但必须继承MultiActionController，Spring Web MVC提供给我们无需继承MultiActionController实现方式，即使有委托对象方式，继续往下看吧。
+
+4.15.7、委托方式实现
+
+（1、控制器UserDelegate
+
+   将UserController复制一份，改名为UserDelegate，并把继承MultiActionController去掉即可，其他无需改变。
+
+（2、spring配置文件chapter4-servlet.xml 
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+<!—委托对象-->
+<bean id="userDelegate" class="cn.javass.chapter4.web.controller.UserDelegate">
+   <property name="userService" ref="userService"/>
+   <property name="createView" value="user2/create"/>
+   <property name="updateView" value="user2/update"/>
+   <property name="deleteView" value="user2/delete"/>
+   <property name="listView" value="user2/list"/>
+   <property name="redirectToListView" value="redirect:/user2/list"/>
+</bean>
+<!—控制器对象-->
+<bean name="/user2/**"
+class="org.springframework.web.servlet.mvc.multiaction.MultiActionController">
+<property name="delegate" ref="userDelegate"/>
+    <property name="methodNameResolver" ref="parameterMethodNameResolver"/>
+</bean>
+ delegate：控制器对象通过delegate属性指定委托对象，即实际调用delegate委托对象的功能方法。
+
+ methodNameResolver：此处我们使用ParameterMethodNameResolver解析器；
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+<!—ParameterMethodNameResolver -->
+<bean id="parameterMethodNameResolver"
+class="org.springframework.web.servlet.mvc.multiaction.ParameterMethodNameResolver">
+<!-- 1、根据请求参数名解析功能方法名 -->
+    <property name="methodParamNames" value="create,update,delete"/>
+    <!-- 2、根据请求参数名的值解析功能方法名 -->
+    <property name="paramName" value="action"/>
+<!-- 3、逻辑方法名到真实方法名的映射 -->
+    <property name="logicalMappings">
+       <props>
+           <prop key="doList">list</prop>
+       </props>
+    </property>
+    <!—4、默认执行的功能处理方法 -->
+    <property name="defaultMethodName" value="list"/>
+</bean>
+1、methodParamNames：create,update,delete，当请求中有参数名为这三个的将被映射为功能方法名，如“<input type=”submit” name=”create” value=”新增”/>”提交后解析得到的功能方法名为create;
+
+2、paramName：当请求中有参数名为action，则将值映射为功能方法名，如“<input type=”hidden”name=”action” value=”delete”/>”，提交后解析得到的功能方法名为delete；
+
+3、logicalMappings：逻辑功能方法名到真实功能方法名的映射，如：
+
+    http://localhost:9080/springmvc-chapter4/user2?action=doList；
+
+    首先请求参数“action=doList”，则第二步解析得到逻辑功能方法名为doList；
+
+    本步骤会把doList再转换为真实的功能方法名list。
+
+4、defaultMethodName：以上步骤如果没有解析到功能处理方法名，默认执行的方法名。
+
+（3、视图页面
+
+（3.1、list页面（WEB-INF/jsp/user2/list.jsp）
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+<a href="${pageContext.request.contextPath}/user2?action=create">用户新增</a>
+<table border="1" width="50%">
+   <tr>
+      <th>用户名</th>
+      <th>真实姓名</th>
+      <th>操作</th>
+   </tr> 
+   <c:forEach items="${userList}" var="user">
+   <tr>
+      <td>${user.username }</td>
+      <td>${user.realname }</td>
+      <td>
+          <a href="${pageContext.request.contextPath}/user2?action=update&username=${user.username}">更新</a>
+          |
+          <a href="${pageContext.request.contextPath}/user2?action=delete&username=${user.username}">删除</a>
+      </td>
+   </tr>
+   </c:forEach>   
+</table>
+（3.2、update页面（WEB-INF/jsp/user2/update.jsp）
+
+Java代码
+1
+2
+3
+4
+5
+6
+<form action="${pageContext.request.contextPath}/user2" method="post">
+<input type="hidden" name="action" value="update"/>
+用户名： <input type="text" name="username" value="${command.username}"/>
+真实姓名：<input type="text" name="realname" value="${command.realname}"/>
+<input type="submit" value="更新"/>
+</form>
+  通过参数name=“action” value=“update”来指定要执行的功能方法名update。
+
+（3.3、create页面（WEB-INF/jsp/user2/create.jsp）
+
+Java代码
+1
+2
+3
+4
+5
+<form action="${pageContext.request.contextPath}/user2" method="post">
+用户名： <input type="text" name="username" value="${command.username}"/>
+真实姓名：<input type="text" name="realname" value="${command.realname}"/>
+<input type="submit" name="create" value="新增"/>
+</form>
+  通过参数name=“create”来指定要执行的功能方法名create。
+
+（4、测试：
+
+使用ParameterMethodNameResolver将进行如下解析：
+
+http://localhost:9080/springmvc-chapter4/user2?create      ————>create功能处理方法名（参数名映射）；
+
+http://localhost:9080/springmvc-chapter4/user2?action=create————>create功能处理方法名（参数值映射）；
+
+http://localhost:9080/springmvc-chapter4/user2?update      ————>update功能处理方法名；
+
+http://localhost:9080/springmvc-chapter4/user2?action=update————>update功能处理方法名；
+
+http://localhost:9080/springmvc-chapter4/user2?delete      ————>delete功能处理方法名；
+
+http://localhost:9080/springmvc-chapter4/user2?action=delete————>delete功能处理方法名；
+
+http://localhost:9080/springmvc-chapter4/user2?doList      ————>通过logicalMappings解析为list功能处理方法。
+
+http://localhost:9080/springmvc-chapter4/user2?action=doList————>通过logicalMappings解析为list功能处理方法。
+
+http://localhost:9080/springmvc-chapter4/user2————>默认的功能处理方法名list（默认）。
+
+
+

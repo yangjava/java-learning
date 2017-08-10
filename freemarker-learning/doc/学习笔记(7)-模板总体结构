@@ -1,0 +1,115 @@
+##  总体结构
+
+实际上你用程序语言编写的程序就是模板，模板也被称为 FTL（代表 FreeMarker 模板语 言）。
+这是为编写模板设计的非常简单的编程语言。模板（FTL 编程）是由如下部分混合而成的：
+
+Text 文本：文本会照着原样来输出。
+
+Interpolation  插值：这部分的输出会被计算的值来替换。插值由${和}所分隔（或者#{和}，这种风格已经不建议再使用了）。
+
+FTL tags 标签：FTL 标签和 HTML 标签很相似，但是它们却是给 FreeMarker 的指示，而 且不会打印在输出内容中。
+
+Comments 注释：FTL 的注释和 HTML 的注释也很相似，但它们是由<#--和-->来分隔 的。
+注释会被 FreeMarker 所忽略，更不会在输出内容中显示。
+
+我们来看一个具体的模板，其中的内容已经用颜色来标记了：文本，插值，FTL 标签，
+注释，为了看到可见的换行符，这里使用了[BR]。
+
+<html>[BR]
+<head>[BR]
+  <title>Welcome!</title>[BR]
+</head>[BR]
+<body>[BR]
+<#-- Greet the user with his/her name  -->[BR]
+  <h1>Welcome ${user}!</h1>[BR]
+  <p>We have these animals:[BR]
+  <ul>[BR]
+<#list animals as being>[BR]
+ 	<li>${being.name} for ${being.price}  Euros[BR]
+</#list>[BR]
+  </ul>[BR]
+</body>[BR]
+</html>
+
+FTL  是区分大小写的。list 是指令的名称而 List 就不是，类似地${name}和
+${Name}或者${NAME}它们也是不同的。 应该意识到非常重要的一点：插值仅仅可以在文本中间使用（也可以在字符串表达式
+中，后续将会介绍）。
+FTL 标签不可以在其他 FTL 标签和插值中使用。下面这样写就是错的：
+<#if <#include 'foo'>='bar'>...</#if>
+注释可以放在 FTL 标签和插值中间。比如：
+
+<h1>Welcome ${user <#-- The name of user -->}!</h1>[BR]
+<p>We have these animals:[BR]
+<ul>[BR]
+<#list <#-- some comment... --> animals as being>[BR]
+
+注意： 如果目前您已经自己尝试了上面所有的示例的话，那么你也许会注意一些空格、制表符和换行符从模板输出中都不见了，
+尽管我们之前已经说了文本是按照原样输出的。现在不用 为此而计较，这是由于 FreeMarker 的“空格剥离”特性在起作用，
+它当然会自动去除一些 多余的空格，制表符和换行符了。这个特性后续也会解释到。
+
+##  指令
+
+使用 FTL 标签来调用 directives 指令，比如调用 list 指令。
+在语法上我们使用了两个标 签：<#list animals as being>和</#list>。
+标签分为两种：
+开始标签：<#directivename parametes>
+结束标签：</#directivename>
+除了标签以#开头外，其他都和 HTML，XML 的语法很相似。
+如果标签没有嵌套内容（在 开 始 标 签 和 结 束 标 签 之 内 的 内 容 ）， 那 么 可 以 只 使 用 开 始 标 签 。
+ 例 如 <#if something>...</#if> ， 但是 FreeMarker 知道<#include something> 中 include 指令没有可嵌套的内容。
+parameters 的格式由 directivename 来决定。 事实上，指令有两种类型：预定义指令和用户自定义指令。
+对于用户自定义的指令使用@来代替#，比如<@mydirective parameters>...</@mydirective>。
+更深 的区别在于如果指令没有嵌 套内容，那么必须 这么使用 <@mydirective parameters />，这和 XML 语法很相似（例如<img ... />）.
+但是用户自定义指令 是后面要讨论的高级主题。
+像 HTML 标签一样，FTL 标签必须正确的嵌套使用。下面这段示例代码就是错的，因为
+if 指令在 list 指令嵌套内容的内外都有：
+
+<ul>
+	<#list animals as being>
+	<li>${being.name} for ${being.price} Euros
+	<#if user == "Big Joe">
+	(except for you)
+	</#list> <#-- WRONG! The "if" has to be closed first.  -->
+	</#if>
+</ul>
+
+注意一下 FreeMarker 仅仅关心 FTL 标签的嵌套而不关心 HTML 标签的嵌套，它只会把
+HTML 看做是相同的文本，不会来解释 HTML。 如果你尝试使用一个不存在的指令（比如你输错了指令的名称），FreeMarker 就会拒绝
+
+执行模板，同时抛出错误信息。
+FreeMarker 会忽略 FTL 标签中的多余空白标记，所以你也可以这么来写代码：
+
+<#list[BR]
+animals	as[BR]
+ 	being[BR]
+>[BR]
+${being.name} for ${being.price} Euros[BR]
+</#list	>
+
+当然，也不能在<，</和指令名中间插入空白标记。 指令列表和详细介绍可以参考指令参考部分（但是我建议先看表达式章节）。 
+注意：通过配置，FreeMarker 可以在 FTL 标签和 FTL 注释中，使用[和]来代替<和>，就像[#if user == "Big Joe"]...[/#if]。
+要获取更多信息，请参考：第四章的其它/替换（方括号）语法部分。 注意：
+通过配置，FreeMarker 可以不需要#来理解预定义指令（比如<if user == "Big Joe">...</if>）。
+而我们不建议这样来使用。要获取更多信息，请参考：参考文档部 分，废弃的 FTL 结构/老式 FTL 语法。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

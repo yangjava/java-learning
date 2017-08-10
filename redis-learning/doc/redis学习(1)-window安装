@@ -1,0 +1,102 @@
+我先说一下Redis的版本背景， redis官方是不支持windows的，只是 Microsoft Open Tech group 在 GitHub上开发了一个Win64的版本。MS Open Tech 技术团队花了很多时间来测试最新构建的Windows版Redis(可在 MS Open Tech Github 仓库下载)。所以虽然是有一个团队在构建Windows版本我还是建议大家在生产环境中部要使用Window版本的Redis，应采用稳定的Linux版本，Windows环境主要是用于开发调试期间。
+
+1.如何获取Redis？
+
+a）Microsoft Open Tech group 发布的Redis地址： 
+https://github.com/MSOpenTech/redis 
+b）windows 版 32、64位下载（比较低）： 
+https://github.com/dmajkic/redis/downloads 
+64位下载：https://github.com/mythz/redis-windows 
+我们下载Microsoft Open Tech group 2.8.2400的版本是2016-1-22 release的应该相对比较稳定一点。先下载这个版本吧。 
+下载的时候我们看到有两个文件， 
+这里写图片描述 
+Redis-x64-2.8.2400.msi（Microsoft Installer）是安装文件。那好了我们就以这个为示例进行讲解。
+
+2.如何安装Redis？
+
+1) 双击Redis-x64-2.8.2400.msi启动安装程序。 
+这里写图片描述
+
+2)同意Redis安装协议。 
+这里写图片描述
+
+3）选择安装目录，默认C盘。 
+这里写图片描述
+
+4）配置端Redis端口号，默认6379，我们也默认好了。 
+这里写图片描述
+
+5）设置内存上下限，默认100M。通常这个要我们根据需求设置合适的内存大小。 
+这里写图片描述
+
+6）开始安装………….
+
+这里写图片描述
+
+7) 安装完毕。 
+这里写图片描述
+
+8) 走跟我去检验一下安装是否真的成功了。 
+这里写图片描述 
+看到我标的红字了没，这是启动的命令：
+
+“C:\Program Files\Redis\redis-server.exe” –service-run “C:\Program 
+Files\Redis\redis.windows-service.conf”
+也就是说在启动的时候加载一个名字叫做redis.windows-service.conf的配置文件。 
+OK，Windows版本的Redis安装就告一段落了。 
+接下来我们来测试一下客户端吧。
+
+3.测试一下Redis
+
+先看一下我们刚才我们刚才安装的目录，其实跟我们解压Redis-x64-2.8.2400.zip包的文件是一样的。还是先上图 
+这里写图片描述 
+双击Redis.cli.exe 
+这里写图片描述 
+看没报错呢就说明连接上本地的Redis服务器了。默认会连接127.0.0.1的6379端口。 
+连接命令：
+
+redis-cli -h [ip] -p [port]
+我先给创建一个bat文件。 
+startredis.bat 
+写入内容
+
+redis-cli -h 127.0.0.1 -p 6379
+保存后双击运行 
+这里写图片描述
+
+我们测试一下我们的 Redis客户端和服务器的存储链路是不是真的通的 。
+
+127.0.0.1:6379> set hello redis
+OK
+
+写入成功，我们查看一下
+
+127.0.0.1:6379> keys *
+1) "hello"
+127.0.0.1:6379>
+
+OK，Window版本的Redis就彻底安装测试通过了。
+
+本文总结
+
+Windows版本官方没有提供，都是第三方编译发布的，唯一一个比较可靠一点的就是MS Open Tech还经过一些简单的测试。Redis默认端口6379 redis.cli客户端默认连接本机6379。
+
+
+
+
+
+
+1.打开官网http://redis.io/点击Download
+
+2.往下拉，找到Windows，
+
+   由图片中的文字可以看出Redis项目不正式支持Windows。 但是，Microsoft开放技术小组开发和维护这个Windows端口针对Win64。 
+
+     所以我们点击Learn more
+
+3.点击后，会发现其实是跳转到了微软的GitHub地址 https://github.com/MSOpenTech/redis/releases，
+
+   然后选择你喜欢的版本zip或msi下载
+
+4.安装后，打开安装目录
+     双击redis-server.exe启动redis服务器，双击redis-cli.exe打开redis客户端（用来执行命令，访问服务器的）

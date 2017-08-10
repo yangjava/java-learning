@@ -1,0 +1,210 @@
+ ## Spring中使用Map、Set、List、数组、属性集合的注入方法配置文件
+ 
+ （1）下边的一个Java类包含了所有Map、Set、List、数组、属性集合等这些容器，主要用于演示spring的注入配置；
+[java] view plain copy
+package com.lc.collection;  
+  
+import java.util.List;  
+import java.util.Map;  
+import java.util.Properties;  
+import java.util.Set;  
+  
+public class Department {  
+  
+    private String name;  
+    private String [] empName;//数组  
+    private List<Employee> empList;//list集合  
+    private Set<Employee> empsets;//set集合  
+    private Map<String,Employee> empMaps;//map集合  
+    private Properties pp;//Properties的使用  
+  
+      
+    public Set<Employee> getEmpsets() {  
+        return empsets;  
+    }  
+    public void setEmpsets(Set<Employee> empsets) {  
+        this.empsets = empsets;  
+    }  
+    public String[] getEmpName() {  
+        return empName;  
+    }  
+    public void setEmpName(String[] empName) {  
+        this.empName = empName;  
+    }  
+    public String getName() {  
+        return name;  
+    }  
+    public void setName(String name) {  
+        this.name = name;  
+    }  
+    public List<Employee> getEmpList() {  
+        return empList;  
+    }  
+    public void setEmpList(List<Employee> empList) {  
+        this.empList = empList;  
+    }  
+    public Map<String, Employee> getEmpMaps() {  
+        return empMaps;  
+    }  
+    public void setEmpMaps(Map<String, Employee> empMaps) {  
+        this.empMaps = empMaps;  
+    }  
+    public Properties getPp() {  
+        return pp;  
+    }  
+    public void setPp(Properties pp) {  
+        this.pp = pp;  
+    }  
+  
+}  
+
+（2）Spring配置文件beans.xml文件
+[html] view plain copy
+<?xml version="1.0" encoding="utf-8"?>  
+<beans xmlns="http://www.springframework.org/schema/beans"  
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"  
+        xmlns:context="http://www.springframework.org/schema/context"  
+        xmlns:tx="http://www.springframework.org/schema/tx"  
+        xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-2.5.xsd  
+                http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-2.5.xsd  
+                http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx-2.5.xsd">  
+  
+<bean id="department" class="com.hsp.collection.Department">  
+<property name="name" value="财务部"/>  
+  
+<!-- 给数组注入值 -->  
+<property name="empName">  
+    <list>  
+        <value>小明</value>  
+        <value>小明小明</value>  
+        <value>小明小明小明小明</value>  
+    </list>  
+</property>  
+  
+<!-- 给list注入值 list 中可以有相当的对象 -->  
+<property name="empList">  
+    <list>  
+        <ref bean="emp2" />  
+        <ref bean="emp1"/>  
+        <ref bean="emp1"/>  
+        <ref bean="emp1"/>  
+        <ref bean="emp1"/>  
+        <ref bean="emp1"/>  
+        <ref bean="emp1"/>  
+    </list>  
+</property>  
+  
+<!-- 给set注入值 set不能有相同的对象 -->  
+<property name="empsets">  
+    <set>  
+        <ref bean="emp1" />  
+        <ref bean="emp2"/>  
+        <ref bean="emp2"/>  
+        <ref bean="emp2"/>  
+        <ref bean="emp2"/>  
+    </set>  
+</property>  
+  
+<!-- 给map注入值 map只有key不一样，就可以装配value -->  
+<property name="empMaps">  
+    <map>  
+        <entry key="11" value-ref="emp1" />   
+        <entry key="22" value-ref="emp2"/>  
+        <entry key="22" value-ref="emp1"/>  
+    </map>  
+</property>  
+  
+<!-- 给属性集合配置 -->  
+<property name="pp">  
+    <props>  
+        <prop key="pp1">abcd</prop>  
+        <prop key="pp2">hello</prop>  
+    </props>  
+</property>  
+</bean>  
+  
+<bean id="emp1" class="com.hsp.collection.Employee">  
+    <property name="name" value="北京"/>  
+    <property name="id" value="1"/>  
+</bean>  
+<bean id="emp2" class="com.hsp.collection.Employee">  
+    <property name="name" value="天津"/>  
+    <property name="id" value="2"/>  
+</bean>  
+  
+</beans>  
+
+（3）如何使用
+[java] view plain copy
+package com.lc.collection;  
+  
+import java.util.Enumeration;  
+import java.util.Iterator;  
+import java.util.Map;  
+import java.util.Properties;  
+import java.util.Map.Entry;  
+  
+import org.springframework.context.ApplicationContext;  
+import org.springframework.context.support.ClassPathXmlApplicationContext;  
+  
+public class App1 {  
+  
+      
+    public static void main(String[] args) {  
+  
+        ApplicationContext ac=new ClassPathXmlApplicationContext("com/lc/collection/beans.xml");  
+        Department department=(Department) ac.getBean("department");  
+        System.out.println(department.getName());  
+        for(String emName:department.getEmpName()){  
+            System.out.println(emName);  
+        }  
+        /* 
+         * 通过list集合取出数据 
+         */  
+        System.out.println("**********通过list集合取出数据*****");  
+        for(Employee e : department.getEmpList()){  
+            System.out.println("name="+e.getName()+" "+e.getId());  
+        }  
+        /* 
+         * 通过set集合取出数据 
+         */  
+        System.out.println("**********通过set集合取出数据*****");  
+        for(Employee e : department.getEmpsets()){  
+              
+            System.out.println("name="+e.getName());  
+        }  
+        /* 
+         * 通过map集合取出数据 迭代器 
+         */  
+        System.out.println("*******通过map集合取出数据 迭代器****");  
+          
+        //1.迭代器  
+        Map<String,Employee> empmaps=department.getEmpMaps();  
+        Iterator it=empmaps.keySet().iterator();  
+        while(it.hasNext()){  
+            String key=(String) it.next();  
+            Employee emp=empmaps.get(key);  
+            System.out.println("key="+key+" "+emp.getName());  
+        }  
+          
+        System.out.println("*******通过map集合取出数据 简洁方法****");  
+        //2.简洁方法  
+        for(Entry<String,Employee> entry1:department.getEmpMaps().entrySet()){  
+              
+            System.out.println(entry1.getKey()+" "+entry1.getValue().getName());  
+        }  
+          
+        System.out.println("*****通过Propertis取出数据*****");  
+        Properties pp=department.getPp();  
+        for(Entry<Object,Object> entry:pp.entrySet()){  
+            System.out.println(entry.getKey().toString()+" "+entry.getValue().toString());  
+        }  
+        System.out.println("*****通过Enumeration取出*****");  
+        Enumeration en= pp.keys();  
+        while(en.hasMoreElements()){  
+            String key=(String) en.nextElement();  
+            System.out.println(key+" "+pp.getProperty(key));  
+        }  
+    }  
+  
+}  

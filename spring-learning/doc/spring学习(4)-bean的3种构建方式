@@ -1,0 +1,164 @@
+##  创建Bean的三种方式
+
+在大多数情况下，Spring容器直接通过new关键字调用构造器来创建Bean实例，而class属性指定Bean实例的实现类，
+但这不是实例化Bean的唯一方法。实际上，Spring支持使用以下三种方式来创建Bean:
+
+(1)调用构造器创建Bean
+
+(2)调用静态工厂方法创建Bean
+
+(3)调用实例工厂方法创建Bean
+
+(1)构造器创建Bean实例
+
+如果不采用构造注入，Spring底层会调用Bean类的无参数构造器来创建实例，因此该类必须要提供无参数的构造器，
+并且class属性的值就是该Bean实例的实现类。Spring对Bean实例的所有属性执行默认初始化，即所有基本类型的值初始化为0或false，
+所有引用类型的值初始化为null。BeanFactory会根据配置文件决定依赖关系，先实例化所依赖的Bean实例，然后为Bean注入依赖关系，
+最后将一个完整的Bean实例返回给程序。
+如果采用构造注入，则使用<constructor-arg>配置一个构造器参数，Spring容器将使用带对应参数的构造器来创建Bean实例，
+Spring调用构造器传入的参数即可用于初始化Bean的实例变量，最后也将一个完整的Bean实例返回给程序。
+
+bean.xml
+
+<bean id="helloWorldService" class="com.java.spring.ioc.HelloWorldServiceImpl"></bean>
+
+class类
+
+public interface HelloWorldService {
+	
+	void sayHello();
+	
+}
+
+public class HelloWorldServiceImpl implements HelloWorldService{
+
+	@Override
+	public void sayHello() {
+		System.out.println("Hello world");
+	}
+
+}
+
+测试类
+    @Test
+ 	public void test1() throws Exception{
+ 		ApplicationContext applicationContext = new ClassPathXmlApplicationContext(
+ 				"classpath:bean1.xml");
+ 		HelloWorldService hello = (HelloWorldService) applicationContext
+ 				.getBean("helloWorldService");
+ 		hello.sayHello();
+ 	}
+ 
+ bean.xml
+ 
+<bean id="helloWorldService-constructor" class="com.java.spring.ioc.HelloWorldServiceConstructor">
+<constructor-arg name="msg" value="java"></constructor-arg>
+</bean>
+
+class类
+ public class HelloWorldServiceConstructor implements HelloWorldService{
+	
+    private String msg;
+    
+    
+	public HelloWorldServiceConstructor(String msg) {
+		super();
+		this.msg = msg;
+	}
+	@Override
+	public void sayHello() {
+		System.out.println("Hello World  "+msg);
+		
+	}
+	public String getMsg() {
+		return msg;
+	}
+	public void setMsg(String msg) {
+		this.msg = msg;
+	}
+   
+}
+
+测试类
+    @Test
+ 	public void test11() throws Exception{
+ 		ApplicationContext applicationContext = new ClassPathXmlApplicationContext(
+ 				"classpath:bean1.xml");
+ 		HelloWorldService hello = (HelloWorldService) applicationContext
+ 				.getBean("helloWorldService-constructor");
+ 		 hello.sayHello();
+ 	}
+
+	
+(2) 使用静态工厂方法创建Bean
+
+采用静态工厂方法创建Bean实例时，<bean>元素需要指定两个属性：
+class:值为静态工厂类的类名
+factory-method:指定静态工厂方法来生产Bean实例
+如果静态工厂方法需要参数，则使用<constructor-arg>元素传入。
+
+bean.xml
+
+<bean id="helloWorldService-static" class="com.java.spring.ioc.HelloWorldServiceFacotry"
+ factory-method="getHelloWorldService"></bean>
+
+class类
+public class HelloWorldServiceFacotry {
+	
+	public static HelloWorldService getHelloWorldService(){
+		return new HelloWorldServiceImpl();
+	}
+
+}
+测试类
+
+    @Test
+ 	public void test2() throws Exception{
+ 		ApplicationContext applicationContext = new ClassPathXmlApplicationContext(
+ 				"classpath:bean1.xml");
+ 		HelloWorldService hello = (HelloWorldService) applicationContext
+ 				.getBean("helloWorldService-static");
+ 		hello.sayHello();
+ 	}
+
+
+
+
+一旦为<bean>元素指定了factory-method属性，Spring就不再调用构造器来创建Bean实例，而是调用工厂方法来创建Bean实例。
+如果同时指定了class和factory-method两个属性，Spring就会调用静态工厂方法来创建Bean。
+Spring将先解析配置文件，并根据配置文件指定的信息，通过反射调用静态工厂类的静态工厂方法，将该静态工厂方法的返回值作为Bean实例。
+在这个过程中，Spring不再负责创建Bean实例，Bean实例是由用户提供的静态工厂类负责创建的。
+
+(3) 调用实例工厂方法创建Bean
+实例工厂方法与静态工厂方法只有一点不同：调用静态工厂方法只需要使用工厂类即可，而调用实例工厂方法则需要工厂实例。所以在配置时，静态工厂方法使用class指定静态工厂类，实例工厂方法使用factory-bean指定工厂实例。
+采用实例工厂方法创建Bean的<bean>元素时需要指定两个属性：
+factory-bean:工厂bean的id
+factory-method:实例工厂的工厂方法
+
+bean.xml
+
+<bean id="helloWorldServiceFacotryBean" class="com.java.spring.ioc.HelloWorldServiceFacotryBean"></bean>
+
+<bean id="helloWorldService-bean"  
+factory-bean="helloWorldServiceFacotryBean"  factory-method="getHelloWorldService"></bean>
+
+class类
+
+public class HelloWorldServiceFacotryBean {
+	
+	public  HelloWorldService getHelloWorldService(){
+		return new HelloWorldServiceImpl();
+	}
+
+}
+
+
+测试类
+    @Test
+ 	public void test3() throws Exception{
+ 		ApplicationContext applicationContext = new ClassPathXmlApplicationContext(
+ 				"classpath:bean1.xml");
+ 		HelloWorldService hello = (HelloWorldService) applicationContext
+ 				.getBean("helloWorldService-bean");
+ 		hello.sayHello();
+ 	}
