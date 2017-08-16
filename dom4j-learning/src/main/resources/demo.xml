@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>  
+<employees>  
+    <!--An XML Note -->  
+    <?target text?>  
+    <employee id="lo" name="lele">  
+        <sex>m</sex>  
+        <age>23</age>  
+    </employee>  
+    <employee id="ve" name="fox">  
+        <sex>f</sex>  
+        <age>22</age>  
+    </employee>  
+</employees>  

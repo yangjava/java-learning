@@ -1,0 +1,136 @@
+广义的堆外内存 说到堆外内存，那大家肯定想到堆内内存，这也是我们大家接触最多的，我们在jvm参数里通常设置-Xmx来指定我们的堆的最大值，不过这还不是我们理解的Java堆，-Xmx的值是新生代和老生代的和的最大值，我们在jvm参数里通常还会加一个参数-XX:MaxPermSize来指定持久
+概述
+
+广义的堆外内存
+
+说到堆外内存，那大家肯定想到堆内内存，这也是我们大家接触最多的，我们在jvm参数里通常设置-Xmx来指定我们的堆的最大值，不过这还不是我们理解的Java堆，-Xmx的值是新生代和老生代的和的最大值，我们在jvm参数里通常还会加一个参数-XX:MaxPermSize来指定持久代的最大值，那么我们认识的Java堆的最大值其实是-Xmx和-XX:MaxPermSize的总和，在分代算法下，新生代，老生代和持久代是连续的虚拟地址，因为它们是一起分配的，那么剩下的都可以认为是堆外内存(广义的)了，这些包括了jvm本身在运行过程中分配的内存，codecache，jni里分配的内存，DirectByteBuffer分配的内存等等
+
+狭义的堆外内存
+
+而作为java开发者，我们常说的堆外内存溢出了，其实是狭义的堆外内存，这个主要是指java.nio.DirectByteBuffer在创建的时候分配内存，我们这篇文章里也主要是讲狭义的堆外内存，因为它和我们平时碰到的问题比较密切
+
+JDK/JVM里DirectByteBuffer的实现
+
+DirectByteBuffer通常用在通信过程中做缓冲池，在mina，netty等nio框架中屡见不鲜，先来看看JDK里的实现：
+
+    DirectByteBuffer(int cap) {                   // package-private
+
+        super(-1, 0, cap, cap);
+        boolean pa = VM.isDirectMemoryPageAligned();
+        int ps = Bits.pageSize();
+        long size = Math.max(1L, (long)cap + (pa ? ps : 0));
+        Bits.reserveMemory(size, cap);
+
+        long base = 0;
+        try {
+            base = unsafe.allocateMemory(size);
+        } catch (OutOfMemoryError x) {
+            Bits.unreserveMemory(size, cap);
+            throw x;
+        }
+        unsafe.setMemory(base, size, (byte) 0);
+        if (pa && (base % ps != 0)) {
+            // Round up to page boundary
+            address = base + ps - (base & (ps - 1));
+        } else {
+            address = base;
+        }
+        cleaner = Cleaner.create(this, new Deallocator(base, size, cap));
+        att = null;
+
+
+
+    }
+通过上面的构造函数我们知道，真正的内存分配是使用的Bits.reserveMemory方法
+
+    static void reserveMemory(long size, int cap) {
+        synchronized (Bits.class) {
+            if (!memoryLimitSet && VM.isBooted()) {
+                maxMemory = VM.maxDirectMemory();
+                memoryLimitSet = true;
+            }
+            // -XX:MaxDirectMemorySize limits the total capacity rather than the
+            // actual memory usage, which will differ when buffers are page
+            // aligned.
+            if (cap <= maxMemory - totalCapacity) {
+                reservedMemory += size;
+                totalCapacity += cap;
+                count++;
+                return;
+            }
+        }
+
+        System.gc();
+        try {
+            Thread.sleep(100);
+        } catch (InterruptedException x) {
+            // Restore interrupt status
+            Thread.currentThread().interrupt();
+        }
+        synchronized (Bits.class) {
+            if (totalCapacity + cap > maxMemory)
+                throw new OutOfMemoryError("Direct buffer memory");
+            reservedMemory += size;
+            totalCapacity += cap;
+            count++;
+        }
+
+    }
+通过上面的代码我们知道可以通过-XX:MaxDirectMemorySize来指定最大的堆外内存，那么我们首先引入两个问题
+
+堆外内存默认是多大
+为什么要主动调用System.gc()
+堆外内存默认是多大
+
+如果我们没有通过-XX:MaxDirectMemorySize来指定最大的堆外内存，那么默认的最大堆外内存是多少呢，我们还是通过代码来分析
+
+上面的代码里我们看到调用了sun.misc.VM.maxDirectMemory()
+
+ private static long directMemory = 64 * 1024 * 1024;
+
+    // Returns the maximum amount of allocatable direct buffer memory.
+    // The directMemory variable is initialized during system initialization
+    // in the saveAndRemoveProperties method.
+    //
+    public static long maxDirectMemory() {
+        return directMemory;
+    }
+看到上面的代码之后是不是误以为默认的最大值是64M？其实不是的，说到这个值得从java.lang.System这个类的初始化说起
+
+ /**
+     * Initialize the system class.  Called after thread initialization.
+     */
+    private static void initializeSystemClass() {
+
+        // VM might invoke JNU_NewStringPlatform() to set those encoding
+        // sensitive properties (user.home, user.name, boot.class.path, etc.)
+        // during "props" initialization, in which it may need access, via
+        // System.getProperty(), to the related system encoding property that
+        // have been initialized (put into "props") at early stage of the
+        // initialization. So make sure the "props" is available at the
+        // very beginning of the initialization and all system properties to
+        // be put into it directly.
+        props = new Properties();
+        initProperties(props);  // initialized by the VM
+
+        // There are certain system configurations that may be controlled by
+        // VM options such as the maximum amount of direct memory and
+        // Integer cache size used to support the object identity semantics
+        // of autoboxing.  Typically, the library will obtain these values
+        // from the properties set by the VM.  If the properties are for
+        // internal implementation use only, these properties should be
+        // removed from the system properties.
+        //
+        // See java.lang.Integer.IntegerCache and the
+        // sun.misc.VM.saveAndRemoveProperties method for example.
+        //
+        // Save a private copy of the system properties object that
+        // can only be accessed by the internal implementation.  Remove
+        // certain system properties that are not intended for public access.
+        sun.misc.VM.saveAndRemoveProperties(props);
+
+         ......
+
+        sun.misc.VM.booted();
+    }
+上面这个方法在jvm启动的时候对System这个类做初始化的时候执行的，因此执行时间非常早，我们看到里面调用了sun.misc.VM.saveAndRemoveProperties(props):

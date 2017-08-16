@@ -1,0 +1,58 @@
+第 1 章 简介
+目录
+
+1.1. 概览 
+1.1.1. 使用场景
+背景
+
+早在2004年初，Martin Fowler在他的站点上问读者：当谈论控制反转时： “问题在于，它们转变的是什么方面的控制？”。 Fowler建议重命名该原则（或至少给它一个更加明确的名称），并开始使用 依赖注入这个术语。 并且，在他的文章中进一步解释了控制反转（IoC）和依赖注入（DI）的原则思想。
+
+如果您想对控制反转和依赖注入有更深入的理解，请参阅上述文章：http://martinfowler.com/articles/injection.html。
+Java应用（从applets的小范围到全套n层服务端企业应用）是一种典型的依赖型应用，它就是由一些互相适当地协作的对象构成的。因此，我们说这些对象间存在依赖关系。
+
+Java语言和java平台在架构应用与建立应用方面，提供着丰富的功能。从非常基础的基本数据类型和Class（即定义新类）组成的程序块，到建立具有丰富的特性的应用服务器和web框架都有着很多的方法。一方面，可以通过抽象的显著特性让基础的程序块组成在一起成为一个连贯的整体。这样，构建一个应用（或者多个应用）的工作就可以交给架构师或者开发人员去做。因此，我们就可以清晰的知道哪些业务需要哪些Classes和对象组成，哪些设计模式可以应用在哪些业务上面。 例如：Factory、Abstract Factory、Builder、Decorator 和 Service Locator 这些模式（列举的只是少数）在软件开发行业被普遍认可和肯定（或许这就是为什么这些模式被定型的原因）。 这固然是件好事，不过这些模式只是一个有名字的，有说明的，知道最好用在什么地方的，解决应用中什么问题的最佳实践而已。 在本章节的最后，用“... 说明 ...”给出了模式说明。 通常，模式书籍与wikis通常都列出了你可以获得的最佳实践，不过，希望你思考之后，在你自己的应用中 实现自己的模式。
+
+Spring的IoC控件主要专注于如何利用classes、对象和服务去组成一个企业级应用，通过规范的方式，将各种不同的控件整合成一个完整的应用。Spring中使用了很多被实践证明的最佳实践和正规的设计模式，并且进行了编码实现。如果你是一个，构架师或者开发人员完全可以取出它们集成到你自己的应用之中。这对于那些使用了Spring Framework的组织和机构来说，在spring基础上实现应用不仅可以构建优秀的，可维护的应用并对Spring的设计进行验证，确实是一件好事情。
+
+1.1. 概览
+Spring框架包含许多特性，并被很好地组织在下图所示的六个模块中。本节将依次介绍每个模块。
+
+
+Spring框架概述
+
+Core 封装包是框架的最基础部分，提供IoC和依赖注入特性。这里的基础概念是BeanFactory，它提供对Factory模式的经典实现来消除对程序性单例模式的需要，并真正地允许你从程序逻辑中分离出依赖关系和配置。
+
+Context(上下文) 封装包构筑于Core封装包的坚固基础上:它提供了用一种框架风格的方式来访问对象，有些像JNDI注册表。Context封装包继承了beans包的功能，还增加了国际化（I18N）（用于规范resource bundle）,事件传播，资源装载，以及透明创建上下文，例如通过servlet容器。
+
+DAO 提供了JDBC的抽象层，它可消除冗长的JDBC编码和解析数据库厂商特有的错误代码。 并且，JDBC 封装包还提供了一种比编程性更好的声明性事务管理方法，不仅仅是实现了特定接口，而且对所有的POJOs（plain old Java objects）都适用。 
+
+ORM 封装包提供了常用的“对象/关系”映射APIs的集成层。 其中包括JPA、JDO、Hibernate 和 iBatis 。利用ORM封装包，可以混合使用所有Spring提供的特性进行“对象/关系”映射，如前边提到的简单声明性事务管理。
+
+Spring的 AOP 封装包提供了符合 AOP Alliance规范的面向方面的编程（aspect-oriented programming）实现，让你可以定义，例如方法拦截器（method-interceptors）和切点（pointcuts），从逻辑上讲，从而减弱代码的功能耦合，清晰的被分离开。而且，利用source-level的元数据功能，还可以将各种行为信息合并到你的代码中，这有点象.Net的attribute的概念。
+
+Spring中的 Web 包提供了基础的针对Web开发的集成特性，例如多方文件上传，利用Servlet listeners进行IoC容器初始化和针对Web的application context。当与WebWork或Struts一起使用Spring时，这个包使Spring可与其他框架结合。
+
+Spring中的 MVC 封装包提供了Web应用的Model-View-Controller（MVC）实现。Spring的MVC框架并不是仅仅提供一种传统的实现，它提供了一种 清晰的 分离模型，在领域模型代码和web form之间。并且，还可以借助Spring框架的其他特性。
+
+1.1.1. 使用场景
+借助搭积木方式来解释一下各种情景下使用Spring的情况，从简单的Applet一直到完整的使用Spring的事务管理功能和Web框架的企业应用。
+
+
+典型的完整Spring Web应用
+
+通过用Spring的 声明事务管理特性，Web应用可以做到完全事务性，就像使用EJB提供的那种容器管理的事务一样。 所有自定义的业务逻辑可以通过简单的POJO来实现，并利用Spring的IoC容器进行管理。对于其他的服务，比如发送email和不依赖web层的校验信息，还可以让你自己决定在哪里执行校验规则。 Spring本身的ORM支持可以和JPA、Hibernate、JDO以及iBatis集成起来，例如使用Hibernate，你可复用已经存在的映射文件与标准的Hibernate SessionFactory 配置。用控制器去无缝整合web层和领域模型，消除对 ActionForms 的依赖，或者避免了其他class为领域模型转换HTTP参数的需要。
+
+
+使用了第三方框架的Spring中间层
+
+有的时候，现有情况不允许你彻底地从一种框架切换到另一种框架。然而，Spring却 不需要 强制你使用它的全部，Spring不是一种 全有全无 的解决方案。 如果，现有的应用使用了WebWork、Struts、Tapestry或其他的UI框架作为前端程序，完全可以只与Spring的事务特性进行集成。 只需要使用 ApplicationContext 来挂接你的业务逻辑和通过 WebApplicationContext 来集成你的web层前端程序。
+
+
+远程使用场景
+
+当你需要通过WebService来访问你的现有代码时，你可使用Spring提供的 Hessian-、Burlap-、Rmi- 为前缀的接口或者 JaxRpcProxyFactory 这个代理类。你会发现，远程访问现有应用程序不再那么困难了。
+
+
+EJBs-包装现有的POJOs
+
+Spring还为EJB提供了 数据访问和抽象层，让你可以复用已存在的POJO并将他们包装在无状态SessionBean中，以便在可能需要声明式安全（EJB中的安全管理，译者注）的非安全的Web应用中使用。

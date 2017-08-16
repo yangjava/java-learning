@@ -1,0 +1,91 @@
+AbstractCollection抽象类
+
+功能：
+
+实现Collection中骨干方法，减少实现Collection接口时的工作。
+
+内容：
+
+实现的接口：Collection<E>
+
+ 
+
+直接子类：AbstractList  AbstractSet
+
+ 
+
+protected AbstractCollection()
+
+受保护的构造方法，子类可以实例化该类的对象
+
+ 
+
+private static final int MAX_ARRAY_SIZE = Integer.MAX_VALUE - 8;
+
+MAX_VALUE = 0x7fffffff私有成员常量限定最大元素数。
+
+ 
+
+public abstract Iterator<E> iterator();
+
+抽象方法iterator 返回一个迭代器对象。可以对当前集合进行遍历操作。指定者为 Collection接口中的iterator() 方法。
+
+public abstract int size();
+
+抽象方法size返回一个int值。可以求得当前集合中元素的个数。指定者为Collection 接口中的size() 方法。
+
+public boolean isEmpty()
+
+方法isEmpty返回一个boolean值。根据size()方法的返回值是否为0判断当前集合 是否为空，return size() == 0;。指定者为Collection接口中的isEmpty() 方法。
+
+public boolean contains(Object o)
+
+方法contains返回一个boolean值。Iterator<E> it = iterator();首先用iterator() 方法创建迭代器，if (o==null)判断传入的对象是否为null，while (it.hasNext())if (it.next()==null)return true;用迭代器循环访问集合中的元素，寻找是否有null（因为null没有equals() 方法）。while(it.hasNext()) if (o.equals(it.next()))return true;当传入对象不为null 时，用该对象的equals() 方法进行比较，具体步骤如上。return false;若方法正常结束（即没有return true）则返回false结束。指定者为接口 Collection中的 contains()方法。
+
+public Object[] toArray()
+
+方法toArray返回一个Object数组。Object[] r = new Object[size()];首先 创建一个长度为size() 方法返回值的Object数组（创建新的数组在作为返回值返回 时，必然是“安全”的）。Iterator<E> it = iterator();用iterator () 方 法创建迭代器。for (int i = 0; i < r.length; i++)循环为数组r中的位 置赋值。if (! it.hasNext())判断是否有下一个元素，return  Arrays.copyOf(r, i);当没 有下一个元素时，创建的数组长度过长，用 Arrays.copyOf() 方法截取到当前长度，并将截取后的数组作为返回值返回。 r[i]  = it.next();当有下一个元素时，正常将下一个元素存储进数组。return  it.hasNext() ? finishToArray(r, it) : r;当数组元素全部赋完值后，判 断迭代器中是否还有下一个数据，若仍有下一个数据，调用本类中的finishToArray() 方法（后文将介绍），将迭代器中剩余的数据存储入扩展后的数组，并将新数组作 为返回值返回。若没有下一个数据，则返回数组r。本方法返回的数组长度由该集 合的迭代器决定，而非size () 方法。本方法返回的数组元素顺序由迭代器决定， 若迭代器返回元素有序，则方法返回数组有相同顺序。制定者为Collection接口中 的toArray() 方法。
+
+ public <T> T[] toArray(T[] a)
+
+方法toArray() 返回一个泛型数组对象。int size = size();将本类size() 方法 返回值存储为临时变量size。T[] r = a.length >= size ?  a :(T[])java.lang.reflect.Array.newInstance(a.getClass().getCo mponentType(), size);创建泛型数组r，若传入的泛型数组a的length大于等 于元素个数，则将a的引用赋值给r，若a的length小于元素个数，则调用 java.lang.reflect.Array.newInstance() 方法，创建一个新的具有a的组件类型和集合 元素个数的长度的数组，并将其强制转型为指定泛型，然后将其引用赋值给r（这 里若抛出NullPointerException异常，因为a在传参时是空指针）。Iterator<E> it  = iterator();用iterator () 方 法创建迭代器。for (int i = 0; i < r.length;  i++)循环为数组r中的位置赋值。if (! it.hasNext())判断是否有下一个元 素,r[i] = (T)it.next();当集合中存在下一个元素时，将其赋值给数组r的下 一个元素。if (a == r)若集合中不存在下一个元素,判断a与r的引用是否相同， 若两者引用相同，这时，a（r）没有遍历完，即a的长度大于集合中的元素数。r[i]  = null;这时将数组中下一个元素置为null（null-terminate源码中注释说明必 须以null作为结束标志），return a;然后执行返回a。 else if (a.length <  i)当a和r的引用不同时，继续判断a的length是否小于当前遍历r的下标。return  Arrays.copyOf(r, i);若成立，大小顺序应为：a的length小于i小于r的length， 这时返回截取到当前长度的r数组。else当其他情况时，System.arraycopy(r,  0, a, 0, i);调用arraycopy() 方法将r中已赋值的元素复制到a中。 if  (a.length > i)判断a的length是否大于i，即判断a中是否还有空余，a[i] =  null;若有，则将下一个元素置为null最为结束。return a;执行返回a。return  it.hasNext() ? finishToArray(r, it) : r;当循环正常结束时，即遍历了 数组r，存在两种情况，即集合中仍存在元素，或集合遍历结束，当遍历结束时， 直接返回数组r。当仍存在元素时，调用本类的finishToArray() 方法，将迭代器中 剩余的数据存储入扩展后的数组，并将新数组作 为返回值返回。应当注意的是， 当给定的参数数组元素的length大于集合元素时，返回的数组中前一段是集合元 素，后跟着null作为结束标志，这之后的元素，其值不变。制定者为Collection接 口中的toArray() 方法。
+
+private static <T> T[] finishToArray(T[] r, Iterator<?> it)
+
+私有静态方法finishToArray() 返回一个泛型数组。int i = r.length;定义一个 变量i记录r的初始length。while (it.hasNext())判断集合中是否有下一个元 素，return (i == r.length) ? r : Arrays.copyOf(r, i);若没有下一个 元素，i一定等于r的length，这时返回r本身。int cap = r.length;若存在下 一个元素，将每次循环后r的length赋值给临时变量cap。if (i == cap)当i等 于cap时，数组已满，判断数组是否已满。 r[i++] = (T)it.next();若未满， 则将集合中的元素强转后赋值给r的下一个位置，并使i自加。int newCap = cap  + (cap >> 1) + 1;若已满，定义一个变量固定扩展后的数组大小，为原大小加 原大小的一半（向下取整）再加一（确保长度至少加一）。if (newCap -  MAX_ARRAY_SIZE > 0)判断将扩展的大小是否超出最大值，若超出最大值 newCap = hugeCapacity(cap + 1);则用hugeCApacity() 方法为newCap() 赋 值（这里传的参数是newCap的最小增量，即cap+1，返回值为Integer.MAX_VALUE 或MAX_ARRAY_SIZE（如果有返回值的话），还有一种情况：因数组已到达最大 容量，抛出OutOfMemoryError异常）。r = Arrays.copyOf(r, newCap); 然后用copyOf() 方法对r进行扩容， r[i++] = (T)it.next();将集合中的元 素强转后赋值给r的下一个位置，并使i自加，进入下一次循环。return (i ==  r.length) ? r : Arrays.copyOf(r, i);结束循环时进行判断，若已用长度 i 恰好等于r的length，则返回r，否则用copyOf() 方法进行截取。
+
+private static int hugeCapacity(int minCapacity)
+
+私有静态方法返回int值。if (minCapacity < 0)对参数进行判断，若其小于零， throw new OutOfMemoryError("Required array size too large");则 抛出异常（加上最小增量为负时，原因是原大小已到达最大值，加上最小增量后， 内存溢出）。return (minCapacity > MAX_ARRAY_SIZE) ?否则判断参数是 否大于 MAX_ARRAY_SIZE，若是，则返回 MAX_ARRAY_SIZE，若否，则返回 MAX_ARRAY_SIZE。
+
+public boolean add(E e)
+
+方法抛出异常。throw new UnsupportedOperationException();抛出异常（没 有支持的操作异常）（当继承此类，却没有重写此方法时，调用add() 方法则会抛 出异常）（防止此类的继承者不想实现此功能，而在实例化时调用此方法）。指定 者为Collection的add() 方法。
+
+public boolean remove(Object o)
+
+方法返回boolean值。Iterator<E> it = iterator();创建迭代器it。 if  (o==null)当传入对象为null时，while (it.hasNext())循环遍历集合, if  (it.next()==null)如果遇到值为null的元素, it.remove();调用迭代器的 remove() 方法将当前元素删除。return true;最后返回true表示删除成功。 return false;否则（o为null，集合中没有null），返回false，表示删除失败。 else当传入对象不为null时，while (it.hasNext())循环遍历集合,if  (o.equals(it.next()))调用传入对象的equals() 方法，与集合中的所有元素进 行比较，若equals() 方法返回true，表示两元素相同， it.remove();调用迭代 器的remove() 方法将当前元素删除。return true;最后返回true表示删除成功。 return false;否则（o与集合中所有元素进行比较（equals() 方法比较）都不同）， 返回false，表示删除失败。指定者为Collection的remove() 方法。
+
+public boolean containsAll(Collection<?> c)
+
+方法返回boolean值。for (Object e : c)用foreach语句遍历集合cif  (!contains(e))，如果有元素不包含在此集合中，return false;返回false 。 return true;当遍历正常结束（没有提前返回false），则返回true（这里不计参 数集合重复元素的个数与原集合中相同元素个数，即当参数集合中有重复元素，而 原集合中只有一个相同元素时，方法返回值为true（其他条件符合时）。若要实现 此功能，应重写此方法）。指定者为Collection的containAll() 方法。
+
+ public boolean addAll(Collection<? extends E> c)
+
+方法返回boolean值，boolean modified = false;设置临时变量并置为false，for (E e : c)循环遍历参数集合， if (add(e))调用add() 方法添加c中的元素，并判断是否成功，modified = true;若成功，则将modified置为true。return modified;当遍历完成，返回modified。（此方法的参数元素类型应为调用集合元素类型的协变类型（即同类或子类）。此方法在没有将元素置入时，返回false，有元素置入时，modified置为true，方法返回true，即原集合有元素添加时返回true）。指定者为Collection的addAll() 方法。
+
+public boolean removeAll(Collection<?> c)
+
+方法返回boolean值，Objects.requireNonNull(c);调用Objects.requireNonNull()方法，若传入对象为null，抛出NullPointerException异常。boolean modified = false;设置临时变量并置为false，Iterator<?> it = iterator();创建迭代器。while (it.hasNext())当存在下一个元素时， if (c.contains(it.next()))参数集合调用contains() 方法判断是否包含原集合中当前元素。it.remove();若包含，调用remove() 方法进行删除。modified = true;modified置为true。return modified;遍历结束后返回modified。（此方法在没有将元素删除时，返回false，有元素删除时，modified置为true，方法返回true，即原集合有元素删除时返回true）。指定者为Collection的removeAll() 方法。
+
+public boolean retainAll(Collection<?> c)
+
+方法返回boolean值。具体代码与removeAll() 方法相似，if (!c.contains(it.next()))不同处为，当c不包含当前元素，则删除。
+
+public void clear()
+
+方法为空返回值。Iterator<E> it = iterator();首先创建一个迭代器，while (it.hasNext())遍历集合中的元素，it.next();将迭代器的“指针”移动到下一个元素（访问下一个元素），it.remove();调用remove() 方法删除该元素。指定者为Collection的clear方法
+
+public String toString()
+
+方法返回String值，Iterator<E> it = iterator();首先创建迭代器，判断集合中是否存在元素， return "[]";若不存在返回字符串“[]”。StringBuilder sb = new StringBuilder();若存在元素，创建StringBuilder对象，sb.append('[');并调用append() 方法添加字符‘[’。for (;;)执行死循环，循环内容：E e = it.next();将下一个元素的引用赋值给e。sb.append(e == this ? "(this Collection)" : e);判断元素是否为本集合的引用，若是，添加字符串“(this Collection)”，若不是，根据e的类型执行append() 方法进行添加。if (! it.hasNext())判断是否有下一个元素，return sb.append(']').toString();若没有，添加字符‘]’，并调用toString() 方法转化为字符串，sb.append(',').append(' ');最后返回该字符串。若没有执行返回，添加‘,’和‘ ’继续执行循环。覆盖了Object类的toString() 方法。

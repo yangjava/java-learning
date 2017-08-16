@@ -1,0 +1,29 @@
+Spring IoC容器可以自动装配（autowire）相互协作bean之间的关联关系。
+因此，如果可能的话，可以自动让Spring通过检查BeanFactory中的内容，来替我们指定bean的协作者（其他被依赖的bean）。
+autowire一共有六种类型。由于autowire可以针对单个bean进行设置，因此可以让有些bean使用autowire，有些bean不采用。
+autowire的方便之处在减少或者消除属性或构造器参数的设置，这样可以给我们的配置文件减减肥！
+[2] 在xml配置文件中，可以在<bean/>元素中使用autowire属性指定:
+
+Default
+在每个bean中都一个autowire=default的默认配置它的含义是：
+采用beans和跟标签中的default-autowire="属性值"一样的设置。
+ 
+  On
+不使用自动装配，必须通过ref元素指定依赖，默认设置。
+ 
+  ByNname
+根据属性名自动装配。此选项将检查容器并根据名字查找与属性完全一致的bean，并将其与属性自动装配。
+例如，在bean定义中将autowire设置为by name，而该bean包含master属性（同时提供setMaster(..)方法），
+Spring就会查找名为master的bean定义，并用它来装配给master属性。
+
+  By type
+如果容器中存在一个与指定属性类型相同的bean，那么将与该属性自动装配。
+如果存在多个该类型的bean，那么将会抛出异常，并指出不能使用byType方式进行自动装配。
+若没有找到相匹配的bean，则什么事都不发生，属性也不会被设置。如果你不希望这样，那么可以通过设置dependency-check="objects"让Spring抛出异常。
+ 
+ Constructor
+与byType的方式类似，不同之处在于它应用于构造器参数。如果在容器中没有找到与构造器参数类型一致的bean，那么将会抛出异常。 
+
+Antodetect (已经废弃)
+通过bean类的自省机制（introspection）来决定是使用constructor还是byType方式进行自动装配。如果发现默认的构造器，那么将使用byType方式。
+

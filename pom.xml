@@ -14,5 +14,15 @@
   	<module>redis-learning</module>
   	<module>dbutils-learning</module>
   	<module>c3p0-learning</module>
+  	<module>jdk-learning</module>
+  	<module>jvm-learning</module>
+  	<module>openJdk-learning</module>
+  	<module>Data-Structure</module>
+  	<module>zookeeper-learning</module>
+  	<module>dubbo-learning</module>
+  	<module>mysql-learning</module>
+  	<module>InternetFinance-learning</module>
+  	<module>dom4j-learning</module>
+  	<module>freemarker-learning</module>
   </modules>
 </project>

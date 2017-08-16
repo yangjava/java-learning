@@ -1,0 +1,1773 @@
+7.1、简介
+
+在编写可视化界面项目时，我们通常需要对数据进行类型转换、验证及格式化。
+
+一、在Spring3之前，我们使用如下架构进行类型转换、验证及格式化：
+
+
+
+流程：
+
+①：类型转换：首先调用PropertyEditor的setAsText（String），内部根据需要调用setValue(Object)方法进行设置转换后的值；
+
+②：数据验证：需要显示调用spring的Validator接口实现进行数据验证；
+
+③：格式化显示：需要调用PropertyEditor的getText进行格式化显示。
+
+使用如上架构的缺点是：
+
+（1、PropertyEditor被设计为只能String<——>Object之间转换，不能任意对象类型<——>任意类型，如我们常见的Long时间戳到Date类型的转换是办不到的；
+
+（2、PropertyEditor是线程不安全的，也就是有状态的，因此每次使用时都需要创建一个，不可重用；
+
+（3、PropertyEditor不是强类型的，setValue（Object）可以接受任意类型，因此需要我们自己判断类型是否兼容；
+
+（4、需要自己编程实现验证，Spring3支持更棒的注解验证支持；
+
+（5、在使用SpEL表达式语言或DataBinder时，只能进行String<—>Object之间的类型转换；
+
+（6、不支持细粒度的类型转换/格式化，如UserModel的registerDate需要转换/格式化类似“2012-05-01”的数据，而OrderModel的orderDate需要转换/格式化类似“2012-05-01 15：11：13”的数据，因为大家都为Java.util.Date类型，因此不太容易进行细粒度转换/格式化。
+
+在Spring Web MVC环境中，数据类型转换、验证及格式化通常是这样使用的：
+
+
+
+流程：
+
+①、类型转换：首先表单数据（全部是字符串）通过WebDataBinder进行绑定到命令对象，内部通过PropertyEditor实现；
+
+②：数据验证：在控制器中的功能处理方法中，需要显示的调用Spring的Validator实现并将错误信息添加到BindingResult对象中；
+
+③：格式化显示：在表单页面可以通过如下方式展示通过PropertyEditor格式化的数据和错误信息：
+
+Java代码
+1
+2
+<%@taglib prefix="spring" uri="http://www.springframework.org/tags" %>
+<%@taglib prefix="form" uri="http://www.springframework.org/tags/form" %>
+首先需要通过如上taglib指令引入spring的两个标签库。
+
+Java代码
+1
+2
+//1、格式化单个命令/表单对象的值（好像比较麻烦，真心没有好办法）
+<spring:bind path="dataBinderTest.phoneNumber">${status.value}</spring:bind>
+Java代码
+1
+2
+3
+4
+//2、通过form标签，内部的表单标签会自动调用命令/表单对象属性对应的PropertyEditor进行格式化显示
+<form:form commandName="dataBinderTest">
+    <form:input path="phoneNumber"/><!-- 如果出错会显示错误之前的数据而不是空 -->
+</form:form>
+Java代码
+1
+2
+//3、显示验证失败后的错误信息
+<form:errors></form:errors>
+如上PropertyEditor和验证API使用起来比较麻烦，而且有许多缺点，因此Spring3提供了更强大的类型转换（Type Conversion）支持，它可以在任意对象之间进行类型转换，不仅仅是String<——>Object；也提供了强大的数据验证支持；同时提供了强大的数据格式化支持。
+
+二、从Spring3开始，我们可以使用如下架构进行类型转换、验证及格式化：
+
+
+
+ 流程：
+
+①：类型转换：内部的ConversionService会根据S源类型/T目标类型自动选择相应的Converter SPI进行类型转换，而且是强类型的，能在任意类型数据之间进行转换；
+
+②：数据验证：支持JSR-303验证框架，如将@Valid放在需要验证的目标类型上即可；
+
+③：格式化显示：其实就是任意目标类型—->String的转换，完全可以使用Converter SPI完成。
+
+Spring为了更好的诠释格式化/解析功能提供了Formatter SPI，支持根据Locale信息进行格式化/解析，而且该套SPI可以支持字段/参数级别的细粒度格式化/解析，流程如下：
+
+①：类型解析（转换）：String—->T类型目标对象的解析，和PropertyEditor类似；
+
+③：格式化显示：任意目标类型—->String的转换，和PropertyEditor类似。
+
+Formatter SPI最大特点是能进行字段/参数级别的细粒度解析/格式化控制，即使是Converter SPI也是粗粒度的（到某个具体类型，而不是其中的某个字段单独控制），目前Formatter SPI还不是很完善，如果您有好的想法可以到Spring官网提建议。
+
+Formatter SPI内部实现实际委托给Converter SPI进行转换，即约束为解析/格式化String<—->任意目标类型。
+
+在Spring Web MVC环境中，数据类型转换、验证及格式化通常是这样使用的：
+
+
+
+①、类型转换：首先表单数据（全部是字符串）通过WebDataBinder进行绑定到命令对象，内部通过Converter SPI实现；
+
+②：数据验证：使用JSR-303验证框架进行验证；
+
+③：格式化显示：在表单页面可以通过如下方式展示通过内部通过Converter SPI格式化的数据和错误信息：
+
+Java代码
+1
+2
+<%@taglib prefix="spring" uri="http://www.springframework.org/tags" %>
+<%@taglib prefix="form" uri="http://www.springframework.org/tags/form" %>
+首先需要通过如上taglib指令引入spring的两个标签库。
+
+Java代码
+1
+2
+//1、格式化单个命令/表单对象的值（好像比较麻烦，真心没有好办法）
+<spring:bind path="dataBinderTest.phoneNumber">${status.value}</spring:bind>
+Java代码
+1
+2
+//2、<spring:eval>标签，自动调用ConversionService并选择相应的Converter SPI进行格式化展示
+<spring:eval expression="dataBinderTest.phoneNumber"></spring:eval>
+如上代码能工作的前提是在RequestMappingHandlerMapping配置了ConversionServiceExposingInterceptor，它的作用是暴露conversionService到请求中以便如<spring:eval>标签使用。
+
+Java代码
+1
+2
+3
+4
+//3、通过form标签，内部的表单标签会自动调用命令/表单对象属性对应的PropertyEditor进行格式化显示
+<form:form commandName="dataBinderTest">
+    <form:input path="phoneNumber"/><!-- 如果出错会显示错误之前的数据而不是空 -->
+</form:form>
+Java代码
+1
+2
+//4、显示验证失败后的错误信息
+<form:errors></form:errors>
+接下来我们就详细学习一下这些知识吧。
+
+7.2、数据类型转换
+
+7.2.1、Spring3之前的PropertyEditor
+
+PropertyEditor介绍请参考【4.16.1、数据类型转换】。
+
+一、测试之前我们需要准备好测试环境：
+
+（1、模型对象，和【4.16.1、数据类型转换】使用的一样，需要将DataBinderTestModel模型类及相关类拷贝过来放入cn.javass.chapter7.model包中。
+
+（2、控制器定义：
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+package cn.javass.chapter7.web.controller;
+//省略import
+@Controller
+public class DataBinderTestController {
+    @RequestMapping(value = "/dataBind")
+    public String test(DataBinderTestModel command) {
+            //输出command对象看看是否绑定正确
+        System.out.println(command);
+        model.addAttribute("dataBinderTest", command);
+        return "bind/success";
+    }
+}
+(3、Spring配置文件定义，请参考chapter7-servlet.xml，并注册DataBinderTestController：
+
+Java代码
+1
+<bean class="cn.javass.chapter7.web.controller.DataBinderTestController"/>
+（4、测试的URL：
+
+http://localhost:9080/springmvc-chapter7/dataBind?username=zhang&bool=yes&schooInfo.specialty=computer&hobbyList[0]=program&hobbyList[1]=music&map[key1]=value1&map[key2]=value2&phoneNumber=010-12345678&date=2012-3-18 16:48:48&state=blocked
+
+二、注解式控制器注册PropertyEditor：
+
+1、使用WebDataBinder进行控制器级别注册PropertyEditor（控制器独享）
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+@InitBinder
+//此处的参数也可以是ServletRequestDataBinder类型
+public void initBinder(WebDataBinder binder) throws Exception {
+    //注册自定义的属性编辑器
+    //1、日期
+    DateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+    CustomDateEditor dateEditor = new CustomDateEditor(df, true);
+    //表示如果命令对象有Date类型的属性，将使用该属性编辑器进行类型转换
+    binder.registerCustomEditor(Date.class, dateEditor);    
+    //自定义的电话号码编辑器(和【4.16.1、数据类型转换】一样)
+    binder.registerCustomEditor(PhoneNumberModel.class, new PhoneNumberEditor());
+}
+和【4.16.1、数据类型转换】一节类似，只是此处需要通过@InitBinder来注册自定义的PropertyEditor。
+
+2、使用WebBindingInitializer批量注册PropertyEditor
+
+和【4.16.1、数据类型转换】不太一样，因为我们的注解式控制器是POJO，没有实现任何东西，因此无法注入WebBindingInitializer，此时我们需要把WebBindingInitializer注入到我们的RequestMappingHandlerAdapter或AnnotationMethodHandlerAdapter，这样对于所有的注解式控制器都是共享的。
+
+Java代码
+1
+2
+3
+4
+5
+<bean class="org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter">
+  <property name="webBindingInitializer">
+    <bean class="cn.javass.chapter7.web.controller.support.initializer.MyWebBindingInitializer"/>
+  </property>
+</bean>
+此时我们注释掉控制器级别通过@InitBinder注册PropertyEditor的方法。
+
+3、全局级别注册PropertyEditor（全局共享）
+
+和【4.16.1、数据类型转换】一节一样，此处不再重复。请参考【4.16.1、数据类型转换】的【全局级别注册PropertyEditor（全局共享）】。
+
+接下来我们看一下Spring3提供的更强大的类型转换支持。
+
+7.2.2、Spring3开始的类型转换系统
+
+Spring3引入了更加通用的类型转换系统，其定义了SPI接口（Converter等）和相应的运行时执行类型转换的API（ConversionService等），在Spring中它和PropertyEditor功能类似，可以替代PropertyEditor来转换外部Bean属性的值到Bean属性需要的类型。
+
+该类型转换系统是Spring通用的，其定义在org.springframework.core.convert包中，不仅仅在Spring Web MVC场景下。目标是完全替换PropertyEditor，提供无状态、强类型且可以在任意类型之间转换的类型转换系统，可以用于任何需要的地方，如SpEL、数据绑定。
+
+Converter SPI完成通用的类型转换逻辑，如java.util.Date<—->java.lang.Long或java.lang.String—->PhoneNumberModel等。
+
+7.2.2.1、架构
+
+1、类型转换器：提供类型转换的实现支持。
+
+
+
+一个有如下三种接口：
+
+（1、Converter：类型转换器，用于转换S类型到T类型，此接口的实现必须是线程安全的且可以被共享。
+
+Java代码
+1
+2
+3
+4
+package org.springframework.core.convert.converter;
+public interface Converter<S, T> { //① S是源类型 T是目标类型
+    T convert(S source); //② 转换S类型的source到T目标类型的转换方法
+}
+示例：请参考cn.javass.chapter7.converter.support.StringToPhoneNumberConverter转换器，用于将String—>PhoneNumberModel。
+
+此处我们可以看到Converter接口实现只能转换一种类型到另一种类型，不能进行多类型转换，如将一个数组转换成集合，如（String[] —-> List<String>、String[]—–>List<PhoneNumberModel>等）。
+
+（2、GenericConverter和ConditionalGenericConverter：GenericConverter接口实现能在多种类型之间进行转换，ConditionalGenericConverter是有条件的在多种类型之间进行转换。
+
+Java代码
+1
+2
+3
+4
+5
+package org.springframework.core.convert.converter;
+public interface GenericConverter {
+    Set<ConvertiblePair> getConvertibleTypes();
+    Object convert(Object source, TypeDescriptor sourceType, TypeDescriptor targetType);
+}
+getConvertibleTypes:指定了可以转换的目标类型对；
+
+convert：在sourceType和targetType类型之间进行转换。
+
+Java代码
+1
+2
+3
+4
+package org.springframework.core.convert.converter;
+public interface ConditionalGenericConverter extends GenericConverter {
+    boolean matches(TypeDescriptor sourceType, TypeDescriptor targetType);
+}
+matches：用于判断sourceType和targetType类型之间能否进行类型转换。
+
+示例：如org.springframework.core.convert.support.ArrayToCollectionConverter和CollectionToArrayConverter用于在数组和集合间进行转换的ConditionalGenericConverter实现，如在String[]<—->List<String>、String[]<—->List<PhoneNumberModel>等之间进行类型转换。
+
+对于我们大部分用户来说一般不需要自定义GenericConverter, 如果需要可以参考内置的GenericConverter来实现自己的。
+
+（3、ConverterFactory：工厂模式的实现，用于选择将一种S源类型转换为R类型的子类型T的转换器的工厂接口。
+
+Java代码
+1
+2
+3
+4
+package org.springframework.core.convert.converter;
+public interface ConverterFactory<S, R> {
+    <T extends R> Converter<S, T> getConverter(Class<T> targetType);
+}
+S：源类型；R目标类型的父类型；T：目标类型，且是R类型的子类型；
+
+getConverter：得到目标类型的对应的转换器。
+
+示例：如org.springframework.core.convert.support.NumberToNumberConverterFactory用于在Number类型子类型之间进行转换，如Integer—>Double， Byte—->Integer， Float—>Double等。
+
+对于我们大部分用户来说一般不需要自定义ConverterFactory，如果需要可以参考内置的ConverterFactory来实现自己的。
+
+2、类型转换器注册器、类型转换服务：提供类型转换器注册支持，运行时类型转换API支持。
+
+一共有如下两种接口：
+
+（1、ConverterRegistry：类型转换器注册支持，可以注册/删除相应的类型转换器。
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+package org.springframework.core.convert.converter;
+public interface ConverterRegistry {
+    void addConverter(Converter<?, ?> converter);
+    void addConverter(Class<?> sourceType, Class<?> targetType, Converter<?, ?> converter);
+    void addConverter(GenericConverter converter);
+    void addConverterFactory(ConverterFactory<?, ?> converterFactory);
+    void removeConvertible(Class<?> sourceType, Class<?> targetType);
+}
+可以注册：Converter实现，GenericConverter实现，ConverterFactory实现。
+
+（2、ConversionService：运行时类型转换服务接口，提供运行期类型转换的支持。
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+package org.springframework.core.convert;
+public interface ConversionService {
+    boolean canConvert(Class<?> sourceType, Class<?> targetType);
+    boolean canConvert(TypeDescriptor sourceType, TypeDescriptor targetType);
+    <T> T convert(Object source, Class<T> targetType);
+    Object convert(Object source, TypeDescriptor sourceType, TypeDescriptor targetType);
+}
+convert：将源对象转换为目标类型的目标对象。
+
+Spring提供了两个默认实现（其都实现了ConverterRegistry、ConversionService接口）:
+
+DefaultConversionService:默认的类型转换服务实现；
+
+DefaultFormattingConversionService：带数据格式化支持的类型转换服务实现，一般使用该服务实现即可。
+
+7.2.2.2、Spring内建的类型转换器如下所示：
+
+类名	说明
+第一组：标量转换器
+StringToBooleanConverter	String—–>Booleantrue:true/on/yes/1； false:false/off/no/0
+ObjectToStringConverter	Object—–>String调用toString方法转换
+StringToNumberConverterFactory	String—–>Number（如Integer、Long等）
+NumberToNumberConverterFactory	Number子类型(Integer、Long、Double等)<——> Number子类型(Integer、Long、Double等)
+StringToCharacterConverter	String—–>java.lang.Character取字符串第一个字符
+NumberToCharacterConverter	Number子类型(Integer、Long、Double等)——> java.lang.Character
+CharacterToNumberFactory	java.lang.Character ——>Number子类型(Integer、Long、Double等)
+StringToEnumConverterFactory	String—–>enum类型通过Enum.valueOf将字符串转换为需要的enum类型
+EnumToStringConverter	enum类型—–>String返回enum对象的name()值
+StringToLocaleConverter	String—–>java.util.Local
+PropertiesToStringConverter	java.util.Properties—–>String默认通过ISO-8859-1解码
+StringToPropertiesConverter	String—–>java.util.Properties默认使用ISO-8859-1编码
+第二组：集合、数组相关转换器
+ArrayToCollectionConverter	任意S数组—->任意T集合（List、Set）
+CollectionToArrayConverter	任意T集合（List、Set）—->任意S数组
+ArrayToArrayConverter	任意S数组<—->任意T数组
+CollectionToCollectionConverter	任意T集合（List、Set）<—->任意T集合（List、Set）即集合之间的类型转换
+MapToMapConverter	Map<—->Map之间的转换
+ArrayToStringConverter	任意S数组—->String类型
+StringToArrayConverter	String—–>数组默认通过“,”分割，且去除字符串的两边空格(trim)
+ArrayToObjectConverter	任意S数组—->任意Object的转换(如果目标类型和源类型兼容，直接返回源对象；否则返回S数组的第一个元素并进行类型转换)
+ObjectToArrayConverter	Object—–>单元素数组
+CollectionToStringConverter	任意T集合（List、Set）—->String类型
+StringToCollectionConverter	String—–>集合（List、Set）默认通过“,”分割，且去除字符串的两边空格(trim)
+CollectionToObjectConverter	任意T集合—->任意Object的转换(如果目标类型和源类型兼容，直接返回源对象；否则返回S数组的第一个元素并进行类型转换)
+ObjectToCollectionConverter	Object—–>单元素集合
+第三组：默认（fallback）转换器：之前的转换器不能转换时调用
+ObjectToObjectConverter	Object（S）—–>Object（T）首先尝试valueOf进行转换、没有则尝试new 构造器(S)
+IdToEntityConverter	Id(S)—–>Entity(T)查找并调用public static T find[EntityName](S)获取目标对象，EntityName是T类型的简单类型
+FallbackObjectToStringConverter	Object—–>StringConversionService作为恢复使用，即其他转换器不能转换时调用（执行对象的toString()方法）
+S：代表源类型，T：代表目标类型
+
+如上的转换器在使用转换服务实现DefaultConversionService和DefaultFormattingConversionService时会自动注册。
+
+7.2.2.3、示例
+
+（1、自定义String—–>PhoneNumberModel的转换器
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+package cn.javass.chapter7.web.controller.support.converter;
+//省略import
+public class StringToPhoneNumberConverter implements Converter<String, PhoneNumberModel> {
+    Pattern pattern = Pattern.compile("^(\\d{3,4})-(\\d{7,8})$");
+    @Override
+    public PhoneNumberModel convert(String source) {        
+        if(!StringUtils.hasLength(source)) {
+            //①如果source为空 返回null
+            return null;
+        }
+        Matcher matcher = pattern.matcher(source);
+        if(matcher.matches()) {
+            //②如果匹配 进行转换
+            PhoneNumberModel phoneNumber = new PhoneNumberModel();
+            phoneNumber.setAreaCode(matcher.group(1));
+            phoneNumber.setPhoneNumber(matcher.group(2));
+            return phoneNumber;
+        } else {
+            //③如果不匹配 转换失败
+            throw new IllegalArgumentException(String.format("类型转换失败，需要格式[010-12345678]，但格式是[%s]", source));
+        }
+    }
+}
+String转换为Date的类型转换器，请参考cn.javass.chapter7.web.controller.support.converter.StringToDateConverter。
+
+(2、测试用例(cn.javass.chapter7.web.controller.support.converter.ConverterTest)
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+@Test
+public void testStringToPhoneNumberConvert() {
+    DefaultConversionService conversionService = new DefaultConversionService();
+    conversionService.addConverter(new StringToPhoneNumberConverter());
+ 
+    String phoneNumberStr = "010-12345678";
+    PhoneNumberModel phoneNumber = conversionService.convert(phoneNumberStr, PhoneNumberModel.class);
+ 
+    Assert.assertEquals("010", phoneNumber.getAreaCode());
+}
+类似于PhoneNumberEditor将字符串“010-12345678”转换为PhoneNumberModel。
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+@Test
+public void testOtherConvert() {
+    DefaultConversionService conversionService = new DefaultConversionService();
+ 
+    //"1"--->true（字符串“1”可以转换为布尔值true）
+    Assert.assertEquals(Boolean.valueOf(true), conversionService.convert("1", Boolean.class));
+ 
+    //"1,2,3,4"--->List（转换完毕的集合大小为4）
+    Assert.assertEquals(4, conversionService.convert("1,2,3,4", List.class).size());
+}
+其他类型转换器使用也是类似的，此处不再重复。
+
+7.2.2.4、集成到Spring Web MVC环境
+
+（1、注册ConversionService实现和自定义的类型转换器
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+<!-- ①注册ConversionService -->
+<bean id="conversionService" class="org.springframework.format.support.
+                                             FormattingConversionServiceFactoryBean">
+    <property name="converters">
+       <list>
+            <bean class="cn.javass.chapter7.web.controller.support.
+                             converter.StringToPhoneNumberConverter"/>
+            <bean class="cn.javass.chapter7.web.controller.support.
+                             converter.StringToDateConverter">
+                <constructor-arg value="yyyy-MM-dd"/>
+            </bean>
+        </list>
+    </property>
+</bean>
+FormattingConversionServiceFactoryBean：是FactoryBean实现，默认使用DefaultFormattingConversionService转换器服务实现；
+
+converters：注册我们自定义的类型转换器，此处注册了String—>PhoneNumberModel和String—>Date的类型转换器。
+
+（2、通过ConfigurableWebBindingInitializer注册ConversionService
+
+Java代码
+1
+2
+3
+4
+5
+<!-- ②使用ConfigurableWebBindingInitializer注册conversionService -->
+<bean id="webBindingInitializer" class="org.springframework.web.bind.support.
+                                                                        ConfigurableWebBindingInitializer">
+    <property name="conversionService" ref="conversionService"/>
+</bean>
+此处我们通过ConfigurableWebBindingInitializer绑定初始化器进行ConversionService的注册；
+
+3、注册ConfigurableWebBindingInitializer到RequestMappingHandlerAdapter
+
+Java代码
+1
+2
+3
+4
+<bean class="org.springframework.web.servlet.mvc.method.annotation.
+                                                            RequestMappingHandlerAdapter">
+<property name="webBindingInitializer" ref="webBindingInitializer"/>
+</bean>
+通过如上配置，我们就完成了Spring3.0的类型转换系统与Spring Web MVC的集成。此时可以启动服务器输入之前的URL测试了。
+
+此时可能有人会问，如果我同时使用PropertyEditor和ConversionService，执行顺序是什么呢？内部首先查找PropertyEditor进行类型转换，如果没有找到相应的PropertyEditor再通过ConversionService进行转换。
+
+如上集成过程看起来比较麻烦，后边我们会介绍<mvc:annotation-driven>和@EnableWebMvc，ConversionService会自动注册，后续章节再详细介绍。
+
+
+
+
+
+7.3、数据格式化
+
+在如Web /客户端项目中，通常需要将数据转换为具有某种格式的字符串进行展示，因此上节我们学习的数据类型转换系统核心作用不是完成这个需求，因此Spring3引入了格式化转换器（Formatter SPI） 和格式化服务API（FormattingConversionService）从而支持这种需求。在spring中它和PropertyEditor功能类似，可以替代PropertyEditor来进行对象的解析和格式化，而且支持细粒度的字段级别的格式化/解析。
+
+Formatter SPI核心是完成解析和格式化转换逻辑，在如Web应用/客户端项目中，需要解析、打印/展示本地化的对象值时使用，如根据Locale信息将Java.util.Date—->java.lang.String打印/展示、java.lang.String—->java.util.Date等。
+
+该格式化转换系统是Spring通用的，其定义在org.springframework.format包中，不仅仅在Spring Web MVC场景下。
+
+7.3.1、架构
+
+1、格式化转换器：提供格式化转换的实现支持。
+
+
+
+一共有如下两组四个接口：
+
+（1、Printer接口：格式化显示接口，将T类型的对象根据Locale信息以某种格式进行打印显示（即返回字符串形式）；
+
+Java代码
+1
+2
+3
+4
+package org.springframework.format;
+public interface Printer<T> {
+    String print(T object, Locale locale); 
+}
+（2、Parser接口：解析接口，根据Locale信息解析字符串到T类型的对象；
+
+Java代码
+1
+2
+3
+4
+package org.springframework.format;
+public interface Parser<T> {
+    T parse(String text, Locale locale) throws ParseException;
+}
+解析失败可以抛出java.text.ParseException或IllegalArgumentException异常即可。
+
+（3、Formatter接口：格式化SPI接口，继承Printer和Parser接口，完成T类型对象的格式化和解析功能；
+
+Java代码
+1
+2
+3
+package org.springframework.format;
+public interface Formatter<T> extends Printer<T>, Parser<T> {
+}
+（4、AnnotationFormatterFactory接口：注解驱动的字段格式化工厂，用于创建带注解的对象字段的Printer和Parser，即用于格式化和解析带注解的对象字段。
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+package org.springframework.format;
+public interface AnnotationFormatterFactory<A extends Annotation> {//①可以识别的注解类型
+    Set<Class<?>> getFieldTypes();//②可以被A注解类型注解的字段类型集合
+    Printer<?> getPrinter(A annotation, Class<?> fieldType);//③根据A注解类型和fieldType类型获取Printer
+    Parser<?> getParser(A annotation, Class<?> fieldType);//④根据A注解类型和fieldType类型获取Parser
+ 
+}
+返回用于格式化和解析被A注解类型注解的字段值的Printer和Parser。如JodaDateTimeFormatAnnotationFormatterFactory可以为带有@DateTimeFormat注解的java.util.Date字段类型创建相应的Printer和Parser进行格式化和解析。
+
+2、格式化转换器注册器、格式化服务：提供类型转换器注册支持，运行时类型转换API支持。
+
+
+
+一个有如下两种接口：
+
+（1、FormatterRegistry：格式化转换器注册器，用于注册格式化转换器（Formatter、Printer和Parser、AnnotationFormatterFactory）；
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+package org.springframework.format;
+public interface FormatterRegistry extends ConverterRegistry {
+    //①添加格式化转换器（Spring3.1 新增API）
+    void addFormatter(Formatter<?> formatter);
+    //②为指定的字段类型添加格式化转换器
+    void addFormatterForFieldType(Class<?> fieldType, Formatter<?> formatter);
+    //③为指定的字段类型添加Printer和Parser
+    void addFormatterForFieldType(Class<?> fieldType, Printer<?> printer, Parser<?> parser);
+    //④添加注解驱动的字段格式化工厂AnnotationFormatterFactory
+    void addFormatterForFieldAnnotation(
+                AnnotationFormatterFactory<? extends Annotation> annotationFormatterFactory);
+}
+（2、FormattingConversionService：继承自ConversionService，运行时类型转换和格式化服务接口，提供运行期类型转换和格式化的支持。
+
+FormattingConversionService内部实现如下图所示：
+
+
+
+我们可以看到FormattingConversionService内部实现如上所示，当你调用convert方法时：
+
+⑴若是S类型—–>String：调用私有的静态内部类PrinterConverter，其又调用相应的Printer的实现进行格式化；
+
+⑵若是String—–>T类型：调用私有的静态内部类ParserConverter，其又调用相应的Parser的实现进行解析；
+
+⑶若是A注解类型注解的S类型—–>String：调用私有的静态内部类AnnotationPrinterConverter，其又调用相应的AnnotationFormatterFactory的getPrinter获取Printer的实现进行格式化；
+
+⑷若是String—–>A注解类型注解的T类型：调用私有的静态内部类AnnotationParserConverter，其又调用相应的AnnotationFormatterFactory的getParser获取Parser的实现进行解析。
+
+注：S类型表示源类型，T类型表示目标类型，A表示注解类型。
+
+此处可以可以看出之前的Converter SPI完成任意Object与Object之间的类型转换，而Formatter SPI完成任意Object与String之间的类型转换（即格式化和解析，与PropertyEditor类似）。
+
+7.3.2、Spring内建的格式化转换器如下所示：
+
+类名	说明
+DateFormatter	java.util.Date<—->String实现日期的格式化/解析
+NumberFormatter	java.lang.Number<—->String实现通用样式的格式化/解析
+CurrencyFormatter	java.lang.BigDecimal<—->String实现货币样式的格式化/解析
+PercentFormatter	java.lang.Number<—->String实现百分数样式的格式化/解析
+NumberFormatAnnotationFormatterFactory	@NumberFormat注解类型的数字字段类型<—->String①通过@NumberFormat指定格式化/解析格式
+②可以格式化/解析的数字类型：Short、Integer、Long、Float、Double、BigDecimal、BigInteger
+
+JodaDateTimeFormatAnnotationFormatterFactory	@DateTimeFormat注解类型的日期字段类型<—->String①通过@DateTimeFormat指定格式化/解析格式
+②可以格式化/解析的日期类型：
+
+joda中的日期类型（org.joda.time包中的）：LocalDate、LocalDateTime、LocalTime、ReadableInstant
+
+java内置的日期类型：Date、Calendar、Long
+
+ 
+
+classpath中必须有Joda-Time类库，否则无法格式化日期类型
+
+NumberFormatAnnotationFormatterFactory和JodaDateTimeFormatAnnotationFormatterFactory（如果classpath提供了Joda-Time类库）在使用格式化服务实现DefaultFormattingConversionService时会自动注册。
+
+7.3.3、示例
+
+在示例之前，我们需要到http://joda-time.sourceforge.net/下载Joda-Time类库，本书使用的是joda-time-2.1版本，将如下jar包添加到classpath：
+
+Java代码
+1
+joda-time-2.1.jar
+7.3.3.1、类型级别的解析/格式化
+一、直接使用Formatter SPI进行解析/格式化
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+//二、CurrencyFormatter：实现货币样式的格式化/解析
+CurrencyFormatter currencyFormatter = new CurrencyFormatter();
+currencyFormatter.setFractionDigits(2);//保留小数点后几位
+currencyFormatter.setRoundingMode(RoundingMode.CEILING);//舍入模式（ceilling表示四舍五入）
+ 
+//1、将带货币符号的字符串“$123.125”转换为BigDecimal("123.00")
+Assert.assertEquals(new BigDecimal("123.13"), currencyFormatter.parse("$123.125", Locale.US));
+//2、将BigDecimal("123")格式化为字符串“$123.00”展示
+Assert.assertEquals("$123.00", currencyFormatter.print(new BigDecimal("123"), Locale.US));
+Assert.assertEquals("￥123.00", currencyFormatter.print(new BigDecimal("123"), Locale.CHINA));
+Assert.assertEquals("￥123.00", currencyFormatter.print(new BigDecimal("123"), Locale.JAPAN));
+parse方法：将带格式的字符串根据Locale信息解析为相应的BigDecimal类型数据；
+
+print方法：将BigDecimal类型数据根据Locale信息格式化为字符串数据进行展示。
+
+不同于Convert SPI，Formatter SPI可以根据本地化（Locale）信息进行解析/格式化。
+
+其他测试用例请参考cn.javass.chapter7.web.controller.support.formatter.InnerFormatterTest的testNumber测试方法和testDate测试方法。
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+@Test
+public void testWithDefaultFormattingConversionService() {
+    DefaultFormattingConversionService conversionService = new DefaultFormattingConversionService();
+    //默认不自动注册任何Formatter
+    CurrencyFormatter currencyFormatter = new CurrencyFormatter();
+    currencyFormatter.setFractionDigits(2);//保留小数点后几位
+    currencyFormatter.setRoundingMode(RoundingMode.CEILING);//舍入模式（ceilling表示四舍五入）
+    //注册Formatter SPI实现
+    conversionService.addFormatter(currencyFormatter);
+ 
+    //绑定Locale信息到ThreadLocal
+    //FormattingConversionService内部自动获取作为Locale信息，如果不设值默认是 Locale.getDefault()
+    LocaleContextHolder.setLocale(Locale.US);
+    Assert.assertEquals("$1,234.13", conversionService.convert(new BigDecimal("1234.128"), String.class));
+    LocaleContextHolder.setLocale(null);
+ 
+        LocaleContextHolder.setLocale(Locale.CHINA);
+        Assert.assertEquals("￥1,234.13", conversionService.convert(new BigDecimal("1234.128"), String.class));
+    Assert.assertEquals(new BigDecimal("1234.13"), conversionService.convert("￥1,234.13", BigDecimal.class));
+    LocaleContextHolder.setLocale(null);}
+DefaultFormattingConversionService：带数据格式化功能的类型转换服务实现；
+
+conversionService.addFormatter()：注册Formatter SPI实现；
+
+conversionService.convert(new BigDecimal(“1234.128″), String.class)：用于将BigDecimal类型数据格式化为字符串类型，此处根据“LocaleContextHolder.setLocale(locale)”设置的本地化信息进行格式化；
+
+conversionService.convert(“￥1,234.13″, BigDecimal.class)：用于将字符串类型数据解析为BigDecimal类型数据，此处也是根据“LocaleContextHolder.setLocale(locale)”设置的本地化信息进行解；
+
+LocaleContextHolder.setLocale(locale)：设置本地化信息到ThreadLocal，以便Formatter SPI根据本地化信息进行解析/格式化；
+
+具体测试代码请参考cn.javass.chapter7.web.controller.support.formatter.InnerFormatterTest的testWithDefaultFormattingConversionService测试方法。
+
+三、自定义Formatter进行解析/格式化
+
+此处以解析/格式化PhoneNumberModel为例。
+
+（1、定义Formatter SPI实现
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+package cn.javass.chapter7.web.controller.support.formatter;
+//省略import
+public class PhoneNumberFormatter implements Formatter<PhoneNumberModel> {
+    Pattern pattern = Pattern.compile("^(\\d{3,4})-(\\d{7,8})$");
+    @Override
+    public String print(PhoneNumberModel phoneNumber, Locale locale) {//①格式化
+        if(phoneNumber == null) {
+            return "";
+        }
+        return new StringBuilder().append(phoneNumber.getAreaCode()).append("-")
+                                  .append(phoneNumber.getPhoneNumber()).toString();
+    }
+ 
+    @Override
+    public PhoneNumberModel parse(String text, Locale locale) throws ParseException {//②解析
+        if(!StringUtils.hasLength(text)) {
+            //①如果source为空 返回null
+            return null;
+        }
+        Matcher matcher = pattern.matcher(text);
+        if(matcher.matches()) {
+            //②如果匹配 进行转换
+            PhoneNumberModel phoneNumber = new PhoneNumberModel();
+            phoneNumber.setAreaCode(matcher.group(1));
+            phoneNumber.setPhoneNumber(matcher.group(2));
+            return phoneNumber;
+        } else {
+            //③如果不匹配 转换失败
+            throw new IllegalArgumentException(String.format("类型转换失败，需要格式[010-12345678]，但格式是[%s]", text));
+        }
+    }
+}
+类似于Convert SPI实现，只是此处的相应方法会传入Locale本地化信息，这样可以为不同地区进行解析/格式化数据。
+
+（2、测试用例：
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+package cn.javass.chapter7.web.controller.support.formatter;
+//省略import
+public class CustomerFormatterTest {
+    @Test
+    public void test() {
+        DefaultFormattingConversionService conversionService = new DefaultFormattingConversionService();
+        conversionService.addFormatter(new PhoneNumberFormatter());
+ 
+        PhoneNumberModel phoneNumber = new PhoneNumberModel("010", "12345678");
+        Assert.assertEquals("010-12345678", conversionService.convert(phoneNumber, String.class));
+ 
+        Assert.assertEquals("010", conversionService.convert("010-12345678", PhoneNumberModel.class).getAreaCode());
+    }
+}
+通过PhoneNumberFormatter可以解析String—>PhoneNumberModel和格式化PhoneNumberModel—>String。
+
+到此，类型级别的解析/格式化我们就介绍完了，从测试用例可以看出类型级别的是对项目中的整个类型实施相同的解析/格式化逻辑。
+
+有的同学可能需要在不同的类的字段实施不同的解析/格式化逻辑，如用户模型类的注册日期字段只需要如“2012-05-02”格式进行解析/格式化即可，而订单模型类的下订单日期字段可能需要如“2012-05-02 20：13：13”格式进行展示。
+
+接下来我们学习一下如何进行字段级别的解析/格式化吧。
+
+7.3.3.2、字段级别的解析/格式化
+一、使用内置的注解进行字段级别的解析/格式化：
+
+（1、测试模型类准备：
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+package cn.javass.chapter7.model;
+public class FormatterModel {
+    @NumberFormat(style=Style.NUMBER, pattern="#,###")
+    private int totalCount;
+    @NumberFormat(style=Style.PERCENT)
+    private double discount;
+    @NumberFormat(style=Style.CURRENCY)
+    private double sumMoney;
+ 
+    @DateTimeFormat(iso=ISO.DATE) 
+    private Date registerDate;
+ 
+    @DateTimeFormat(pattern="yyyy-MM-dd HH:mm:ss") 
+    private Date orderDate;
+ 
+    //省略getter/setter
+}
+此处我们使用了Spring字段级别解析/格式化的两个内置注解：
+
+@Number：定义数字相关的解析/格式化元数据（通用样式、货币样式、百分数样式），参数如下：
+
+style：用于指定样式类型，包括三种：Style.NUMBER（通用样式） Style.CURRENCY（货币样式） Style.PERCENT（百分数样式），默认Style.NUMBER；
+
+pattern：自定义样式，如patter=”#,###”；
+
+@DateTimeFormat：定义日期相关的解析/格式化元数据，参数如下：
+
+pattern：指定解析/格式化字段数据的模式，如”yyyy-MM-dd HH:mm:ss”
+
+iso：指定解析/格式化字段数据的ISO模式，包括四种：ISO.NONE（不使用）  ISO.DATE(yyyy-MM-dd) ISO.TIME(hh:mm:ss.SSSZ)  ISO.DATE_TIME(yyyy-MM-dd hh:mm:ss.SSSZ)，默认ISO.NONE；
+
+style：指定用于格式化的样式模式，默认“SS”，具体使用请参考Joda-Time类库的org.joda.time.format.DateTimeFormat的forStyle的javadoc；
+
+优先级： pattern 大于 iso 大于 style。
+
+（2、测试用例：
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+@Test
+public void test() throws SecurityException, NoSuchFieldException {
+    //默认自动注册对@NumberFormat和@DateTimeFormat的支持
+    DefaultFormattingConversionService conversionService = 
+                                new DefaultFormattingConversionService();
+ 
+    //准备测试模型对象
+    FormatterModel model = new FormatterModel();
+    model.setTotalCount(10000);
+    model.setDiscount(0.51);
+    model.setSumMoney(10000.13);
+    model.setRegisterDate(new Date(2012-1900, 4, 1));
+    model.setOrderDate(new Date(2012-1900, 4, 1, 20, 18, 18));
+ 
+    //获取类型信息
+    TypeDescriptor descriptor = 
+            new TypeDescriptor(FormatterModel.class.getDeclaredField("totalCount"));        
+    TypeDescriptor stringDescriptor = TypeDescriptor.valueOf(String.class);
+ 
+    Assert.assertEquals("10,000", conversionService.convert(model.getTotalCount(), descriptor, stringDescriptor));
+    Assert.assertEquals(model.getTotalCount(), conversionService.convert("10,000", stringDescriptor, descriptor));
+ 
+}
+TypeDescriptor：拥有类型信息的上下文，用于Spring3类型转换系统获取类型信息的（可以包含类、字段、方法参数、属性信息）；通过TypeDescriptor，我们就可以获取（类、字段、方法参数、属性）的各种信息，如注解类型信息；
+
+conversionService.convert(model.getTotalCount(), descriptor, stringDescriptor)：将totalCount格式化为字符串类型，此处会根据totalCount字段的注解信息（通过descriptor对象获取）来进行格式化；
+
+conversionService.convert(“10,000″, stringDescriptor, descriptor)：将字符串“10,000”解析为totalCount字段类型，此处会根据totalCount字段的注解信息（通过descriptor对象获取）来进行解析。
+
+（3、通过为不同的字段指定不同的注解信息进行字段级别的细粒度数据解析/格式化
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+descriptor = new TypeDescriptor(FormatterModel.class.getDeclaredField("registerDate"));
+Assert.assertEquals("2012-05-01", conversionService.convert(model.getRegisterDate(), descriptor, stringDescriptor));
+Assert.assertEquals(model.getRegisterDate(), conversionService.convert("2012-05-01", stringDescriptor, descriptor));
+ 
+descriptor = new TypeDescriptor(FormatterModel.class.getDeclaredField("orderDate"));
+Assert.assertEquals("2012-05-01 20:18:18", conversionService.convert(model.getOrderDate(), descriptor, stringDescriptor));
+Assert.assertEquals(model.getOrderDate(), conversionService.convert("2012-05-01 20:18:18", stringDescriptor, descriptor));
+通过如上测试可以看出，我们可以通过字段注解方式实现细粒度的数据解析/格式化控制，但是必须使用TypeDescriptor来指定类型的上下文信息，即编程实现字段的数据解析/格式化比较麻烦。
+
+其他测试用例请参考cn.javass.chapter7.web.controller.support.formatter.InnerFieldFormatterTest的test测试方法。
+
+二、自定义注解进行字段级别的解析/格式化：
+
+此处以解析/格式化PhoneNumberModel字段为例。
+
+（1、定义解析/格式化字段的注解类型：
+
+Java代码
+1
+2
+3
+4
+5
+6
+package cn.javass.chapter7.web.controller.support.formatter;
+//省略import
+@Target({ElementType.METHOD, ElementType.FIELD, ElementType.PARAMETER})
+@Retention(RetentionPolicy.RUNTIME)
+public @interface PhoneNumber {
+}
+(2、实现AnnotationFormatterFactory注解格式化工厂：
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+package cn.javass.chapter7.web.controller.support.formatter;
+//省略import
+public class PhoneNumberFormatAnnotationFormatterFactory
+    implements AnnotationFormatterFactory<PhoneNumber> {//①指定可以解析/格式化的字段注解类型
+ 
+    private final Set<Class<?>> fieldTypes;
+    private final PhoneNumberFormatter formatter;
+    public PhoneNumberFormatAnnotationFormatterFactory() {
+        Set<Class<?>> set = new HashSet<Class<?>>();
+        set.add(PhoneNumberModel.class);
+        this.fieldTypes = set;
+        this.formatter = new PhoneNumberFormatter();//此处使用之前定义的Formatter实现
+    }
+    //②指定可以被解析/格式化的字段类型集合
+    @Override
+    public Set<Class<?>> getFieldTypes() {
+        return fieldTypes;
+    }
+    //③根据注解信息和字段类型获取解析器
+    @Override
+    public Parser<?> getParser(PhoneNumber annotation, Class<?> fieldType) {
+        return formatter;
+    }
+    //④根据注解信息和字段类型获取格式化器
+    @Override  
+    public Printer<?> getPrinter(PhoneNumber annotation, Class<?> fieldType) {
+        return formatter;
+    }
+}
+AnnotationFormatterFactory实现会根据注解信息和字段类型获取相应的解析器/格式化器。
+
+（3、修改FormatterModel添加如下代码：
+
+Java代码
+1
+2
+@PhoneNumber
+private PhoneNumberModel phoneNumber;
+（4、测试用例
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+@Test
+public void test() throws SecurityException, NoSuchFieldException {
+    DefaultFormattingConversionService conversionService = 
+                                        new DefaultFormattingConversionService();//创建格式化服务
+    conversionService.addFormatterForFieldAnnotation(
+                    new PhoneNumberFormatAnnotationFormatterFactory());//添加自定义的注解格式化工厂
+ 
+    FormatterModel model = new FormatterModel();
+    TypeDescriptor descriptor = 
+            new TypeDescriptor(FormatterModel.class.getDeclaredField("phoneNumber"));
+    TypeDescriptor stringDescriptor = TypeDescriptor.valueOf(String.class);
+ 
+    PhoneNumberModel value = (PhoneNumberModel) conversionService.convert("010-12345678", stringDescriptor, descriptor); //解析字符串"010-12345678"--> PhoneNumberModel
+    model.setPhoneNumber(value);
+ 
+    Assert.assertEquals("010-12345678", conversionService.convert(model.getPhoneNumber(), descriptor, stringDescriptor));//格式化PhoneNumberModel-->"010-12345678"
+}
+此处使用DefaultFormattingConversionService的addFormatterForFieldAnnotation注册自定义的注解格式化工厂PhoneNumberFormatAnnotationFormatterFactory。
+
+到此，编程进行数据的格式化/解析我们就完成了，使用起来还是比较麻烦，接下来我们将其集成到Spring Web MVC环境中。
+
+7.3.4、集成到Spring Web MVC环境
+
+一、注册FormattingConversionService实现和自定义格式化转换器：
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+<bean id="conversionService"
+class="org.springframework.format.support.FormattingConversionServiceFactoryBean">
+  <!—此处省略之前注册的自定义类型转换器-->
+  <property name="formatters">
+      <list>
+          <bean class="cn.javass.chapter7.web.controller.support.formatter.
+                                                  PhoneNumberFormatAnnotationFormatterFactory"/>
+      </list>
+  </property>
+</bean>
+其他配置和之前学习7.2.2.4一节一样。
+
+二、示例：
+
+（1、模型对象字段的数据解析/格式化：
+
+Java代码
+1
+2
+3
+4
+@RequestMapping(value = "/format1")
+public String test1(@ModelAttribute("model") FormatterModel formatModel) {
+    return "format/success";
+}
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+totalCount:<spring:bind path="model.totalCount">${status.value}</spring:bind>
+discount:<spring:bind path="model.discount">${status.value}</spring:bind>
+sumMoney:<spring:bind path="model.sumMoney">${status.value}</spring:bind>
+phoneNumber:<spring:bind path="model.phoneNumber">${status.value}</spring:bind>
+<!-- 如果没有配置org.springframework.web.servlet.handler.ConversionServiceExposingInterceptor将会报错 -->
+phoneNumber:<spring:eval expression="model.phoneNumber"></spring:eval>
+ 
+ 
+<form:form commandName="model">
+    <form:input path="phoneNumber"/>
+    <form:input path="sumMoney"/>
+</form:form>
+在浏览器输入测试URL：
+
+http://localhost:9080/springmvc-chapter7/format1?totalCount=100000&discount=0.51&sumMoney=100000.128&phoneNumber=010-12345678
+
+数据会正确绑定到我们的formatModel，即请求参数能被正确的解析并绑定到我们的命令对象上，而且在JSP页面也能正确的显示格式化后的数据（即正确的被格式化显示）。
+
+（2、功能处理方法参数级别的数据解析：
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+@RequestMapping(value = "/format2")
+public String test2(
+        @PhoneNumber @RequestParam("phoneNumber") PhoneNumberModel phoneNumber, 
+        @DateTimeFormat(pattern="yyyy-MM-dd") @RequestParam("date") Date date) {
+        System.out.println(phoneNumber);
+        System.out.println(date);
+        return "format/success2";
+}
+此处我们可以直接在功能处理方法的参数上使用格式化注解类型进行注解，Spring Web MVC能根据此注解信息对请求参数进行解析并正确的绑定。
+
+在浏览器输入测试URL：
+
+http://localhost:9080/springmvc-chapter7/format2?phoneNumber=010-12345678&date=2012-05-01
+
+数据会正确的绑定到我们的phoneNumber和date上，即请求的参数能被正确的解析并绑定到我们的参数上。
+
+控制器代码位于cn.javass.chapter7.web.controller.DataFormatTestController中。
+
+如果我们请求参数数据不能被正确解析并绑定或输入的数据不合法等该怎么处理呢？接下来的一节我们来学习下绑定失败处理和数据验证相关知识。
+
+
+
+
+
+7.4、数据验证
+
+7.4.1、编程式数据验证
+
+spring 2.x提供了编程式验证支持，详见【4.16.2 数据验证】章节，在此我们重写【4.16.2.4.1、编程式验证器】一节示例。
+
+（1、验证器实现
+
+复制cn.javass.chapter4.web.controller.support.validator.UserModelValidator
+
+到cn.javass.chapter7.web.controller.support.validator.UserModelValidator。
+
+（2、控制器实现
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+@Controller
+public class RegisterSimpleFormController {
+    private UserModelValidator validator = new UserModelValidator();
+ 
+    @ModelAttribute("user")        //① 暴露表单引用对象为模型数据
+    public UserModel getUser() {
+        return new UserModel();
+    }
+    @RequestMapping(value = "/validator", method = RequestMethod.GET)
+    public String showRegisterForm() {   //② 表单展示
+        return "validate/registerAndValidator";
+    }
+    @RequestMapping(value = "/validator", method = RequestMethod.POST)
+    public String submitForm(
+            @ModelAttribute("user") UserModel user,
+            Errors errors) {           //③ 表单提交
+        validator.validate(user, errors);  //1 调用UserModelValidator的validate方法进行验证
+        if(errors.hasErrors()) { //2如果有错误再回到表单展示页面
+            return showRegisterForm();
+        }
+        return "redirect:/success";
+    }
+}
+在submitForm方法中，我们首先调用之前写的UserModelValidator的validate方法进行验证，当然此处可以直接验证并通过Errors接口来保留错误；此处还通过 Errors接口的hasErrors方法来决定当验证失败时显示的错误页面。
+
+（3、spring配置文件chapter7-servlet.xml
+
+Java代码
+1
+<bean class="cn.javass.chapter7.web.controller.RegisterSimpleFormController"/>
+（4、错误码配置（messages.properties），需要执行NativeToAscii
+
+直接将【springmvc-chapter4】项目中src下的messages.properties复制到src目录下。
+
+在spring配置文件chapter7-servlet.xml中添加messageSource：
+
+Java代码
+1
+2
+3
+4
+5
+6
+<bean id="messageSource"
+class="org.springframework.context.support.ReloadableResourceBundleMessageSource">
+        <property name="basename" value="classpath:messages"/>
+        <property name="fileEncodings" value="utf-8"/>
+        <property name="cacheSeconds" value="120"/>
+</bean>
+（5、视图页面（/WEB-INF/jsp/registerAndValidator.jsp）
+
+直接将【springmvc-chapter4】项目中的/WEB-INF/jsp/registerAndValidator.jsp复制到当前项目下的/WEB-INF/jsp/validate/registerAndValidator.jsp。
+
+（6、启动服务器测试：
+
+在浏览器地址栏输入http://localhost:9080/springmvc-chapter7/validator进行测试，测试步骤和【4.16.2.4.1、编程式验证器】一样。
+
+其他编程式验证的使用，请参考【4.16.2 数据验证】章节。
+
+7.4.2、声明式数据验证
+
+Spring3开始支持JSR-303验证框架，JSR-303支持XML风格的和注解风格的验证，接下来我们首先看一下如何和Spring集成。
+
+7.4.2.1、集成
+
+（1、添加jar包：
+
+此处使用hibernate-validator实现（版本：hibernate-validator-4.3.0.Final-dist.zip），将如下jar包添加到classpath（WEB-INF/lib下即可）：
+
+ 写道
+dist/lib/required/validation-api-1.0.0.GA.jar JSR-303规范API包
+dist/hibernate-validator-4.3.0.Final.jar Hibernate 参考实现
+（2、在Spring配置总添加对JSR-303验证框架的支持
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+<!-- 以下 validator  ConversionService 在使用 mvc:annotation-driven 会 自动注册-->
+<bean id="validator"
+class="org.springframework.validation.beanvalidation.LocalValidatorFactoryBean">
+        <property name="providerClass"  value="org.hibernate.validator.HibernateValidator"/>
+        <!-- 如果不加默认到 使用classpath下的 ValidationMessages.properties -->
+        <property name="validationMessageSource" ref="messageSource"/>
+</bean>
+此处使用Hibernate validator实现：
+
+validationMessageSource属性：指定国际化错误消息从哪里取，此处使用之前定义的messageSource来获取国际化消息；如果此处不指定该属性，则默认到classpath下的ValidationMessages.properties取国际化错误消息。
+
+通过ConfigurableWebBindingInitializer注册validator：
+
+Java代码
+1
+2
+3
+4
+5
+<bean id="webBindingInitializer"
+class="org.springframework.web.bind.support.ConfigurableWebBindingInitializer">
+        <property name="conversionService" ref="conversionService"/>
+        <property name="validator" ref="validator"/>
+</bean>
+其他配置和之前学习7.2.2.4一节一样。
+
+如上集成过程看起来比较麻烦，后边我们会介绍<mvc:annotation-driven>和@EnableWebMvc，ConversionService会自动注册，后续章节再详细介绍。
+
+（3、使用JSR-303验证框架注解为模型对象指定验证信息
+
+Java代码
+1
+2
+3
+4
+5
+6
+package cn.javass.chapter7.model;
+import javax.validation.constraints.NotNull;
+public class UserModel {
+    @NotNull(message="{username.not.empty}")
+    private String username;
+}
+通过@NotNull指定此username字段不允许为空，当验证失败时将从之前指定的messageSource中获取“username.not.empty”对于的错误信息，此处只有通过“{错误消息键值}”格式指定的才能从messageSource获取。
+
+（4、控制器
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+package cn.javass.chapter7.web.controller.validate;
+//省略import
+@Controller
+public class HelloWorldController {
+    @RequestMapping("/validate/hello")
+    public String validate(@Valid @ModelAttribute("user") UserModel user, Errors errors) {
+ 
+        if(errors.hasErrors()) {
+            return "validate/error";
+        }
+        return "redirect:/success";
+    }
+}
+通过在命令对象上注解@Valid来告诉Spring MVC此命令对象在绑定完毕后需要进行JSR-303验证，如果验证失败会将错误信息添加到errors错误对象中。
+
+（5、验证失败后需要展示的页面（/WEB-INF/jsp/validate/error.jsp）
+
+Java代码
+1
+2
+3
+4
+5
+6
+<%@ page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8"%>
+<%@taglib prefix="form" uri="http://www.springframework.org/tags/form" %>
+ 
+<form:form commandName="user">
+    <form:errors path="*" cssStyle="color:red"></form:errors>
+</form:form>
+（6、测试
+
+在浏览器地址栏中输入http://localhost:9080/springmvc-chapter7/validate/hello，即没有username数据，请求后将直接到验证失败界面并显示错误消息“用户名不能为空”，如果请求时带上“?username=zhang”将重定向到成功页面。
+
+到此集成就完成，接下来我们详细学习下有哪些验证约束注解吧。
+
+7.4.2.2、内置的验证约束注解
+
+内置的验证约束注解如下表所示（摘自hibernate validator reference）：
+
+验证注解	验证的数据类型	说明
+@AssertFalse	Boolean,boolean	验证注解的元素值是false
+@AssertTrue	Boolean,boolean	验证注解的元素值是true
+@NotNull	任意类型	验证注解的元素值不是null
+@Null	任意类型	验证注解的元素值是null
+@Min(value=值)	BigDecimal，BigInteger, byte,short, int, long，等任何Number或CharSequence（存储的是数字）子类型	验证注解的元素值大于等于@Min指定的value值
+@Max（value=值）	和@Min要求一样	验证注解的元素值小于等于@Max指定的value值
+@DecimalMin(value=值)	和@Min要求一样	验证注解的元素值大于等于@ DecimalMin指定的value值
+@DecimalMax(value=值)	和@Min要求一样	验证注解的元素值小于等于@ DecimalMax指定的value值
+@Digits(integer=整数位数, fraction=小数位数)	和@Min要求一样	验证注解的元素值的整数位数和小数位数上限
+@Size(min=下限, max=上限)	字符串、Collection、Map、数组等	验证注解的元素值的在min和max（包含）指定区间之内，如字符长度、集合大小
+@Past	Java.util.Date,java.util.Calendar;
+Joda Time类库的日期类型
+
+验证注解的元素值（日期类型）比当前时间早
+@Future	与@Past要求一样	验证注解的元素值（日期类型）比当前时间晚
+@NotBlank	CharSequence子类型	验证注解的元素值不为空（不为null、去除首位空格后长度为0），不同于@NotEmpty，@NotBlank只应用于字符串且在比较时会去除字符串的首位空格
+@Length(min=下限, max=上限)	CharSequence子类型	验证注解的元素值长度在min和max区间内
+@NotEmpty	CharSequence子类型、Collection、Map、数组	验证注解的元素值不为null且不为空（字符串长度不为0、集合大小不为0）
+@Range(min=最小值, max=最大值)	BigDecimal,BigInteger,CharSequence, byte, short, int, long等原子类型和包装类型	验证注解的元素值在最小值和最大值之间
+@Email(regexp=正则表达式,flag=标志的模式)	CharSequence子类型（如String）	验证注解的元素值是Email，也可以通过regexp和flag指定自定义的email格式
+@Pattern(regexp=正则表达式,flag=标志的模式)	String，任何CharSequence的子类型	验证注解的元素值与指定的正则表达式匹配
+@Valid	任何非原子类型	指定递归验证关联的对象；如用户对象中有个地址对象属性，如果想在验证用户对象时一起验证地址对象的话，在地址对象上加@Valid注解即可级联验证
+此处只列出Hibernate Validator提供的大部分验证约束注解，请参考hibernate validator官方文档了解其他验证约束注解和进行自定义的验证约束注解定义。
+
+具体演示实例请参考cn.javass.chapter7.web.controller.validate.ValidatorAnnotationTestController。
+
+7.4.2.3、错误消息
+
+当验证出错时，我们需要给用户展示错误消息告诉用户出错的原因，因此我们要为验证约束注解指定错误消息。错误消息是通过在验证约束注解的message属性指定。验证约束注解指定错误消息有如下两种方式：
+
+1、硬编码错误消息；
+
+2、从资源消息文件中根据消息键读取错误消息。
+
+一、硬编码错误消息
+
+直接在验证约束注解上指定错误消息，如下所示：
+
+Java代码
+1
+2
+3
+4
+@NotNull(message = "用户名不能为空")
+@Length(min=5, max=20, message="用户名长度必须在5-20之间")
+@Pattern(regexp = "^[a-zA-Z_]\\w{4,19}$", message = "用户名必须以字母下划线开头，可由字母数字下划线组成")
+private String username;
+如上所示，错误消息使用硬编码指定，这种方式是不推荐使用的，因为在如下场景是不适用的：
+
+1、在国际化场景下，需要对不同的国家显示不同的错误消息；
+
+2、需要更换错误消息时是比较麻烦的，需要找到相应的类进行更换，并重新编译发布。
+
+二、从资源消息文件中根据消息键读取错误消息
+
+2.1、默认的错误消息文件及默认错误消息键值
+
+默认的错误消息文件是/org/hibernate/validator/ValidationMessages.properties，如下图所示：
+
+
+默认的错误消息键值如下图所示：
+
+
+
+消息键默认为：验证约束注解的全限定类名.message
+
+在我们之前的测试文件中，错误消息键值是使用默认的，如何自定义错误消息文件和错误消息键值呢？
+
+2.2、自定义的错误消息文件和错误消息键值
+
+自定义的错误消息文件里的错误消息键值将覆盖默认的错误消息文件中的错误消息键值。我们自定义的错误消息文件是具有国际化功能的。
+
+（1、定义错误消息文件
+
+在类装载路径的根下创建ValidationMessages.properties文件，如在src目录下创建会自动复制到类装载路径的根下，并添加如下消息键值（需要native2ascii，可以在eclipse里装Properties Editor，自动保存为ASCII码）：
+
+Java代码
+1
+javax.validation.constraints.Pattern.message=用户名必须以字母或下划线开头，后边可以跟字母数字下划线，长度在5-20之间
+需要在你的spring配置文件WEB-INF/chapter7-servlet.xml修改之前的validator Bean：
+
+Java代码
+1
+2
+3
+4
+5
+<bean id="validator"
+class="org.springframework.validation.beanvalidation.LocalValidatorFactoryBean">
+        <property name="providerClass"
+value="org.hibernate.validator.HibernateValidator"/>
+</bean>
+此时错误消息键值的查找会先到classpath下ValidationMessages.properties中找，找不到再到默认的错误消息文件中找。
+
+输入测试地址：http://localhost:9080/springmvc-chapter7/validate/pattern?value=zhan，将看到我们自定义的错误消息显示出来了。
+
+（2、使用Spring的MessageSource Bean进行消息键值的查找
+
+如果我们的环境是与spring集成，还是应该使用Spring提供的消息支持，具体配置如下：
+
+在spring配置文件WEB-INF/chapter7-servlet.xml定义MessageSource Bean：
+
+Java代码
+1
+2
+3
+4
+5
+6
+<bean id="messageSource"
+class="org.springframework.context.support.ReloadableResourceBundleMessageSource">
+        <property name="basename" value="classpath:messages"/>
+        <property name="fileEncodings" value="utf-8"/>
+        <property name="cacheSeconds" value="120"/>
+</bean>
+之前我们已经配置过了，在此就不详述了。
+
+在spring配置文件WEB-INF/chapter7-servlet.xml定义的validator Bean，添加如下属性：
+
+Java代码
+1
+<property name="validationMessageSource" ref="messageSource"/>
+验证失败的错误消息键值的查找将使用messageSource Bean进行。
+
+在消息文件src/messages.properties中添加如下错误消息：
+
+Java代码
+1
+javax.validation.constraints.Pattern.message=用户名必须以字母或下划线开头，后边可以跟字母数字下划线，长度在5-20之间
+输入测试地址：http://localhost:9080/springmvc-chapter7/validate/pattern?value=zhan，将看到我们自定义的错误消息显示出来了。
+
+当我们配置了messageSource Bean时，默认将为验证的对象自动生成如下错误消息键：
+
+验证错误注解简单类名.验证对象名.字段名
+
+验证错误注解简单类名.字段名
+
+验证错误注解简单类名.字段类型全限定类名
+
+验证错误注解简单类名
+
+使用的优先级是：从高到低，即最前边的具有最高的优先级，而且以上所有默认的错误消息键优先级高于自定义的错误消息键。
+
+如测试用例cn.javass.chapter7.web.controller.validate.ValidatorAnnotationTestController中的public String pattern(@Valid @ModelAttribute(“model”) PatternModel model, Errors errors)将自动产生如下错误消息键：
+
+Pattern.model.value=验证错误注解简单类名.验证对象名.字段名
+
+Pattern.value=验证错误注解简单类名.字段名
+
+Pattern.java.lang.String=验证错误注解简单类名.字段类型全限定类名
+
+Pattern=验证错误注解简单类名
+
+（3、自定义错误消息键值
+
+之前我们已经学习了硬编码错误消息，及默认的错误消息，在大部分场景下，以上两种方式无法满足我们的需求，因此我们需要自定义错误消息键值。
+
+在验证约束注解上指定错误消息键：
+
+Java代码
+1
+2
+3
+4
+5
+package cn.javass.chapter7.web.controller.validate.model;
+public class PatternModel { 
+    @Pattern(regexp = "^[a-zA-Z_][\\w]{4,19}$", message="{user.name.error}")
+    private String value;
+}
+我们可以通过验证约束注解的message属性指定错误消息键，格式如“{消息键}”。
+
+在消息文件src/messages.properties中添加如下错误消息：
+
+Java代码
+1
+user.name.error=用户名格式不合法
+输入测试地址：http://localhost:9080/springmvc-chapter7/validate/pattern?value=zhan，将看到我们自定义的错误消息显示出来了。
+
+接下来我们看下如下场景
+
+Java代码
+1
+@Length(min=5, max=20, message="{user.name.length.error}")
+Java代码
+1
+user.name.error=用户名长度必须在5-20之间
+错误消息中的5-20应该是从@Length验证约束注解中获取的，而不是在错误消息中硬编码，因此我们需要占位符的支持：
+
+●如@Length(min=5, max=20, message=”{user.name.length.error}”)，错误消息可以这样写：用户名长度必须在{min}-{max}之间
+
+错误消息占位符规则：
+
+{验证注解属性名}，如@Length有min和max属性，则在错误消息文件中可以通过{min}和{max}来获取；如@Max有value属性，则在错误消息文件中可以通过{value}来获取。
+
+Java代码
+1
+user.name.length.error=用户名长度必须在{min}-{max}之间
+输入测试地址：http://localhost:9080/springmvc-chapter7/validate/length?value=1，将看到我们自定义的错误消息显示出来了。
+
+7.4.2.4、功能处理方法上多个验证参数的处理
+
+当我们在一个功能处理方法上需要验证多个模型对象时，需要通过如下形式来获取验证结果：
+
+Java代码
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+@RequestMapping("/validate/multi")
+public String multi(
+            @Valid @ModelAttribute("a") A a, BindingResult aErrors,
+            @Valid @ModelAttribute("b") B b, BindingResult bErrors) {
+ 
+        if(aErrors.hasErrors()) { //如果a模型对象验证失败
+            return "validate/error";
+        }
+        if(bErrors.hasErrors()) { //如果a模型对象验证失败
+            return "validate/error";
+        }
+        return "redirect:/success";
+}
+每一个模型对象后边都需要跟一个Errors或BindingResult对象来保存验证结果，其方法体内部可以使用这两个验证结果对象来选择出错时跳转的页面。详见cn.javass.chapter7.web.controller.validate.MultiModelController。
+
+在错误页面，需要针对不同的模型来显示错误消息：
+
+Java代码
+1
+2
+3
+4
+5
+6
+<form:form commandName="a">
+    <form:errors path="*" cssStyle="color:red"></form:errors>
+</form:form>
+<form:form commandName="b">
+    <form:errors path="*" cssStyle="color:red"></form:errors>
+</form:form>
+
+

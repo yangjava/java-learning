@@ -1,0 +1,171 @@
+一、InputStream
+
+InputStream是一个抽象类，即表示所有字节输入流实现类的基类。它的作用就是抽象地表示所有从不同数据源产生输入的类，例如常见的FileInputStream、FilterInputStream等。那些数据源呢？比如：
+
+1） 字节数组（不代表String类，但可以转换）
+
+2） String对象
+
+3） 文件
+
+4） 一个其他种类的流组成的序列化 （在分布式系统中常见）
+
+5） 管道（多线程环境中的数据源）
+
+等等
+
+二者，注意它是属于字节流部分，而不是字符流（java.io中Reader\Writer，下面会讲到）。
+
+FilterInputStream是为各种InputStream实现类提供的“装饰器模式”的基类。因此，可以分为原始的字节流和“装饰”过的功能封装字节流。
+
+二、细解InputStream源码的核心
+
+源码如下：
+
+/**
+ * 所有字节输入流实现类的基类
+ */
+publicabstractclassSInputStream {
+ 
+    // 缓存区字节数组最大值
+    privatestaticfinalintMAX_SKIP_BUFFER_SIZE = 2048;
+ 
+    // 从输入流中读取数据的下一个字节，以int返回
+    publicabstractintread() throwsIOException;
+ 
+    // 从输入流中读取数据的一定数量字节，并存储在缓存数组b
+    publicintread(byteb[]) throwsIOException {
+        returnread(b, 0, b.length);
+    }
+ 
+    // 从输入流中读取数据最多len个字节，并存储在缓存数组b
+    publicintread(byteb[], intoff, intlen) throwsIOException {
+        if(b == null) {
+            thrownewNullPointerException();
+        } elseif(off < 0|| len < 0|| len > b.length - off) {
+            thrownewIndexOutOfBoundsException();
+        } elseif(len == 0) {
+            return0;
+        }
+ 
+        intc = read();
+        if(c == -1) {
+            return-1;
+        }
+        b[off] = (byte)c;
+ 
+        inti = 1;
+        try{
+            for(; i < len ; i++) {
+                c = read();
+                if(c == -1) {
+                    break;
+                }
+                b[off + i] = (byte)c;
+            }
+        } catch(IOException ee) {
+        }
+        returni;
+    }
+ 
+    // 跳过输入流中数据的n个字节
+    publiclongskip(longn) throwsIOException {
+ 
+        longremaining = n;
+        intnr;
+ 
+        if(n <= 0) {
+            return0;
+        }
+ 
+        intsize = (int)Math.min(MAX_SKIP_BUFFER_SIZE, remaining);
+        byte[] skipBuffer = newbyte[size];
+        while(remaining > 0) {
+            nr = read(skipBuffer, 0, (int)Math.min(size, remaining));
+            if(nr < 0) {
+                break;
+            }
+            remaining -= nr;
+        }
+ 
+        returnn - remaining;
+    }
+ 
+    // 返回下一个方法调用能不受阻塞地从此读取（或者跳过）的估计字节数
+    publicintavailable() throwsIOException {
+        return0;
+    }
+ 
+    // 关闭此输入流，并释放与其关联的所有资源
+ 
+    publicvoidclose() throwsIOException {}
+ 
+    // 在此输出流中标记当前位置
+    publicsynchronizedvoidmark(intreadlimit) {}
+ 
+    // 将此流重新定位到最后一次对此输入流调用 mark 方法时的位置。
+    publicsynchronizedvoidreset() throwsIOException {
+        thrownewIOException("mark/reset not supported");
+    }
+ 
+    // 测试此输入流是否支持 mark 和 reset 方法
+    publicbooleanmarkSupported() {
+        returnfalse;
+    }
+ 
+}
+
+
+
+
+其中，InputStream下面三个read方法才是核心方法：
+
+
+public abstract int read()
+
+抽象方法，没有具体实现。因为子类必须实现此方法的一个实现。这就是输入流的关键方法。
+
+二者，可见下面两个read()方法都调用了这个方法子类的实现来完成功能的。
+
+
+
+
+public int read(byteb[])
+
+该方法是表示从输入流中读取数据的一定数量字节，并存储在缓存字节数组b。其效果等同于调用了下面方法的实现：
+
+
+read(b, 0, b.length)
+
+如果b的长度为 0，则不读取任何字节并返回 0；否则，尝试读取至少 1 字节。如果因为流位于文件末尾而没有可用的字节，则返回值 -1；否则，至少读取一个字节并将其存储在 b 中。
+
+思考：这时候，怪不得很多时候， b != –1 或者 b != EOF
+
+
+
+
+public int read(byteb[], intoff, intlen)
+
+在输入数据可用、检测到流末尾或者抛出异常前，此方法一直阻塞。
+
+
+该方法先进行校验，然后校验下个字节是否为空。如果校验通过后，
+如下代码：
+
+
+int i = 1;
+try{
+    for(; i < len ; i++) {
+        c = read();
+        if(c == -1) {
+            break;
+        }
+        b[off + i] = (byte)c;
+    }
+} catch(IOException ee) {
+}
+
+将读取的第一个字节存储在元素 b[off] 中，下一个存储在 b[off+1] 中，依次类推。读取的字节数最多等于 len。设 k 为实际读取的字节数；这些字节将存储在 b[off] 到 b[off+k-1] 的元素中，不影响 b[off+k] 到 b[off+len-1] 的元素。
+
+因为有上面两个read的实现，所以这里InputStream设计为抽象类。 
+

@@ -1,0 +1,206 @@
+上周有幸参加了一次关于JVM的小范围分享会，听完R大对虚拟机C2编译器的讲解，我的膝盖一直是肿的，能记住的实在有点少，能听进去也不多
+1、什么时候进行C2编译，如何进行C2编译（这个实在太复杂）
+2、C2编译的时候，是对整个方法体进行编译，而不是某个方法段
+3、JVM中的safepoint
+
+一直都知道，当发生GC时，正在执行Java code的线程必须全部停下来，才可以进行垃圾回收，这就是熟悉的STW（stop the world），但是STW的背后实现原理，比如这些线程如何暂停、又如何恢复？就比较疑惑了。
+
+
+然而这一切的一切，都涉及到一个概念safepoint，openjdk的实现位于openjdk/hotspot/src/share/vm/runtime/safepoint.cpp
+
+什么是safepoint
+
+safepoint可以用在不同地方，比如GC、Deoptimization，在Hotspot VM中，GC safepoint比较常见，需要一个数据结构记录每个线程的调用栈、寄存器等一些重要的数据区域里什么地方包含了GC管理的指针。
+
+从线程角度看，safepoint可以理解成是在代码执行过程中的一些特殊位置，当线程执行到这些位置的时候，说明虚拟机当前的状态是安全的，如果有需要，可以在这个位置暂停，比如发生GC时，需要暂停暂停所以活动线程，但是线程在这个时刻，还没有执行到一个安全点，所以该线程应该继续执行，到达下一个安全点的时候暂停，等待GC结束。
+
+什么地方可以放safepoint
+
+下面以Hotspot为例，简单的说明一下什么地方会放置safepoint
+1、理论上，在解释器的每条字节码的边界都可以放一个safepoint，不过挂在safepoint的调试符号信息要占用内存空间，如果每条机器码后面都加safepoint的话，需要保存大量的运行时数据，所以要尽量少放置safepoint，在safepoint会生成polling代码询问VM是否要“进入safepoint”，polling操作也是有开销的，polling操作会在后续解释。
+
+2、通过JIT编译的代码里，会在所有方法的返回之前，以及所有非counted loop的循环（无界循环）回跳之前放置一个safepoint，为了防止发生GC需要STW时，该线程一直不能暂停。另外，JIT编译器在生成机器码的同时会为每个safepoint生成一些“调试符号信息”，为GC生成的符号信息是OopMap，指出栈上和寄存器里哪里有GC管理的指针。
+
+线程如何被挂起
+
+如果触发GC动作，VM thread会在VMThread::loop()方法中调用SafepointSynchronize::begin()方法，最终使所有的线程都进入到safepoint。
+
+// Roll all threads forward to a safepoint and suspend them all
+void SafepointSynchronize::begin() {
+  Thread* myThread = Thread::current();
+  assert(myThread->is_VM_thread(), "Only VM thread may execute a safepoint");
+
+  if (PrintSafepointStatistics || PrintSafepointStatisticsTimeout > 0) {
+    _safepoint_begin_time = os::javaTimeNanos();
+    _ts_of_current_safepoint = tty->time_stamp().seconds();
+  }
+在safepoint实现中，有这样一段注释，Java threads可以有多种不同的状态，所以挂起的机制也不同，一共列举了5中情况：
+
+
+1、执行Java code
+
+在执行字节码时会检查safepoint状态，因为在begin方法中会调用Interpreter::notice_safepoints()方法，通知解释器更新dispatch table，实现如下：
+
+void TemplateInterpreter::notice_safepoints() {
+  if (!_notice_safepoints) {
+    // switch to safepoint dispatch table
+    _notice_safepoints = true;
+    copy_table((address*)&_safept_table, (address*)&_active_table, sizeof(_active_table) / sizeof(address));
+  }
+}
+2、执行native code
+
+如果VM thread发现一个Java thread正在执行native code，并不会等待该Java thread阻塞，不过当该Java thread从native code返回时，必须检查safepoint状态，看是否需要进行阻塞。
+
+这里涉及到两个状态：Java thread state和safepoint state，两者之间有着严格的读写顺序，一般可以通过内存屏障实现，但是性能开销比较大，Hotspot采用另一种方式，调用os::serialize_thread_states()把每个线程的状态依次写入到同一个内存页中，实现如下：
+
+// Serialize all thread state variables
+void os::serialize_thread_states() {
+  // On some platforms such as Solaris & Linux, the time duration of the page
+  // permission restoration is observed to be much longer than expected  due to
+  // scheduler starvation problem etc. To avoid the long synchronization
+  // time and expensive page trap spinning, 'SerializePageLock' is used to block
+  // the mutator thread if such case is encountered. See bug 6546278 for details.
+  Thread::muxAcquire(&SerializePageLock, "serialize_thread_states");
+  os::protect_memory((char *)os::get_memory_serialize_page(),
+                     os::vm_page_size(), MEM_PROT_READ);
+  os::protect_memory((char *)os::get_memory_serialize_page(),
+                     os::vm_page_size(), MEM_PROT_RW);
+  Thread::muxRelease(&SerializePageLock);
+}
+通过VM thread执行一系列mprotect os call，保证之前所有线程状态的写入可以被顺序执行，效率更高。
+
+3、执行complied code
+
+如果想进入safepoint，则设置polling page不可读，当Java thread发现该内存页不可读时，最终会被阻塞挂起。在SafepointSynchronize::begin()方法中，通过os::make_polling_page_unreadable()方法设置polling page为不可读。
+
+if (UseCompilerSafepoints && DeferPollingPageLoopCount < 0) {
+    // Make polling safepoint aware
+    guarantee (PageArmed == 0, "invariant") ;
+    PageArmed = 1 ;
+    os::make_polling_page_unreadable();
+}
+方法make_polling_page_unreadable()在不同系统的实现不一样
+
+linux下实现
+// Mark the polling page as unreadable
+void os::make_polling_page_unreadable(void) {
+  if( !guard_memory((char*)_polling_page, Linux::page_size()) )
+    fatal("Could not disable polling page");
+};
+
+solaris下实现
+// Mark the polling page as unreadable
+void os::make_polling_page_unreadable(void) {
+  if( mprotect((char *)_polling_page, page_size, PROT_NONE) != 0 )
+    fatal("Could not disable polling page");
+};
+在JIT编译中，编译器会把safepoint检查的操作插入到机器码指令中，比如下面的指令：
+
+0x01b6d627: call   0x01b2b210         ; OopMap{[60]=Oop off=460}      
+                                       ;*invokeinterface size      
+                                       ; - Client1::main@113 (line 23)      
+                                       ;   {virtual_call}      
+ 0x01b6d62c: nop                       ; OopMap{[60]=Oop off=461}      
+                                       ;*if_icmplt      
+                                       ; - Client1::main@118 (line 23)      
+ 0x01b6d62d: test   %eax,0x160100      ;   {poll}      
+ 0x01b6d633: mov    0x50(%esp),%esi      
+ 0x01b6d637: cmp    %eax,%esi
+test %eax,0x160100 就是一个检查polling page是否可读的操作，如果不可读，则该线程会被挂起等待。
+
+4、线程处于Block状态
+
+即使线程已经满足了block condition，也要等到safepoint operation完成，如GC操作，才能返回。
+
+5、线程正在转换状态
+
+会去检查safepoint状态，如果需要阻塞，就把自己挂起。
+
+最终实现
+
+当线程访问到被保护的内存地址时，会触发一个SIGSEGV信号，进而触发JVM的signal handler来阻塞这个线程，The GC thread can protect some memory to which all threads in the process can write (using the mprotect system call) so they no longer can. Upon accessing this temporarily forbidden memory, a signal handler kicks in。
+
+再看看底层是如何处理这个SIGSEGV信号，实现位于hotspot/src/os_cpu/linux_x86/vm/os_linux_x86.cpp
+
+// Check to see if we caught the safepoint code in the
+// process of write protecting the memory serialization page.
+// It write enables the page immediately after protecting it
+// so we can just return to retry the write.
+if ((sig == SIGSEGV) &&
+    os::is_memory_serialize_page(thread, (address) info->si_addr)) {
+  // Block current thread until the memory serialize page permission restored.
+  os::block_on_serialize_page_trap();
+  return true;
+}
+执行os::block_on_serialize_page_trap()把当前线程阻塞挂起。
+
+线程如何恢复
+
+有了begin方法，自然有对应的end方法，在SafepointSynchronize::end()中，会最终唤醒所有挂起等待的线程，大概实现如下：
+1、重新设置pooling page为可读
+
+  if (PageArmed) {
+    // Make polling safepoint aware
+    os::make_polling_page_readable();
+    PageArmed = 0 ;
+  }
+2、设置解释器为ignore_safepoints，实现如下：
+
+// switch from the dispatch table which notices safepoints back to the
+// normal dispatch table.  So that we can notice single stepping points,
+// keep the safepoint dispatch table if we are single stepping in JVMTI.
+// Note that the should_post_single_step test is exactly as fast as the
+// JvmtiExport::_enabled test and covers both cases.
+void TemplateInterpreter::ignore_safepoints() {
+  if (_notice_safepoints) {
+    if (!JvmtiExport::should_post_single_step()) {
+      // switch to normal dispatch table
+      _notice_safepoints = false;
+      copy_table((address*)&_normal_table, (address*)&_active_table, sizeof(_active_table) / sizeof(address));
+    }
+  }
+}
+3、唤醒所有挂起等待的线程
+
+// Start suspended threads
+    for(JavaThread *current = Threads::first(); current; current = current->next()) {
+      // A problem occurring on Solaris is when attempting to restart threads
+      // the first #cpus - 1 go well, but then the VMThread is preempted when we get
+      // to the next one (since it has been running the longest).  We then have
+      // to wait for a cpu to become available before we can continue restarting
+      // threads.
+      // FIXME: This causes the performance of the VM to degrade when active and with
+      // large numbers of threads.  Apparently this is due to the synchronous nature
+      // of suspending threads.
+      //
+      // TODO-FIXME: the comments above are vestigial and no longer apply.
+      // Furthermore, using solaris' schedctl in this particular context confers no benefit
+      if (VMThreadHintNoPreempt) {
+        os::hint_no_preempt();
+      }
+      ThreadSafepointState* cur_state = current->safepoint_state();
+      assert(cur_state->type() != ThreadSafepointState::_running, "Thread not suspended at safepoint");
+      cur_state->restart();
+      assert(cur_state->is_running(), "safepoint state has not been reset");
+    }
+对JVM性能有什么影响
+
+通过设置JVM参数 -XX:+PrintGCApplicationStoppedTime， 可以打出系统停止的时间，大概如下：
+
+Total time for which application threads were stopped: 0.0051000 seconds  
+Total time for which application threads were stopped: 0.0041930 seconds  
+Total time for which application threads were stopped: 0.0051210 seconds  
+Total time for which application threads were stopped: 0.0050940 seconds  
+Total time for which application threads were stopped: 0.0058720 seconds  
+Total time for which application threads were stopped: 5.1298200 seconds
+Total time for which application threads were stopped: 0.0197290 seconds  
+Total time for which application threads were stopped: 0.0087590 seconds
+从上面数据可以发现，有一次暂停时间特别长，达到了5秒多，这在线上环境肯定是无法忍受的，那么是什么原因导致的呢？
+
+一个大概率的原因是当发生GC时，有线程迟迟进入不到safepoint进行阻塞，导致其他已经停止的线程也一直等待，VM Thread也在等待所有的Java线程挂起才能开始GC，这里需要分析业务代码中是否存在有界的大循环逻辑，可能在JIT优化时，这些循环操作没有插入safepoint检查。
+
+作者：占小狼
+链接：http://www.jianshu.com/p/c79c5e02ebe6
+來源：简书
+著作权归作者所有。商业转载请联系作者获得授权，非商业转载请注明出处。

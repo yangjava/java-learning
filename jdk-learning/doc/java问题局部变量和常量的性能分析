@@ -1,0 +1,89 @@
+前两天群里有人问，下面的代码1 比代码2运行时间上慢了100ms，这是问什么？
+请看下面的两个代码片段：
+
+代码1
+
+for(int i=0; i<Integer.MAX_VALUE; i++){
+    sum+=i;
+}
+代码2
+
+for(int i=0, len=Integer.MAX_VALUE; i<len; i++){
+    sum+=i;
+}
+我本地使用的JDK1.8执行的，但每次执行这两段的时间基本一样。
+
+下面代码是我执行的测试代码：
+
+代码3
+
+public class Test {
+    public static void main(String[] args) {
+        test1();
+        test2();
+    }
+    public static int test1() {
+        long start = System.currentTimeMillis();
+        int sum = 0;
+        for (int i = 0; i < Integer.MAX_VALUE; i++) {
+            sum += i;
+        }
+        long end = System.currentTimeMillis();
+        System.out.println(end - start);
+        return sum;
+    }
+
+    public static int test2() {
+        long start = System.currentTimeMillis();
+        int sum = 0;
+        for (int i = 0, len = Integer.MAX_VALUE; i < len; i++) {
+            sum += i;
+        }
+        long end = System.currentTimeMillis();
+        System.out.println(end - start);
+        return sum;
+    }
+}
+
+Paste_Image.png
+发现每次执行时间差不多，不会出现上述的差别的。我使用的JDK1.8。可能别的版本的JDK有此问题。
+
+下面我又通过添加JVM编译模式参数运行程序得到如下结果：
+
+-Xint：全部使用字节码解释运行
+-Xcomp：全部被编译成机器码执行
+-Xmixed: 使用混合编译,jdk1.8默认执行方式
+
+Paste_Image.png
+从执行结果我们发现
+-Xcomp 和 -Xmixed模式：编译成本地机器码后执行的效率是一样的，没啥区别
+-Xint模式:解释执行两个方法执行时间差距大概2秒
+
+为什么-Xint模式下会有2秒的时间差距呢？
+
+代码1和代码2的区别
+代码1：在for循环中直接使用常量Integer.MAX_VALUE进行对比。
+代码2：在定义一个len变量赋值为Integer.MAX_VALUE，在for循环中使用len局部变量进行对比。
+区别一个引用的是全局常量，一个引用的是局部变量
+
+局部变量存储在栈的局部变量表中
+常量存储在方法区的常量池中（jdk1.7或之前叫方法区，jdk1.8叫元空间）
+
+下面从字节码角度分析Test类中的test1方法和test2方法的局部变量表。
+
+
+test1方法
+
+从字节码从11到21之间是for循环体，可以看出19行ldc指令是每次都是从常量池中获取Integer.MAX_VALUE的值。
+
+
+ldc指令说明
+
+test2方法
+
+字节码15-25之间是for循环，这个方法，我们可以看到在for循环外面先从常量池中获取Integer.MAX_VALUE的值赋值给本地变量，for循环体内每次进行比较的是本地变量，也就是局部变量表中的值，而不是每次从常量池获取变量的值。这就是test2方法比test1方法快的原因。
+
+作者：jijs
+链接：http://www.jianshu.com/p/e8f8feee4017
+來源：简书
+著作权归作者所有。商业转载请联系作者获得授权，非商业转载请注明出处。

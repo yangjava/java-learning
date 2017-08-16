@@ -1,0 +1,615 @@
+本文对老年代TenuredGeneration的垃圾回收算法进行分析。
+
+TenuredGeneration
+
+老年代TenuredGeneration使用标记-压缩-清理算法进行垃圾回收，将标记对象移动到堆的另一端，同时更新对象的引用地址，算法的具体实现位于TenuredGeneration::collect()方法
+
+void TenuredGeneration::collect(bool full,
+                                bool clear_all_soft_refs,
+                                size_t size,
+                                bool is_tlab) {
+  retire_alloc_buffers_before_full_gc();
+  OneContigSpaceCardGeneration::collect(full, clear_all_soft_refs,
+                                        size, is_tlab);
+}
+调用父类的OneContigSpaceCardGeneration的collect()方法，实现如下
+
+void OneContigSpaceCardGeneration::collect(bool full,
+                                           bool clear_all_soft_refs,
+                                           size_t size,
+                                           bool is_tlab) {
+  SpecializationStats::clear();
+  // Temporarily expand the span of our ref processor, so
+  // refs discovery is over the entire heap, not just this generation
+  ReferenceProcessorSpanMutator
+    x(ref_processor(), GenCollectedHeap::heap()->reserved_region());
+  GenMarkSweep::invoke_at_safepoint(_level, ref_processor(), clear_all_soft_refs);
+  SpecializationStats::print();
+}
+其中GenMarkSweep::invoke_at_safepoint()是垃圾回收算法实现的核心，下面对invoke_at_safepoint方法进行分析。
+
+GC前准备
+
+  // 设置引用处理器和引用的处理策略；
+  _ref_processor = rp;
+  rp->setup_policy(clear_all_softrefs);
+
+  // 设置输出日志；
+  TraceTime t1("Full GC", PrintGC && !PrintGCDetails, true, gclog_or_tty);
+
+  // When collecting the permanent generation methodOops may be moving,
+  // so we either have to flush all bcp data or convert it into bci.
+  CodeCache::gc_prologue();
+  Threads::gc_prologue();
+
+  // 增加永久代回收的统计次数
+  // Increment the invocation count for the permanent generation, since it is
+  // implicitly collected whenever we do a full mark sweep collection.
+  gch->perm_gen()->stat_record()->invocations++;
+
+  // 统计GC前的内存堆已使用大小
+  // Capture heap size before collection for printing.
+  size_t gch_prev_used = gch->used();
+
+  // 保存当前内存代和更低的内存代、以及永久代的已使用区域
+  // Capture used regions for each generation that will be
+  // subject to collection, so that card table adjustments can
+  // be made intelligently (see clear / invalidate further below).
+  gch->save_used_regions(level, true /* perm */);
+
+  // 初始化遍历栈，用来保存对象和对象头的对应关系
+  allocate_stacks();
+执行GC
+
+GC使用标记-压缩-清理算法MarkSweepCompact，整个过程一共4阶段，分别对应4个方法的实现：
+
+// Mark live objects
+static void mark_sweep_phase1(int level, bool clear_all_softrefs);
+// Calculate new addresses
+static void mark_sweep_phase2();
+// Update pointers
+static void mark_sweep_phase3(int level);
+// Move objects to new positions
+static void mark_sweep_phase4();
+一、mark_sweep_phase1： 标记活跃对象
+
+1、标记根对象，这部分实现和新生代类似，只是不扫描Younger gens的对象
+
+follow_root_closure.set_orig_generation(gch->get_gen(level));
+gch->gen_process_strong_roots(level,
+                                false, // Younger gens are not roots.
+                                true,  // activate StrongRootsScope
+                                true,  // Collecting permanent generation.
+                                SharedHeap::SO_SystemClasses,
+                                &follow_root_closure,
+                                true,   // walk code active on stacks
+                                &follow_root_closure);
+其中follow_root_closure负责处理活跃对象，其工作函数如下：
+
+void MarkSweep::FollowRootClosure::do_oop(oop* p)       { follow_root(p); }
+void MarkSweep::FollowRootClosure::do_oop(narrowOop* p) { follow_root(p); }
+工作函数接着调用follow_root()方法，完成活跃对象的标记工作，实现如下:
+
+template <class T> inline void MarkSweep::follow_root(T* p) {
+  // ... 省略一些代码
+  T heap_oop = oopDesc::load_heap_oop(p);
+  if (!oopDesc::is_null(heap_oop)) {
+    oop obj = oopDesc::decode_heap_oop_not_null(heap_oop);
+    if (!obj->mark()->is_marked()) {
+      mark_object(obj);
+      obj->follow_contents();
+    }
+  }
+  follow_stack();
+}
+如果对象还没有被标记，即obj->mark()->is_marked()返回false，通过调用mark_object()方法标记该对象，接着调用follow_contents()和follow_stack()方法处理该对象。
+
+1） mark_object()实现对象的标记过程，如下：
+
+inline void MarkSweep::mark_object(oop obj) {
+  // some marks may contain information we need to preserve so we store them away
+  // and overwrite the mark.  We'll restore it at the end of markSweep.
+  markOop mark = obj->mark();
+  obj->set_mark(markOopDesc::prototype()->set_marked());
+
+  if (mark->must_be_preserved(obj)) {
+    preserve_mark(obj, mark);
+  }
+}
+设置对象的对象头为被标记状态，有些对象的对象头可能包含一些信息，需要在GC结束之后进行恢复，可以通过调用preserve_mark()方法保存对象和对应的对象头，实现如下：
+
+void MarkSweep::preserve_mark(oop obj, markOop mark) {
+  // We try to store preserved marks in the to space of the new generation since
+  // this is storage which should be available.  Most of the time this should be
+  // sufficient space for the marks we need to preserve but if it isn't we fall
+  // back to using Stacks to keep track of the overflow.
+  if (_preserved_count < _preserved_count_max) {
+    _preserved_marks[_preserved_count++].init(obj, mark);
+  } else {
+    _preserved_mark_stack.push(mark);
+    _preserved_oop_stack.push(obj);
+  }
+}
+2）follow_contents()负责处理活跃对象的引用对象，实现如下：
+
+inline void oopDesc::follow_contents(void) {
+  assert (is_gc_marked(), "should be marked");
+  blueprint()->oop_follow_contents(this);
+}
+其中对象实例instanceKlass的oop_follow_contents()方法实现如下
+
+void instanceKlass::oop_follow_contents(oop obj) {
+  assert(obj != NULL, "can't follow the content of NULL object");
+  obj->follow_header();
+  InstanceKlass_OOP_MAP_ITERATE( \
+    obj, \
+    MarkSweep::mark_and_push(p), \
+    assert_is_in_closed_subset)
+}
+
+inline void oopDesc::follow_header() {
+  if (UseCompressedOops) {
+    MarkSweep::mark_and_push(compressed_klass_addr());
+  } else {
+    MarkSweep::mark_and_push(klass_addr());
+  }
+}
+可以发现，oop_follow_contents方法最终调用MarkSweep::mark_and_push方法处理引用对象，标记引用对象并插入到_marking_stack栈中
+
+template <class T> inline void MarkSweep::mark_and_push(T* p) {
+//  assert(Universe::heap()->is_in_reserved(p), "should be in object space");
+  T heap_oop = oopDesc::load_heap_oop(p);
+  if (!oopDesc::is_null(heap_oop)) {
+    oop obj = oopDesc::decode_heap_oop_not_null(heap_oop);
+    if (!obj->mark()->is_marked()) {
+      mark_object(obj);
+      _marking_stack.push(obj);
+    }
+  }
+}
+3）follow_stack()负责处理_marking_stack栈中的对象，并调用对象的follow_contents方法处理其引用对象，直到栈中的对象为空，实现如下：
+
+void MarkSweep::follow_stack() {
+  do {
+    while (!_marking_stack.is_empty()) {
+      oop obj = _marking_stack.pop();
+      assert (obj->is_gc_marked(), "p must be marked");
+      obj->follow_contents();
+    }
+    // Process ObjArrays one at a time to avoid marking stack bloat.
+    if (!_objarray_stack.is_empty()) {
+      ObjArrayTask task = _objarray_stack.pop();
+      objArrayKlass* const k = (objArrayKlass*)task.obj()->blueprint();
+      k->oop_follow_contents(task.obj(), task.index());
+    }
+  } while (!_marking_stack.is_empty() || !_objarray_stack.is_empty());
+}
+除了_marking_stack栈，还有一个_objarray_stack栈，用于处理数组对象，当数组非常大时，如果数组对象的引用全都放在标记栈中的话，就会出现爆栈的可能。
+
+到此为止，所有的活跃对象都已经被标记。
+
+2、处理在标记过程中发现的引用；
+
+// Process reference objects found during marking
+  {
+    ref_processor()->setup_policy(clear_all_softrefs);
+    ref_processor()->process_discovered_references(
+      &is_alive, &keep_alive, &follow_stack_closure, NULL);
+  }
+3、卸载不再使用的类，并清理CodeCache和标记栈；
+
+// Follow system dictionary roots and unload classes
+bool purged_class = SystemDictionary::do_unloading(&is_alive);
+
+// Follow code cache roots
+CodeCache::do_unloading(&is_alive, &keep_alive, purged_class);
+follow_stack(); // Flush marking stack
+4、当有类卸载之后，需要更新存活类的子类、兄弟类、实现类的引用关系，清理未被标记的软引用和弱引用；
+
+follow_weak_klass_links();
+assert(_marking_stack.is_empty(), "just drained");
+
+// Visit memoized MDO's and clear any unmarked weak refs
+follow_mdo_weak_refs();
+assert(_marking_stack.is_empty(), "just drained");
+5、清理字符串常量池中没有被标记过的对象；
+
+// Visit interned string tables and delete unmarked oops
+StringTable::unlink(&is_alive);
+
+// 实现
+void StringTable::unlink(BoolObjectClosure* is_alive) {
+  // Readers of the table are unlocked, so we should only be removing
+  // entries at a safepoint.
+  assert(SafepointSynchronize::is_at_safepoint(), "must be at safepoint");
+  for (int i = 0; i < the_table()->table_size(); ++i) {
+    for (HashtableEntry<oop>** p = the_table()->bucket_addr(i); *p != NULL; ) {
+      HashtableEntry<oop>* entry = *p;
+      if (entry->is_shared()) {
+        break;
+      }
+      assert(entry->literal() != NULL, "just checking");
+      if (is_alive->do_object_b(entry->literal())) {
+        p = entry->next_addr();
+      } else {
+        *p = entry->next();
+        the_table()->free_entry(entry);
+      }
+    }
+  }
+}
+6、清理符号表中没有被引用的符号
+
+// Clean up unreferenced symbols in symbol table.
+SymbolTable::unlink();
+
+// Remove unreferenced symbols from the symbol table
+// This is done late during GC.  This doesn't use the hash table unlink because
+// it assumes that the literals are oops.
+void SymbolTable::unlink() {
+  int removed = 0;
+  int total = 0;
+  size_t memory_total = 0;
+  for (int i = 0; i < the_table()->table_size(); ++i) {
+    for (HashtableEntry<Symbol*>** p = the_table()->bucket_addr(i); *p != NULL; ) {
+      HashtableEntry<Symbol*>* entry = *p;
+      if (entry->is_shared()) {
+        break;
+      }
+      Symbol* s = entry->literal();
+      memory_total += s->object_size();
+      total++;
+      assert(s != NULL, "just checking");
+      // If reference count is zero, remove.
+      if (s->refcount() == 0) {
+        delete s;
+        removed++;
+        *p = entry->next();
+        the_table()->free_entry(entry);
+      } else {
+        p = entry->next_addr();
+      }
+    }
+  }
+  symbols_removed += removed;
+  symbols_counted += total;
+  // Exclude printing for normal PrintGCDetails because people parse
+  // this output.
+  if (PrintGCDetails && Verbose && WizardMode) {
+    gclog_or_tty->print(" [Symbols=%d size=" SIZE_FORMAT "K] ", total,
+                        (memory_total*HeapWordSize)/1024);
+  }
+}
+二、mark_sweep_phase2： 计算活跃对象在压缩完成之后的新地址
+
+在第一步中，所有的活跃对象都已经被标记完成，接下来就是遍历所有的对象，把活跃对象移动到内存区域的一端，并重新计算新对象的地址，实现如下：
+
+void GenMarkSweep::mark_sweep_phase2() {
+  GenCollectedHeap* gch = GenCollectedHeap::heap();
+  Generation* pg = gch->perm_gen();
+   // ...
+  VALIDATE_MARK_SWEEP_ONLY(reset_live_oop_tracking(false));
+  gch->prepare_for_compaction();
+  VALIDATE_MARK_SWEEP_ONLY(_live_oops_index_at_perm = _live_oops_index);
+  CompactPoint perm_cp(pg, NULL, NULL);
+  pg->prepare_for_compaction(&perm_cp);
+}
+其中prepare_for_compaction()定义在GenCollectedHeap中，实现如下：
+
+void GenCollectedHeap::prepare_for_compaction() {
+  Generation* scanning_gen = _gens[_n_gens-1];
+  // Start by compacting into same gen.
+  CompactPoint cp(scanning_gen, NULL, NULL);
+  while (scanning_gen != NULL) {
+    scanning_gen->prepare_for_compaction(&cp);
+    scanning_gen = prev_gen(scanning_gen);
+  }
+}
+从prepare_for_compaction的方法名定义，可以看出这是进行压缩前的前期工作，在老年代中只有一个ContiguousSpace类型的内存区_the_space，它的prepare_for_compaction()方法实现如下：
+
+// Faster object search.
+void ContiguousSpace::prepare_for_compaction(CompactPoint* cp) {
+  SCAN_AND_FORWARD(cp, top, block_is_always_obj, obj_size);
+}
+其中SCAN_AND_FORWARD函数的实现位于space.hpp文件中，为活跃对象计算新地址并保存在对象头，分析过程如下：
+1、compact_top指针指向压缩目标的内存空间起始地址，在开始之前，指向当前内存区域的起始地址；
+
+HeapWord* compact_top; /* This is where we are currently compacting to. */ 
+
+/* We're sure to be here before any objects are compacted into this        
+ * space, so this is a good time to initialize this:                       
+ */                                                                        
+set_compaction_top(bottom());
+2、初始化CompactPoint，并设置当前要执行压缩的区域的指针compact_top，如果CompactPoint所对应的区域space为空，则初始化CompactPoint的space为内存代的第一块区域，设置compact_top为区域的起始地址；否则设置compact_top为CompactPoint中保存的值，继续该区域的压缩工作；
+
+if (cp->space == NULL) {                                                   
+  assert(cp->gen != NULL, "need a generation");                            
+  assert(cp->threshold == NULL, "just checking");                          
+  assert(cp->gen->first_compaction_space() == this, "just checking");      
+  cp->space = cp->gen->first_compaction_space();                           
+  compact_top = cp->space->bottom();                                       
+  cp->space->set_compaction_top(compact_top);                              
+  cp->threshold = cp->space->initialize_threshold();                       
+} else {                                                                   
+  compact_top = cp->space->compaction_top();                               
+}
+3、在没有明显的压缩效果之前，我们允许一些垃圾对象移动到内存区域的底部，即开始位置，每进行MarkSweepAlwaysCompactCount(默认4次)FGC时，再进行一次完全压缩，实现如下：
+
+/* We allow some amount of garbage towards the bottom of the space, so     
+ * we don't start compacting before there is a significant gain to be made.
+ * Occasionally, we want to ensure a full compaction, which is determined  
+ * by the MarkSweepAlwaysCompactCount parameter.                           
+ */                                                                        
+int invocations = SharedHeap::heap()->perm_gen()->stat_record()->invocations;
+bool skip_dead = ((invocations % MarkSweepAlwaysCompactCount) != 0);       
+
+size_t allowed_deadspace = 0;                                              
+if (skip_dead) {                                                           
+  const size_t ratio = allowed_dead_ratio();                               
+  allowed_deadspace = (capacity() * ratio / 100) / HeapWordSize;           
+}
+其中invocations是FGC的总次数，当invocations不是4的倍数时，会在内存区域中留出一块大小为allowed_deadspace的死亡空间，默认为5%，用于后续使用；
+
+4、定义一些基本变量：q为遍历指针，t为扫描边界，end_of_live为最后一个活跃对象的地址，LiveRange保存着死亡对象后面活跃对象的地址区间，first_dead为第一个死亡对象的地址，默认是该区域的末端地址；
+
+HeapWord* q = bottom();                                                    
+HeapWord* t = scan_limit();                                                
+
+HeapWord*  end_of_live= q;    /* One byte beyond the last byte of the last 
+                                 live object. */                           
+HeapWord*  first_dead = end();/* The first dead object. */                 
+LiveRange* liveRange  = NULL; /* The current live range, recorded in the   
+                                 first header of preceding free area. */   
+_first_dead = first_dead;
+5、开始遍历区域中的对象
+如果指针q所指向位置是一个对象，且被标识过，说明这是一个活跃的对象，则通过cp->space->forward()方法计算该对象压缩后的地址；
+
+while (q < t) {                                                            
+    if (block_is_obj(q) && oop(q)->is_gc_marked()) {                         
+      /* prefetch beyond q */                                                
+      Prefetch::write(q, interval);                                          
+      /* size_t size = oop(q)->size();  changing this for cms for perm gen */
+      size_t size = block_size(q);                                           
+      compact_top = cp->space->forward(oop(q), size, cp, compact_top);       
+      q += size;                                                             
+      end_of_live = q;                                                       
+    }
+如果对象在压缩之后位置有变化，则将自己的对象头设置为压缩后地址信息，否则表示该对象不需要移动，设置对象头为默认值，并调用register_live_oop方法把原指针保存在栈_live_oops中
+
+// store the forwarding pointer into the mark word
+  if ((HeapWord*)q != compact_top) {
+    q->forward_to(oop(compact_top));
+    assert(q->is_gc_marked(), "encoding the pointer should preserve the mark");
+  } else {
+    // if the object isn't moving we can just set the mark to the default
+    // mark and handle it specially later on.
+    q->init_mark();
+    assert(q->forwardee() == NULL, "should be forwarded to NULL");
+  }
+ VALIDATE_MARK_SWEEP_ONLY(MarkSweep::register_live_oop(q, size));
+ compact_top += size;
+如果指针q所指向位置不是一个对象，或没有被标识过，说明是一个死亡对象，则直接跳过，直到碰到活跃对象为止，实现如下：
+
+/* run over all the contiguous dead objects */                         
+HeapWord* end = q;                                                     
+do {                                                                   
+  /* prefetch beyond end */                                            
+  Prefetch::write(end, interval);                                      
+  end += block_size(end);                                              
+} while (end < t && (!block_is_obj(end) || !oop(end)->is_gc_marked()));
+6、如果死亡空间allowed_deadspace可用，则计算死亡对象的大小总和为sz，则调用insert_deadspace()方法尝试插入一个大小为sz的对象，当做活跃对象进行处理，实现如下
+
+/* see if we might want to pretend this object is alive so that        
+ * we don't have to compact quite as often.                            
+ */                                                                    
+if (allowed_deadspace > 0 && q == compact_top) {                       
+  size_t sz = pointer_delta(end, q);                                   
+  if (insert_deadspace(allowed_deadspace, q, sz)) {                    
+    compact_top = cp->space->forward(oop(q), sz, cp, compact_top);     
+    q = end;                                                           
+    end_of_live = end;                                                 
+    continue;                                                          
+  }                                                                    
+}
+
+bool CompactibleSpace::insert_deadspace(size_t& allowed_deadspace_words,
+                                        HeapWord* q, size_t deadlength) {
+  if (allowed_deadspace_words >= deadlength) {
+    allowed_deadspace_words -= deadlength;
+    CollectedHeap::fill_with_object(q, deadlength);
+    oop(q)->set_mark(oop(q)->mark()->set_marked());
+    assert((int) deadlength == oop(q)->size(), "bad filler object size");
+    // Recall that we required "q == compaction_top".
+    return true;
+  } else {
+    allowed_deadspace_words = 0;
+    return false;
+  }
+}
+如果死亡空间allowed_deadspace大于等于之前连续死亡对象大小总和，则更新allowed_deadspace值，并生成一个大小为sz且标识过的对象，这时需要更新压缩指针compact_top、遍历指针q和最后的活跃对象end_of_live，因为这里把新对象当成一个活跃对象进行处理，并继续往后遍历对象；
+
+否则忽略这些死亡对象，进行以下步骤：
+7、当执行到这一步时，说明跳过了一系列的死亡对象，遇到了活跃对象，如果liveRange不为空，则设置当前的结束位置为遍历指针q，此时q正指向死亡区域的第一个对象；由于在死亡对象后遇到了一个新的活跃对象，需要重新构造一个LiveRange对象来记录下一片活跃对象的地址范围，并设置开始和结束为止为end，这里直接把死亡区域的第一个对象当作LiveRange对象，实现如下
+
+/* for the previous LiveRange, record the end of the live objects. */  
+if (liveRange) {                                                       
+  liveRange->set_end(q);                                               
+}                                                                      
+
+/* record the current LiveRange object.                                
+ * liveRange->start() is overlaid on the mark word.                    
+ */                                                                    
+liveRange = (LiveRange*)q;                                             
+liveRange->set_start(end);                                             
+liveRange->set_end(end);
+8、保存第一个死亡对象的地址，并将遍历指针q指向end的位置继续遍历
+
+/* see if this is the first dead region. */                            
+if (q < first_dead) {                                                  
+  first_dead = q;                                                      
+}                                                                      
+
+/* move on to the next object */                                       
+q = end;
+9、遍历完成之后，如果当前的liveRange不为空，则设置该liveRange的结束位置为q，设置最后一个活跃对象的位置_end_of_live，根据_end_of_live的值重新设置第一个死亡对象的位置_first_dead；
+
+if (liveRange != NULL) { 
+  liveRange->set_end(q); 
+} 
+_end_of_live = end_of_live;                                               
+if (end_of_live < first_dead) {
+  first_dead = end_of_live;
+}
+_first_dead = first_dead;
+10、记录当前区域的压缩位置
+
+cp->space->set_compaction_top(compact_top);
+三、mark_sweep_phase3：更新对象的引用地址
+
+1、调用gen_process_strong_roots()并使用adjust_root_pointer_closure处理函数调整根对象指针的引用地址，adjust_root_pointer_closure的实现如下：
+
+void MarkSweep::AdjustPointerClosure::do_oop(oop* p)       { adjust_pointer(p, _is_root); }
+void MarkSweep::AdjustPointerClosure::do_oop(narrowOop* p) { adjust_pointer(p, _is_root); }
+其中adjust_pointer()方法定义在markSweep.inline.hpp文件中，通过解析对象的对象头，判断对象头中是否保存着经过压缩后的新地址，实现如下
+
+template <class T> inline void MarkSweep::adjust_pointer(T* p, bool isroot) {
+  T heap_oop = oopDesc::load_heap_oop(p);
+  if (!oopDesc::is_null(heap_oop)) {
+    oop obj     = oopDesc::decode_heap_oop_not_null(heap_oop);
+    oop new_obj = oop(obj->mark()->decode_pointer());
+    // ....
+    if (new_obj != NULL) {
+     // ...
+      oopDesc::encode_store_heap_oop_not_null(p, new_obj);
+    }
+  }
+  VALIDATE_MARK_SWEEP_ONLY(track_adjusted_pointer(p, isroot));
+}
+2、adjust_code_pointer_closure()方法调整引用指针的引用地址；
+
+// Now adjust pointers in remaining weak roots.  (All of which should
+// have been cleared if they pointed to non-surviving objects.)
+CodeBlobToOopClosure adjust_code_pointer_closure(&adjust_pointer_closure,
+                                                   /*do_marking=*/ false);
+gch->gen_process_weak_roots(&adjust_root_pointer_closure,
+                              &adjust_code_pointer_closure,
+                              &adjust_pointer_closure);
+3、使用GenAdjustPointersClosure遍历各内存代，以更新引用对象的引用地址；
+
+adjust_marks();
+GenAdjustPointersClosure blk;
+gch->generation_iterate(&blk, true);
+pg->adjust_pointers();
+四、mark_sweep_phase4：移动所有活跃对象到新地址
+
+1、压缩永久代的对象，只有等永久代的对象压缩后，实例对象才能获取正确的类数据地址；
+2、使用GenCompactClosure遍历堆上的对象
+
+GenCompactClosure blk;
+gch->generation_iterate(&blk, true);
+其中generation_iterate()将调用GenCompactClosure的do_generation()方法遍历各个内存代，实现如下
+
+void GenCollectedHeap::generation_iterate(GenClosure* cl,
+                                          bool old_to_young) {
+  if (old_to_young) {
+    for (int i = _n_gens-1; i >= 0; i--) {
+      cl->do_generation(_gens[i]);
+    }
+  } else {
+    for (int i = 0; i < _n_gens; i++) {
+      cl->do_generation(_gens[i]);
+    }
+  }
+}
+GenCompactClosure的do_generation()方法负责调用各个内存代的compact()进行压缩工作
+
+class GenCompactClosure: public GenCollectedHeap::GenClosure {
+public:
+  void do_generation(Generation* gen) {
+    gen->compact();
+  }
+};
+其中老年代的compact()方法实现如下：
+
+void CompactibleSpace::compact() {
+  SCAN_AND_COMPACT(obj_size);
+}
+调用了SCAN_AND_COMPACT函数进行对象的移动
+
+1、变量q是遍历指针，默认为内存区域的起始地址，t是最后一个活跃对象的位置，至于为什么要记录最后一个活跃对象的位置，主要是为了避免当GC后的活跃对象较少时，进行不必要的遍历
+
+#define SCAN_AND_COMPACT(obj_size) {                                            
+  /* Copy all live objects to their new location                                
+   * Used by MarkSweep::mark_sweep_phase4() */                                  
+
+  HeapWord*       q = bottom();                                                 
+  HeapWord* const t = _end_of_live;
+2、移动第一个死亡对象之前的活跃对象到新的位置
+
+if (q < t && _first_dead > q &&  !oop(q)->is_gc_marked()) {    
+  HeapWord* const end = _first_dead;    
+  while (q < end) {        
+    size_t size = obj_size(q); 
+    VALIDATE_MARK_SWEEP_ONLY(MarkSweep::live_oop_moved_to(q, size, q));          
+    q += size;                                                                
+  }
+3、当遍历到_first_dead时，即第一个死亡对象的位置，如果_first_dead不等于_end_of_live，说明有连续多个死亡对象，而且在第一个死亡对象的对象头保存着LiveRange，通过LiveRange可以获取下一个活跃对象的地址
+
+  if (_first_dead == t) {                                                     
+    q = t;                                                                    
+  } else {                                                                    
+    /* $$$ Funky */                                                           
+    q = (HeapWord*) oop(_first_dead)->mark()->decode_pointer();               
+  }
+4、从新的活跃对象开始新的遍历
+如果是死亡对象，则通过LiveRange获取下一个存活对象的地址
+
+while (q < t) {                                                               
+  if (!oop(q)->is_gc_marked()) {                                              
+    /* mark is pointer to next marked oop */                                  
+    debug_only(prev_q = q);                                                   
+    q = (HeapWord*) oop(q)->mark()->decode_pointer();                         
+    assert(q > prev_q, "we should be moving forward through memory");         
+  }
+5、如果是活跃对象，则调用live_oop_moved_to方法将对象移动到压缩后的新地址，并初始化新对象的对象头，实现如下
+
+Prefetch::read(q, scan_interval);                                         
+
+/* size and destination */                                                
+size_t size = obj_size(q);                                                
+HeapWord* compaction_top = (HeapWord*)oop(q)->forwardee();                
+
+/* prefetch beyond compaction_top */                                      
+Prefetch::write(compaction_top, copy_interval);                           
+
+/* copy object and reinit its mark */                                     
+VALIDATE_MARK_SWEEP_ONLY(
+  MarkSweep::live_oop_moved_to(q, size, compaction_top)
+);   
+//...
+Copy::aligned_conjoint_words(q, compaction_top, size);                    
+oop(compaction_top)->init_mark();                                         
+
+q += size;
+其中live_oop_moved_to()方法实现如下：
+
+void MarkSweep::live_oop_moved_to(HeapWord* q, size_t size,
+                                  HeapWord* compaction_top) {
+  assert(oop(q)->forwardee() == NULL || oop(q)->forwardee() == oop(compaction_top),
+         "should be moved to forwarded location");
+  if (ValidateMarkSweep) {
+    MarkSweep::validate_live_oop(oop(q), size);
+    _live_oops_moved_to->push(oop(compaction_top));
+  }
+  if (RecordMarkSweepCompaction) {
+    _cur_gc_live_oops->push(q);
+    _cur_gc_live_oops_moved_to->push(compaction_top);
+    _cur_gc_live_oops_size->push(size);
+  }
+}
+原对象的指针已经被保存在_live_oops栈中，对应的把压缩后的对象指针保存在_live_oops_moved_to中
+
+作者：占小狼
+链接：http://www.jianshu.com/p/29c20f0684d0
+來源：简书
+著作权归作者所有。商业转载请联系作者获得授权，非商业转载请注明出处。

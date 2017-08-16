@@ -1,0 +1,111 @@
+背景
+
+字符串类型在实际应用场景中使用非常频繁，如果为每个字符串常量都生成一个对应的String对象，明显会造成内存的浪费，针对这一问题，虚拟机实现一个字符串常量池的概念，提供了如下实现：
+1、同一个字符串常量，在常量池只有一份副本；
+2、通过双引号声明的字符串，直接保存在常量池中；
+3、如果是String对象，可以通过String.intern方法，把字符串常量保存到常量池中；
+
+本文JVM源码版本 openjdk-7-fcs-src-b147-27
+
+疑惑
+
+
+在不同环境执行上述代码，会得到不同的结果，为什么？
+1、JDK1.6的结果：false false
+2、JDK1.7的结果：true false
+
+解惑
+
+其中String.intern在java中是native方法，JDK1.7的注释如下：
+
+
+1、执行intern方法时，如果常量池中存在和String对象相同的字符串，则返回常量池中对应字符串的引用；
+2、如果常量池中不存在对应的字符串，则添加该字符串到常量中，并返回字符串引用；
+
+HotSpot1.6实现
+
+常量池的内存在永久代进行分配，永久代和Java堆的内存是物理隔离的，执行intern方法时，如果常量池不存在该字符串，虚拟机会在常量池中复制该字符串，并返回引用，使用intern方法时需要谨慎，避免常量池中字符串过多，导致性能变慢，甚至发生PermGen内存溢出。
+
+
+显然s.intern() == s不可能成立.
+
+HotSpot1.7实现
+
+intern方法的HotSpot实现入口位于openjdk\jdk\src\share\native\java\lang\String.c文件中：
+
+
+其中JVM_InternString声明位于openjdk\hotspot\src\share\vm\prims\jvm.cpp文件中：
+
+
+String.intern最终通过StringTable.intern方法实现，其中StringTable是HotSpot字符串常量池的具体实现，1.7的常量池已经在Java堆上分配内存。
+
+常量池的初始化
+
+常量池的实现非常简单，类似JDK中的HashMap，其中StringTable的声明位于symbolTable.hpp文件中：
+
+
+StringTable最终继承了BasicHashtable，通过构造方法参数指定常量池的大小StringTableSize，默认为1009，StringTableSize定义在globals.hpp文件中：
+
+
+不过在Java7u40版本之后StringTableSize扩大到了60013，可以通过-XX:StringTableSize = 10009设置StringTable大小，通过-XX:+PrintFlagsFinal打印虚拟机的Global flags参数，可以获得当前StringTable的大小。
+
+BasicHashtable实现
+
+
+1、initialize方法初始化常量池的基本值：_table_size、_entry_size等；
+2、NEW_C_HEAP_ARRAY方法在堆上分配HashtableBucket；
+3、清空StringTable中的HashtableBucket数据；
+
+StringTable.intern实现
+
+
+1、其中参数string_or_null为指向原字符串的句柄，name是String对象中字符数组的拷贝、len为字符数组的长度；
+2、java_lang_String::hash_string方法计算出字符串的hash值，实现如下：
+
+
+3、BasicHashtable.hash_to_index方法计算出该hash值在StringTable中桶的位置index，实现如下：
+
+
+4、StringTable::lookup方法判断StringTable指定位置的桶中是否存在相等的字符串，实现如下：
+
+
+lookup方法通过遍历HashtableEntry链表，如果找到对应的hash值，且字符串值也相等，说明StringTable中已经存在该字符串，则返回该字符串引用，否则返回NULL；
+5、如果StringTable不存在该字符串，则通过StringTable::basic_add方法添加字符串引用到StringTable，实现如下：
+
+
+basic_add方法中的条件判断!string_or_null.is_null()为true，!JavaObjectsInPerm为true，所以并不会进行字符串的复制，而是通过HashtableEntry对象封装原字符串的hash值和指向源字符串的句柄，添加到StringTable对应bucket的链表中，并返回指向原字符串句柄；其中变量JavaObjectsInPerm默认为false，定义如下：
+
+
+通过上述分析：HotSpot1.7实现的常量池在java堆上分配内存，执行intern方法时，如果常量池已经存在相等的字符串，则直接返回字符串引用，否则复制该字符串引用到常量池中并返回；
+
+
+1、对于变量s1，常量池中不存在"StringTest"，所以s1.intern()和 s1都是指向Java堆上的String对象；
+2、对于变量s2，常量池中一开始就已经存在"java"字符串，s2.intern()方法返回的是另外一个"java"字符串对象，所以s2.intern()和s2指向的并非同一个对象；
+
+字符串常量如何实现？
+
+类似String s = "hello java"的字符串常量声明，在HotSpot中是如何实现的呢？
+
+
+其中字符串常量"hello java"会在编译过程中被保存在class文件的Constant pool数据结构中，如下是编译字节码实现：
+
+
+String s = "hello java"对应了两条字节码实现：
+1、ldc #2
+2、astore_1
+
+其中ldc指令的实现在interpreterRuntime.cpp文件中，实现如下：
+
+
+ldc指令中会根据获取的常量类型进行不同操作，由于目前是字符串常量，从而调用pool->string_at(index, CHECK)逻辑，实现如下：
+
+
+其中h_this是指向当前constantPoolOop实例的句柄，最后调用string_at_impl方法：
+
+
+字符串常量一开始以Symbol类型表示，最终通过StringTable::intern方法生成字符串对象，并把字符串的真实引用更新到constantPool中，这样下次执行ldc指令时可以直接返回对象引用。
+
+作者：占小狼
+链接：http://www.jianshu.com/p/c14364f72b7e
+來源：简书
+著作权归作者所有。商业转载请联系作者获得授权，非商业转载请注明出处。

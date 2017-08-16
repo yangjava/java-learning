@@ -1,0 +1,330 @@
+生命周期回调
+Spring提供了几个标志接口（marker interface），这些接口用来改变容器中bean的行为；它们包括InitializingBean和DisposableBean。实现这两个接口的bean在初始化和析构时容器会调用前者的afterPropertiesSet()方法，以及后者的destroy()方法。 
+
+Spring在内部使用BeanPostProcessor实现来处理它能找到的任何标志接口并调用相应的方法。如果你需要自定义特性或者生命周期行为，你可以实现自己的 BeanPostProcessor。关于这方面更多的内容可以看第 3.7 节 “容器扩展点”。
+
+下面讲述了几个生命周期标志接口。在附录中会提供相关的示意图来展示Spring如何管理bean，以及生命周期特性如何改变bean的内在特性。
+
+3.5.1.1. 初始化回调
+实现org.springframework.beans.factory.InitializingBean接口允许容器在设置好bean的所有必要属性后，执行初始化事宜。InitializingBean接口仅指定了一个方法：
+
+void afterPropertiesSet() throws Exception;
+通常，要避免使用InitializingBean接口并且不鼓励使用该接口，因为这样会将代码和Spring耦合起来，有一个可选的方案是，可以在Bean定义中指定一个普通的初始化方法，然后在XML配置文件中通过指定init-method属性来完成。如下面的定义所示：
+
+<bean id="exampleInitBean" class="examples.ExampleBean" init-method="init"/>
+public class ExampleBean {
+    
+    public void init() {
+        // do some initialization work
+    }
+}
+...效果与下面完全一样...
+
+<bean id="exampleInitBean" class="examples.AnotherExampleBean"/>
+public class AnotherExampleBean implements InitializingBean {
+    
+    public void afterPropertiesSet() {
+        // do some initialization work
+    }
+}
+... 但是没有将代码与Spring耦合在一起。
+
+3.5.1.2. 析构回调
+实现org.springframework.beans.factory.DisposableBean接口的bean允许在容器销毁该bean的时候获得一次回调。DisposableBean接口也只规定了一个方法：
+
+void destroy() throws Exception;
+通常，要避免使用DisposableBean标志接口而且不鼓励使用该接口，因为这样会将代码与Spring耦合在一起，有一个可选的方案是，在bean定义中指定一个普通的析构方法，然后在XML配置文件中通过指定destroy-method属性来完成。如下面的定义所示：
+
+<bean id="exampleInitBean" class="examples.ExampleBean" destroy-method="cleanup"/>
+public class ExampleBean {
+
+    public void cleanup() {
+        // do some destruction work (like releasing pooled connections)
+    }
+}
+...效果与下面完全一样...
+
+<bean id="exampleInitBean" class="examples.AnotherExampleBean"/>
+public class AnotherExampleBean implements DisposableBean {
+
+    public void destroy() {
+        // do some destruction work (like releasing pooled connections)
+    }
+}
+... 但是没有将代码与Spring耦合在一起。
+
+3.5.1.3. 缺省的初始化和析构方法
+如果有人没有采用Spring所指定的InitializingBean和DisposableBean回调接口来编写初始化和析构方法回调，会发现自己正在编写的方法，其名称莫过于init()， initialize()，dispose()等等。这种生命周期回调方法的名称最好在一个项目范围内标准化，这样团队中的开发人员就可以使用同样的方法名称，并且确保了某种程度的一致性。
+
+Spring容器通过配置可以实现对每个 bean初始化时的查找和销毁时的回调调用。这也就是说，一个应用的开发者可以借助于初始化的回调方法init() 轻松的写一个类（不必想XML配置文件那样为每个bean都配置一个'init-method="init"'属性）。Spring IoC容器在创建bean的时候将调用这个方法 （这和之前描述的标准生命周期回调一致）。
+
+为了完全弄清如何使用该特性，让我们看一个例子。出于示范的目的，假设一个项目的编码规范中约定所有的初始化回调方法都被命名为init()而析构回调方法被命名为destroy()。遵循此规则写成的类如下所示：
+
+public class DefaultBlogService implements BlogService {
+
+    private BlogDao blogDao;
+
+    public void setBlogDao(BlogDao blogDao) {
+        this.blogDao = blogDao;
+    }
+
+    // this is (unsurprisingly) the initialization callback method
+    public void init() {
+        if (this.blogDao == null) {
+            throw new IllegalStateException("The [blogDao] property must be set.");
+        }
+    }
+}
+<beans default-init-method="init">
+
+    <bean id="blogService" class="com.foo.DefaultBlogService">
+        <property name="blogDao" ref="blogDao" />
+    </bean>
+
+</beans>
+注意在顶级的<beans/>元素中的'default-init-method'属性。这个属性的含义是Spring IoC容器在bean创建和装配的时候会将'init'方法作为实例化回调方法。如果类有这个方法，则会在适当的时候执行。
+
+销毁回调方法配置是相同的 (XML配置)，在顶级的<beans/>元素中使用 'default-destroy-method' 属性。
+
+使用这个功能可以把你从位每个bean指定初始化和销毁回调的繁杂工作中解救出来。为了一致性，应该强制性的为初始化和销毁回调方法采用一致的命名规则。
+
+当已经存在的类的初始化方法的命名规则与惯例有差异的时候，你应该始终使用<bean/>元素中的'init-method'和'destroy-method'属性(在XML配置中)来覆盖默认的方式。
+
+最后，请注意Spring容器保证在bean的所有依赖都满足后立即执行配置的初始化回调。这意味着初始化回调在原生bean上调用，这也意味着这个时候任何诸如AOP拦截器之类的将不能被应用。一个目标bean是首先完全创建，然后才应用诸如AOP代理等拦截器链。注意，如果目标bean和代理是分开定义了，你的代码甚至可以绕开代理直接和原生bean通信。因此，在初始化方法上使用拦截器将产生未知的结果，因为这将目标bean和它的代理/拦截器的生命周期绑定并且留下了和初始bean直接通信这样奇怪的方式。
+
+3.5.1.4. 组合生命周期机制
+As of Spring 2.5, there are three options for controlling bean lifecycle behavior: the InitializingBean and DisposableBean callback interfaces; custom init() and destroy() methods; and the @PostConstruct and @PreDestroy annotations.
+
+在Spring2.5中有三种方式可以控制bean的生命周期行为： InitializingBean 和 DisposableBean 回调接口;自定义init() 和 destroy() 方法; @PostConstruct 和@PreDestroy annotations.
+
+当组合不同的生命周期机制时 - 例如，类层次中使用了不同的生命周期机制 - 开发者必须注意这些机制的应用顺序，下面是初始化方法中的顺序：
+
+@PostConstruct元注释
+
+InitializingBean的afterPropertiesSet()定义
+
+自定义init()方法配置
+
+析构方法调用顺序是相同的:
+
+@PreDestroy元注释
+
+DisposableBean的destroy()定义
+
+自定义destroy()方法
+
+注意
+如果bean存在多种的生命周期机制配置并且每种机制都配置为不同的方法名， 那所有配置的方法将会按照上面的顺利执行。然而如果配置了相同的方法名 - 例如， init()初始化方法 - 采用多种机制配置后，只会执行一次。
+
+3.5.1.5. 在非web应用中优雅地关闭Spring IoC容器
+注意
+在基于web的ApplicationContext实现中已有相应的代码来处理关闭web应用时如何恰当地关闭Spring IoC容器。
+
+如果你正在一个非web应用的环境下使用Spring的IoC容器，例如在桌面富客户端环境下，你想让容器优雅的关闭，并调用singleton bean上的相应析构回调方法，你需要在JVM里注册一个“关闭钩子”（shutdown hook）。这一点非常容易做到，并且将会确保你的Spring IoC容器被恰当关闭，以及所有由单例持有的资源都会被释放（当然，为你的单例配置销毁回调，并正确实现销毁回调方法，依然是你的工作）。
+
+为了注册“关闭钩子”，你只需要简单地调用在AbstractApplicationContext实现中的registerShutdownHook()方法即可。也就是：
+
+import org.springframework.context.support.AbstractApplicationContext;
+import org.springframework.context.support.ClassPathXmlApplicationContext;
+
+public final class Boot {
+
+    public static void main(final String[] args) throws Exception {
+        AbstractApplicationContext ctx
+            = new ClassPathXmlApplicationContext(new String []{"beans.xml"});
+
+        // add a shutdown hook for the above context... 
+        ctx.registerShutdownHook();
+
+        // app runs here...
+					// main method exits, hook is called prior to the app shutting down...
+    }
+}
+3.5.2. 了解自己
+3.5.2.1.  BeanFactoryAware 
+对于实现了org.springframework.beans.factory.BeanFactoryAware接口的类，当它被BeanFactory创建后，它会拥有一个指向创建它的BeanFactory的引用。
+
+public interface BeanFactoryAware {
+
+    void setBeanFactory(BeanFactory beanFactory) throws BeansException;
+}
+这样bean可以以编程的方式操控创建它们的BeanFactory，当然我们可以将引用的BeanFactory造型（cast）为已知的子类型来获得更多的功能。它主要用于通过编程来取得BeanFactory所管理的其他bean。虽然在有些场景下这个功能很有用，但是一般来说应该尽量避免使用，因为这样将使代码与Spring耦合在一起，而且也有违反转控制的原则（协作者应该作为属性提供给bean）。
+
+与BeanFactoryAware等效的另一种选择是使用org.springframework.beans.factory.config.ObjectFactoryCreatingFactoryBean。不过该方法依然没有降低与Spring的耦合，但是它并没有像BeanFactoryAware那样，违反IoC原则。）
+
+ObjectFactoryCreatingFactoryBean是 FactoryBean 的一个实现，它返回一个指向工厂对象的引用，该对象将执行bean的查找。ObjectFactoryCreatingFactoryBean类实现了BeanFactoryAware接口；被实际注入到客户端bean的是ObjectFactory接口的一个实例。这是Spring提供的一个接口（因而依旧没有完全与Spring解耦），客户端可以使用ObjectFactory的getObject()方法来查找bean（在其背后，ObjectFactory实例只是简单的将调用委派给BeanFactory，让其根据bean的名称执行实际的查找）。你要做的全部事情就是给ObjectFactoryCreatingFactoryBean提供待查找bean的名字。让我们看一个例子：
+
+package x.y;
+
+public class NewsFeed {
+    
+    private String news;
+
+    public void setNews(String news) {
+        this.news = news;
+    }
+
+    public String getNews() {
+        return this.toString() + ": '" + news + "'";
+    }
+}
+package x.y;
+
+import org.springframework.beans.factory.ObjectFactory;
+
+public class NewsFeedManager {
+
+    private ObjectFactory factory;
+
+    public void setFactory(ObjectFactory factory) {
+        this.factory = factory;
+    }
+
+    public void printNews() {
+        // here is where the lookup is performed; note that there is no
+        // need to hard code the name of the bean that is being looked up...
+        NewsFeed news = (NewsFeed) factory.getObject();
+        System.out.println(news.getNews());
+    }
+}
+下述是XML配置：
+
+<beans>
+    <bean id="newsFeedManager" class="x.y.NewsFeedManager">
+        <property name="factory">
+            <bean
+class="org.springframework.beans.factory.config.ObjectFactoryCreatingFactoryBean">
+                <property name="targetBeanName">
+                    <idref local="newsFeed" />
+                </property>
+            </bean>
+        </property>
+    </bean>
+    <bean id="newsFeed" class="x.y.NewsFeed" scope="prototype">
+        <property name="news" value="... that's fit to print!" />
+    </bean>
+</beans>
+这里有一个测试用的小程序：在NewsFeedManager的printNews()方法里，每次针对被注入的ObjectFactory的调用，实际上返回的是一个新的（prototype）newsFeed bean实例。
+
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.support.ClassPathXmlApplicationContext;
+import x.y.NewsFeedManager;
+
+public class Main {
+
+    public static void main(String[] args) throws Exception {
+
+        ApplicationContext ctx = new ClassPathXmlApplicationContext("beans.xml");
+        NewsFeedManager manager = (NewsFeedManager) ctx.getBean("newsFeedManager");
+        manager.printNews();
+        manager.printNews();
+    }
+}
+上述程序的执行输出如下所示（当然，返回结果会根据你机器的不同而不同）
+
+x.y.NewsFeed@1292d26: '... that's fit to print!'
+x.y.NewsFeed@5329c5: '... that's fit to print!'
+在Spring2.5中，可以利用BeanFactory的自动装配作为实现 BeanFactoryAware接口的可选方式。 "传统"的constructor和byType 自动装配模式（在第 3.3.5 节 “自动装配（autowire）协作者”中有描述）对无论是构造器参数或setter方法都能提供 BeanFactory类型的 依赖。这有更多的灵活性（包括自动装配属性和多参数方法）。如果使用新的基于元注释的自动装配特性，只要属性、 构造器、方法包含有@Autowired元注释时，BeanFactory将会自动装配到对应的属性、构造器、方法中。请参阅第 3.11.1 节 “@Autowired”。
+
+3.5.2.2.  BeanNameAware 
+如果一个bean实现了org.springframework.beans.factory.BeanNameAware接口，并且部署入BeanFactory， BeanFactory将通过（BeanNameAware）接口来通知这个bean部署在其下的bean来调用这个bean。这个回调方法应该在bean的所有一般属性被设置后调用，但应该在初始化回调之前，如InitializingBean的afterPropertiesSet方法或者自定义的初始化方法。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## Spring 中bean 的生命周期短暂吗?
+
+在spring中，从BeanFactory或ApplicationContext取得的实例为Singleton，也就是预设为每一个Bean的别名只能维持一个实例，而不是每次都产生一个新的对象使用Singleton模式产生单一实例，对单线程的程序说并不会有什么问题，但对于多线程的程序，就必须注意安全(Thread-safe)的议题，防止多个线程同时存取共享资源所引发的数据不同步问题。
+
+然而在spring中 可以设定每次从BeanFactory或ApplicationContext指定别名并取得Bean时都产生一个新的实例：例如：
+
+ 
+
+在spring中，singleton属性默认是true，只有设定为false，则每次指定别名取得的Bean时都会产生一个新的实例
+
+一个Bean从创建到销毁，如果是用BeanFactory来生成,管理Bean的话，会经历几个执行阶段(如图1.1)：
+
+ 
+
+
+ 
+
+1：Bean的建立：
+
+容器寻找Bean的定义信息并将其实例化。
+
+2：属性注入：
+
+使用依赖注入，Spring按照Bean定义信息配置Bean所有属性
+
+3：BeanNameAware的setBeanName()：
+
+如果Bean类有实现org.springframework.beans.BeanNameAware接口，工厂调用Bean的setBeanName()方法传递Bean的ID。
+
+4：BeanFactoryAware的setBeanFactory()：
+
+如果Bean类有实现org.springframework.beans.factory.BeanFactoryAware接口，工厂调用setBeanFactory()方法传入工厂自身。
+
+5：BeanPostProcessors的ProcessBeforeInitialization()
+
+如果有org.springframework.beans.factory.config.BeanPostProcessors和Bean关联，那么其postProcessBeforeInitialization()方法将被将被调用。
+
+6：initializingBean的afterPropertiesSet()：
+
+如果Bean类已实现org.springframework.beans.factory.InitializingBean接口，则执行他的afterProPertiesSet()方法
+
+7：Bean定义文件中定义init-method：
+
+可以在Bean定义文件中使用"init-method"属性设定方法名称例如：
+
+ 
+
+如果有以上设置的话，则执行到这个阶段，就会执行initBean()方法
+
+8：BeanPostProcessors的ProcessaAfterInitialization()
+
+如果有任何的BeanPostProcessors实例与Bean实例关联，则执行BeanPostProcessors实例的ProcessaAfterInitialization()方法
+
+此时，Bean已经可以被应用系统使用，并且将保留在BeanFactory中知道它不在被使用。有两种方法可以将其从BeanFactory中删除掉(如图1.2):
+
+ 
+
+
+ 
+
+1：DisposableBean的destroy()
+
+在容器关闭时，如果Bean类有实现org.springframework.beans.factory.DisposableBean接口，则执行他的destroy()方法
+
+2：Bean定义文件中定义destroy-method
+
+在容器关闭时，可以在Bean定义文件中使用"destroy-method"属性设定方法名称，例如：
+
+ 
+
+如果有以上设定的话，则进行至这个阶段时，就会执行destroy()方法，如果是使用ApplicationContext来生成并管理Bean的话则稍有不同，使用ApplicationContext来生成及管理Bean实例的话，在执行BeanFactoryAware的setBeanFactory()阶段后，若Bean类上有实现org.springframework.context.ApplicationContextAware接口，则执行其setApplicationContext()方法，接着才执行BeanPostProcessors的ProcessBeforeInitialization()及之后的流程。
+
+
+

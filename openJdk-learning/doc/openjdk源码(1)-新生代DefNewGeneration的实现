@@ -1,0 +1,249 @@
+看得越多，懂的越少，还年轻，多学习！
+
+接着上文《JVM源码分析之堆内存的初始化》，本文对新生代的实现进行分析，在JVM内部提供了多种方式来实现新生代的内存，如DefNewGeneration、ParNewGeneration和ASParNewGeneration等，由虚拟机的启动参数决定最终采用哪种方式进行实现。
+
+DefNewGeneration
+
+DefNewGeneration是一个young generation，包含了eden、from and to内存区，当虚拟机启动参数中没有指定垃圾回收算法时，默认使用该方式实现新生代，定义如下：
+
+
+1、_next_gen指向下一个内存代；
+2、_tenuring_threshold为对象的晋升阀值，如果某个对象经历过_tenuring_threshold次gc后依然存活，则可以晋升到老年代；
+
+内存初始化实现
+
+实现位于openjdk\hotspot\src\share\vm\memory\defNewGeneration.cpp
+
+
+分别通过EdenSpace和ContiguousSpace类实现新生代的eden和from to区域，(其中Contiguous是"连续"的意思，表示一块连续的内存空间)，其中EdenSpace在实现上是继承自ContiguousSpace的。
+
+
+1、如果_eden_space、_from_space、_to_space其中任何一个为空，说明新生代分配内存失败，则虚拟机退出；
+2、根据SurvivorRatio计算from to内存区应该分配的大小；
+3、剩余的空间大小分配给eden内存区；
+
+GC过程实现
+
+基本思路：
+1、扫描内存堆所有的根对象集T，并把它们复制到新的内存块，一般为新生代的to内存区或老年代；
+2、分析扫描这些根对象集T的所有引用对象集T1，并把它们复制到新的内存块；
+3、继续分析对象集T1所引用的对象集T2，一直迭代下去，直到对象集Tn为空；
+
+GC过程位于collect()方法中：
+
+GC检测
+
+
+1、确保当前是一次FGC，或需要分配的内存大小size大于0，否则不需要执行一次gc操作；
+2、因为当前是最年轻代的管理器，确保有下一个内存管理器；
+
+
+3、通过collection_attempt_is_safe()方法判断当前的GC是否安全，实现如下：
+
+
+安全的GC必须满足如下条件：
+1、survivor中的to区为空；
+2、下一个内存代有足够的内存容纳新生代的所有对象；
+
+否则，设置_incremental_collection_failed为false，即当前minor gc不可用，通知内存堆管理器不要再尝试增量式GC了，因为肯定会失败；
+
+GC开始
+
+
+GC准备工作：
+1、初始化IsAliveClosure和ScanWeakRefClosure；
+2、清空age_table数据和to区；
+3、初始化FastScanClosure，负责存活对象的标识和复制；
+
+根对象的标识复制
+
+我们都知道和根对象有联系的对象都是活跃对象，那么如何快速确定内存代中所有的活跃对象呢？
+1、将内存代的跟对象和被其它内存代对象引用的对象复制到to区域，这些对象作为活跃对象，虽然其它内存代的对象可能在下次Full GC成为垃圾对象，但目前的Minor GC不能将这些对象当做垃圾对象进行处理；
+2、递归遍历这些活跃对象，将其所引用的在该内存代的对象复制到To区域，最终剩下的对象就是垃圾对象了。
+
+其中gen_process_strong_roots()负责查找当前代中的根对象和被其它内存代对象引用的对象，并复制到to区域，实现如下：
+
+ if (!do_code_roots) {
+    SharedHeap::process_strong_roots(activate_scope, collecting_perm_gen, so,
+                                     not_older_gens, NULL, older_gens);
+  } else {
+    bool do_code_marking = (activate_scope || nmethod::oops_do_marking_is_active());
+    CodeBlobToOopClosure code_roots(not_older_gens, /*do_marking=*/ do_code_marking);
+    SharedHeap::process_strong_roots(activate_scope, collecting_perm_gen, so,
+                                     not_older_gens, &code_roots, older_gens);
+  }
+
+  if (younger_gens_as_roots) {
+    if (!_gen_process_strong_tasks->is_task_claimed(GCH_PS_younger_gens)) {
+      for (int i = 0; i < level; i++) {
+        not_older_gens->set_generation(_gens[i]);
+        _gens[i]->oop_iterate(not_older_gens);
+      }
+      not_older_gens->reset_generation();
+    }
+  }
+  // When collection is parallel, all threads get to cooperate to do
+  // older-gen scanning.
+  for (int i = level+1; i < _n_gens; i++) {
+    older_gens->set_generation(_gens[i]);
+    rem_set()->younger_refs_iterate(_gens[i], older_gens);
+    older_gens->reset_generation();
+  }
+
+  _gen_process_strong_tasks->all_tasks_completed();
+假设当前内存堆上有如下对象模型(图片出自http://www.importnew.com/21063.html )，其中深色对象为根对象，箭头代表对象的引用关系。
+
+
+根对象的查找过程如下：
+1、调用SharedHeap::process_strong_roots()方法遍历当前内存代中所有根对象，eden和from区的根对象将被复制到to区，被复制的对象C1使用橙色表示；
+
+
+2、遍历更低内存代和更高内存代对象，如果这些对象有引用当前内存代的对象，如C2和C3分别被高低内存代中L1和H2对象所引用，则把对象C2和C3复制到to区；
+
+
+存活对象的递归标记
+
+FastEvacuateFollowersClosure.do_void()方法实现活跃对象的递归标记，通过广度优先搜索算法遍历扫描活跃对象，算法实现如下：
+
+
+当各分代的空闲分配指针不再变化时，说明所有可触及对象都递归标记完成，否则调用oop_since_save_marks_iterate()进行遍历标记。
+
+1、循环条件no_allocs_since_save_marks()实现如下：
+
+bool GenCollectedHeap::no_allocs_since_save_marks(int level) {
+  for (int i = level; i < _n_gens; i++) {
+    if (!_gens[i]->no_allocs_since_save_marks()) return false;
+  }
+  return perm_gen()->no_allocs_since_save_marks();
+}
+主要检查当前代、更高代以及永久代scanned指针_saved_mark_word是否与当前空闲分配指针位置相同，如DefNewGeneration的实现如下：
+
+bool DefNewGeneration::no_allocs_since_save_marks() {
+  assert(eden()->saved_mark_at_top(), "Violated spec - alloc in eden");
+  assert(from()->saved_mark_at_top(), "Violated spec - alloc in from");
+  return to()->saved_mark_at_top();
+}
+
+ bool saved_mark_at_top() const { return saved_mark_word() == top(); }
+2、循环处理oop_since_save_marks_iterate()实现如下：
+
+void GenCollectedHeap::                                                 
+oop_since_save_marks_iterate(int level,                                 
+                             OopClosureType* cur,                       
+                             OopClosureType* older) {                   
+  _gens[level]->oop_since_save_marks_iterate##nv_suffix(cur);           
+  for (int i = level+1; i < n_gens(); i++) {                            
+    _gens[i]->oop_since_save_marks_iterate##nv_suffix(older);           
+  }                                                                     
+  perm_gen()->oop_since_save_marks_iterate##nv_suffix(older);           
+}
+主要对当前代、更高代以及永久代的对象进行遍历处理，不过为什么要对更高代的对象进行遍历呢？主要为了防止在复制过程中，有些对象可能直接晋升到更高代内存中。
+其中DefNewGeneration中的实现如下：
+
+void DefNewGeneration::                                         
+oop_since_save_marks_iterate##nv_suffix(OopClosureType* cl) {   
+  cl->set_generation(this);                                     
+  eden()->oop_since_save_marks_iterate##nv_suffix(cl);          
+  to()->oop_since_save_marks_iterate##nv_suffix(cl);            
+  from()->oop_since_save_marks_iterate##nv_suffix(cl);          
+  cl->reset_generation();                                       
+  save_marks();                                                 
+}
+主要调用新生代各个区的同名方法进行处理，实现如下：
+
+void ContiguousSpace::                                                    
+oop_since_save_marks_iterate##nv_suffix(OopClosureType* blk) {            
+  HeapWord* t;                                                            
+  HeapWord* p = saved_mark_word();                                        
+  assert(p != NULL, "expected saved mark");                               
+
+  const intx interval = PrefetchScanIntervalInBytes;                      
+  do {                                                                    
+    t = top();                                                            
+    while (p < t) {                                                       
+      Prefetch::write(p, interval);                                       
+      debug_only(HeapWord* prev = p);                                     
+      oop m = oop(p);                                                     
+      p += m->oop_iterate(blk);                                           
+    }                                                                     
+  } while (t < top());                                                    
+
+  set_saved_mark_word(p);                                                 
+}
+因为在scanned指针到空闲分配指针之间的区域是已分配但未扫描的对象，对这块区域的对象调用遍历函数进行处理，标记所引用的对象，并保存新的scanned指针。
+
+图解过程
+
+1、递归标记的开始时，Scanned指针为To区域的起点，Top指针指向to区的空闲位置，Scanned到Top之间的对象就是需要进行递归处理的对象；
+
+
+2、第一轮递归标记后，根集对象中C3引用了C5，C5被移动至To区域，Scanned指针指向已处理完的对象，这时C1、C2、C3均已被遍历完毕，现在C5需要被遍历，其中绿色对象代表被移动到To区域的非根集对象；
+
+
+3、第二轮递归标记后，C5引用了C7、C8，这两个对象被移动到了To区域，这时C5已被遍历完毕，现在C7、C8需要被遍历；
+
+
+4、第三轮标记没有任何引用被发现，Scanned指针追上了Top指针，所有存活对象被遍历完毕；
+
+
+Paste_Image.png
+5、假如还有一个C12为C8所引用，但是To区域没有足够的空间，那么C12就会晋升到更高的内存代(老年代)
+
+
+对象的标记和复制实现
+
+对象的标记和复制过程最终由FastScanClosure的do_oop方法实现，其中do_oop方法又调用了do_oop_work方法，do_oop_work究竟做了什么？
+
+
+使用模板函数解决不同类型的指针(实际oop和压缩过的narrowOop)：
+1、当该指针对象非空时，通过decode_heap_oop_not_null方法获取对象obj;
+2、如果该对象obj在遍历区域（_boudary是在FastScanClosure初始化的时候，为初始化时指定代的结束地址，与当前遍历代的起始地址_gen_boundary共同作为对象的访问边界），则通过obj->is_forwarded()判断该对象是否已经标记过，如果对象没有被标识过，即其标记状态不为marked_value，则通过_g->copy_to_survivor_space(obj)方法把该对象复制到to区域；
+3、根据是否使用指针压缩将新的对象地址进行压缩；
+
+其中copy_to_survivor_space()方法中对象的复制过程实现如下：
+
+
+1、如果该对象的age小于_tenuring_threshold（直接晋升到老年代的阈值），则将其分配到to区域，分配成功后，将原对象的数据内容复制到to区域新分配的对象上，并增加该对象的复制计数age和更新ageTable；
+2、否则通过_next_gen->promote()尝试将该对象晋升，如果晋升失败，则调用handle_promotion_failure()处理失败的对象；
+3、最后调用forward_to()设置原对象的对象头为转发指针，表示该对象已被复制，并指明该对象已经被复制到什么位置；
+
+处理晋升成功
+
+
+如果GC过程中没有发生对象的晋升失败，则执行如下逻辑：
+1、既然所有对象都晋升成功了，说明存活对象都转移到了to区域或老年代，则通过clear方法清空eden和from区；
+2、通过swap_spaces方法交换from和to区域，为下次GC作准备，swap_spaces实现如下：
+
+
+通过交换_from_space和_to_space的起始地址实现from和to区的角色互换，并重新设置eden的_next_compaction_space，即eden的下一个内存区域；
+
+3、from和to区互换之后，当前的to区应该已经是块空区域了；
+4、调用ageTable的compute_tenuring_threshold方法对晋升阀值_tenuring_threshold重新设置，实现如下：
+
+
+其中survivor_capacity是to区的容量，假设为1G，TargetSurvivorRatio默认为50，计算逻辑大概如下：
+其中desired_survivor_size默认为survivor_capacity的一半，age_table记录了各个年龄段的对象总大小，按年龄从小到大，累加对象大小，当总大小超过survivor_capacity时，比较当前的age和MaxTenuringThreshold的大小，并返回较小者，其中MaxTenuringThreshold默认为15；
+
+处理晋升失败
+
+
+如果GC过程中存在晋升失败，则执行如下逻辑：
+1、当对象被标记为活跃对象时，其对象头markword指向经过复制后对象的新地址，remove_forwarding_pointers负责恢复晋升失败对象的markOop，实现如下：
+
+
+当对象晋升失败时，对象的oop会被保存在_objs_with_preserved_marks栈中，对应的对象头markOop被保存在_preserved_marks_of_objs栈中，通过这两个栈，可以对晋升失败的对象的对象头进行恢复；
+
+2、对from和to区进行互换，并设置from的下一片需要进行压缩的区域为to区，因为当有对象晋升失败时，并不会清空eden和from区，这时对from和to区互换，但to区还有活跃对象，这样在随后触发的FGC能够对from和to进行压缩处理；
+3、设置新生代的minor gc失败标识，并通知下一个内存代（老年代）发生晋升失败，比如在ConcurrentMarkSweepGeneration会根据参数CMSDumpAtPromotionFailure进行dump输出以供JVM问题诊断，实现如下：
+
+
+结尾
+
+
+1、设置from和to区域的并发遍历指针时的安全值为碰撞指针所在位置；
+2、更新堆的最后一次gc的时间；
+
+作者：占小狼
+链接：http://www.jianshu.com/p/2b64294fa1bd
+來源：简书
+著作权归作者所有。商业转载请联系作者获得授权，非商业转载请注明出处。

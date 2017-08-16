@@ -1,0 +1,181 @@
+前言
+
+Java具备三种特性：封装、继承、多态。
+Java文件在编译过程中不会进行传统编译的连接步骤，方法调用的目标方法以符号引用的方式存储在Class文件中，这种多态特性给Java带来了更灵活的扩展能力，但也使得方法调用变得相对复杂，需要在类加载期间，甚至到运行期间才能确定目标方法的直接引用。
+
+方法调用
+
+所有方法调用的目标方法在Class文件里面都是常量池中的符号引用。在类加载的解析阶段，如果一个方法在运行之前有确定的调用版本，且在运行期间不变，虚拟机会将其符号引用解析为直接调用。
+
+这种 编译期可知，运行期不可变 的方法，主要包括静态方法和私有方法两大类，前者与具体类直接关联，后者在外部不可访问，两者都不能通过继承或别的方式进行重写。
+
+JVM提供了如下方法调用字节码指令：
+
+invokestatic：调用静态方法；
+invokespecial：调用实例构造方法<init>，私有方法和父类方法；
+invokevirtual：调用虚方法；
+invokeinterface：调用接口方法，在运行时再确定一个实现此接口的对象；
+invokedynamic：在运行时动态解析出调用点限定符所引用的方法之后，调用该方法；
+通过invokestatic和invokespecial指令调用的方法，可以在解析阶段确定唯一的调用版本，符合这种条件的有静态方法、私有方法、实例构造器和父类方法4种，它们在类加载时会把符号引用解析为该方法的直接引用。
+
+invokestatic
+
+class StaticTest {
+    public static void hello() {
+        System.out.println("hello");
+    }
+    public static void main(String args[]) {
+    hello();
+    }
+}
+通过javap命令查看main方法字节码
+
+
+
+可以发现hello方法是通过invokestatic指令调用的。
+
+invokespecial
+
+class VirtualTest {
+    private int id;
+    public static void main(String args[]) {
+        new VirtualTest();
+    }
+}
+通过javap命令查看main方法字节码
+
+
+
+可以发现实例构造器是通过invokespecial指令调用的。
+
+通过invokestatic和invokespecial指令调用的方法，可以称为非虚方法，其余情况称为虚方法，不过有一个特例，即被final关键字修饰的方法，虽然使用invokevirtual指令调用，由于它无法被覆盖重写，所以也是一种非虚方法。
+
+非虚方法的调用是一个静态的过程，由于目标方法只有一个确定的版本，所以在类加载的解析阶段就可以把符合引用解析为直接引用，而虚方法的调用是一个分派的过程，有静态也有动态，可分为静态单分派、静态多分派、动态单分派和动态多分派。
+
+静态分派
+
+静态分派发生在代码的编译阶段。
+
+public class StaticDispatch {
+    static abstract class Humnan {}
+    static class Man extends Humnan {}
+    static class Woman extends Humnan {}
+    public void hello(Humnan guy) {
+        System.out.println("hello, Humnan");
+    }
+
+    public void hello(Man guy) {
+        System.out.println("hello, Man");
+    }
+
+    public void hello(Woman guy) {
+        System.out.println("hello, Woman");
+    }
+
+    public static void main(String[] args) {
+        Humnan man = new Man();
+        Humnan woman = new Woman();
+        StaticDispatch dispatch = new StaticDispatch();
+        dispatch.hello(man);
+        dispatch.hello(woman);
+    }
+}
+运行结果：
+
+hello, Humnan
+hello, Humnan
+相信有经验的同学看完代码后就能得出正确的结果，但为什么会这样呢？先看看main方法的字节码指令
+
+
+
+通过字节码指令，可以发现两次hello方法都是通过invokevirtual指令进行调用，而且调用的是参数为Human类型的hello方法。
+
+Humnan man = new Man();
+上述代码中，变量man拥有两个类型，一个静态类型Human，一个实际类型Man，静态类型在编译期间可知。
+在编译阶段，Java编译器会根据参数的静态类型决定调用哪个重载版本，但在有些情况下，重载的版本不是唯一的，这样只能选择一个“更加合适的版本”进行调用，所以不建议在实际项目中使用这种模糊的方法重载。
+
+动态分派
+
+在运行期间根据参数的实际类型确定方法执行版本的过程称为动态分派，动态分派和多态性中的重写（override）有着紧密的联系。
+
+public class DynamicDispatch {
+    static abstract class Humnan {
+        abstract void say();
+    }
+    static class Man extends Humnan {
+        @Override
+        void say() {
+            System.out.println("hello, i'm Man");
+        }
+    }
+    static class Woman extends Humnan {
+        @Override
+        void say() {
+            System.out.println("hello, i'm Woman");
+        }
+    }
+
+    public static void main(String[] args) {
+        Humnan man = new Man();
+        Humnan woman = new Woman();
+        man.say();
+        woman.say();
+    }
+}
+运行结果：
+
+hello, i'm Man
+hello, i'm Woman
+对于习惯了面向对象思维的同学对于这个结果应该是理所当然的。这种情况下，显然不能再根据静态类型来决定方法的调用了，导致不同输出结果的原因很简单，man和woman的实际类型不同，但是JVM如何根据实际类型决定需要调用哪个方法？
+
+main方法的字节码指令
+
+
+字节码0 ~ 15行对应以下代码：
+Humnan man = new Man();
+Humnan woman = new Woman();
+在Java堆上申请内存空间和实例化对象，并将这两个实例的引用分别存放到局部变量表的第1、2位置的Slot中。
+字节码16~21行对应以下代码：
+man.say();
+woman.say();
+16和20行指令分别把之前存放到局部变量表1、2位置的对象引用压入操作数栈的栈顶，这两个对象是执行say方法的接收者（Receiver），17和21行指令进行方法调用。
+可以发现，17和21两条指令完全一样，但最终执行的目标方法却不相同，这得从invokevirtual指令的多态查找说起了，invokevirtual指令在运行时分为以下几个步骤：
+
+找到操作数栈的栈顶元素所指向的对象的实际类型，记为C；
+如果C中存在描述符和简单名称都相符的方法，则进行访问权限验证，如果验证通过，则直接返回这个方法的直接引用，否则返回java.lang.IllegalAccessError异常；
+如果C中不存在对应的方法，则按照继承关系对C的各个父类进行第2步的操作；
+如果各个父类也没对应的方法，则返回异常；
+所以上述两次invokevirtual指令将相同的符号引用解析成了不同对象的直接引用，这个过程就是Java语言中重写的本质。
+
+JVM动态分派实现
+
+由于动态分派是非常频繁的动作，因此在虚拟机的实际实现中，会基于性能的考虑，并不会如此频繁的搜索对应方法，一般会在方法区中建立一个虚方法表，使用虚方法表代替方法查询以提高性能。
+
+虚方法表在类加载的连接阶段进行初始化，存放着各个方法的实际入口地址，如果某个方法在子类中没有被重写，那么子类的虚方法表中该方法的入口地址和父类保持一致。
+
+abstract class Humnan {
+    abstract void say();
+    void run() {
+        System.out.println("Human is run");
+    }
+}
+class Man extends Humnan {
+    @Override
+    void say() {
+        System.out.println("hello, i'm Man");
+    }
+
+    @Override
+    void run() {
+        System.out.println("Man is run");
+    }
+}
+class Woman extends Humnan {
+    @Override
+    void say() {
+        System.out.println("hello, i'm Humnan");
+    }
+}
+对应的虚方法表结构
+
+

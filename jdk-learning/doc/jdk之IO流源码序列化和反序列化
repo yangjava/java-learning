@@ -1,0 +1,224 @@
+Java序列化与反序列化是什么？为什么需要序列化与反序列化？如何实现Java序列化与反序列化？本文围绕这些问题进行了探讨。
+ 1.Java序列化与反序列化
+
+ Java序列化是指把Java对象转换为字节序列的过程；而Java反序列化是指把字节序列恢复为Java对象的过程。
+
+ 2.为什么需要序列化与反序列化
+
+ 我们知道，当两个进程进行远程通信时，可以相互发送各种类型的数据，包括文本、图片、音频、视频等， 而这些数据都会以二进制序列的形式在网络上传送。那么当两个Java进程进行通信时，能否实现进程间的对象传送呢？答案是可以的。如何做到呢？这就需要Java序列化与反序列化了。换句话说，一方面，发送方需要把这个Java对象转换为字节序列，然后在网络上传送；另一方面，接收方需要从字节序列中恢复出Java对象。
+
+ 当我们明晰了为什么需要Java序列化和反序列化后，我们很自然地会想Java序列化的好处。其好处一是实现了数据的持久化，通过序列化可以把数据永久地保存到硬盘上（通常存放在文件里），二是，利用序列化实现远程通信，即在网络上传送对象的字节序列。
+
+3.如何实现Java序列化与反序列化
+
+1）JDK类库中序列化API
+
+ java.io.ObjectOutputStream：表示对象输出流
+
+它的writeObject(Object obj)方法可以对参数指定的obj对象进行序列化，把得到的字节序列写到一个目标输出流中。
+
+java.io.ObjectInputStream：表示对象输入流
+
+它的readObject()方法源输入流中读取字节序列，再把它们反序列化成为一个对象，并将其返回。
+
+2）实现序列化的要求
+
+只有实现了Serializable或Externalizable接口的类的对象才能被序列化，否则抛出异常。
+
+3）实现Java对象序列化与反序列化的方法
+
+假定一个Student类，它的对象需要序列化，可以有如下三种方法：
+
+方法一：若Student类仅仅实现了Serializable接口，则可以按照以下方式进行序列化和反序列化
+
+ObjectOutputStream采用默认的序列化方式，对Student对象的非transient的实例变量进行序列化。
+
+ObjcetInputStream采用默认的反序列化方式，对对Student对象的非transient的实例变量进行反序列化。
+
+方法二：若Student类仅仅实现了Serializable接口，并且还定义了readObject(ObjectInputStream in)和writeObject(ObjectOutputSteam out)，则采用以下方式进行序列化与反序列化。
+
+ObjectOutputStream调用Student对象的writeObject(ObjectOutputStream out)的方法进行序列化。
+
+ObjectInputStream会调用Student对象的readObject(ObjectInputStream in)的方法进行反序列化。
+
+方法三：若Student类实现了Externalnalizable接口，且Student类必须实现readExternal(ObjectInput in)和writeExternal(ObjectOutput out)方法，则按照以下方式进行序列化与反序列化。
+
+ObjectOutputStream调用Student对象的writeExternal(ObjectOutput out))的方法进行序列化。
+
+ObjectInputStream会调用Student对象的readExternal(ObjectInput in)的方法进行反序列化。
+
+4）JDK类库中序列化的步骤
+
+步骤一：创建一个对象输出流，它可以包装一个其它类型的目标输出流，如文件输出流：
+
+ObjectOutputStream out = new ObjectOutputStream(new fileOutputStream(“D:\\objectfile.obj”));
+
+步骤二：通过对象输出流的writeObject()方法写对象：
+
+out.writeObject(“Hello”);
+
+out.writeObject(new Date());
+
+5）JDK类库中反序列化的步骤
+
+步骤一：创建一个对象输入流，它可以包装一个其它类型输入流，如文件输入流：
+
+ObjectInputStream in = new ObjectInputStream(new fileInputStream(“D:\\objectfile.obj”));
+
+步骤二：通过对象输出流的readObject()方法读取对象：
+
+String obj1 = (String)in.readObject();
+
+Date obj2 = (Date)in.readObject();
+
+说明：为了正确读取数据，完成反序列化，必须保证向对象输出流写对象的顺序与从对象输入流中读对象的顺序一致。
+
+为了更好地理解Java序列化与反序列化，选择方法一编码实现。
+
+Student类定义如下：
+
+[java] view plain copy
+package com.jieke.io;  
+import java.io.Serializable;  
+  
+/** 
+ *Title:学生类 
+ *Description:实现序列化接口的学生类 
+ *Copyright: copyright(c) 2012 
+ *Filename: Student.java 
+ *@author Wang Luqing 
+ *@version 1.0 
+ */  
+public class Student implements Serializable  
+{  
+ private String name;  
+ private char sex;  
+ private int year;  
+ private double gpa;  
+  
+ public Student()  
+ {  
+  
+ }  
+ public Student(String name,char sex,int year,double gpa)  
+ {  
+  this.name = name;  
+  this.sex = sex;  
+  this.year = year;  
+  this.gpa = gpa;  
+ }  
+  
+ public void setName(String name)  
+ {  
+  this.name = name;  
+ }  
+  
+ public void setSex(char sex)  
+ {  
+  this.sex = sex;  
+ }  
+  
+ public void setYear(int year)  
+ {  
+  this.year = year;  
+ }  
+  
+ public void setGpa(double gpa)  
+ {  
+  this.gpa = gpa;  
+ }  
+  
+ public String getName()  
+ {  
+  return this.name;  
+ }  
+   
+ public char getSex()  
+ {  
+  return this.sex;  
+ }  
+  
+ public int getYear()  
+ {  
+  return this.year;  
+ }  
+  
+ public double getGpa()  
+ {  
+  return this.gpa;  
+ }  
+}  
+把Student类的对象序列化到文件O:\\Java\\com\\jieke\\io\\student.txt，并从该文件中反序列化，向console显示结果。代码如下：
+
+[java] view plain copy
+import java.io.*;  
+  
+/** 
+ *Title:应用学生类 
+ *Description:实现学生类实例的序列化与反序列化 
+ *Copyright: copyright(c) 2012 
+ *Filename: UseStudent.java 
+ *@author Wang Luqing 
+ *@version 1.0 
+ */  
+  
+public class UseStudent  
+{  
+ public static void main(String[] args)  
+ {  
+  Student st = new Student("Tom",'M',20,3.6);  
+  File file = new File("O:\\Java\\com\\jieke\\io\\student.txt");  
+  try  
+  {  
+   file.createNewFile();  
+  }  
+  catch(IOException e)  
+  {  
+   e.printStackTrace();  
+  }  
+  try  
+  {  
+   //Student对象序列化过程  
+   FileOutputStream fos = new FileOutputStream(file);  
+   ObjectOutputStream oos = new ObjectOutputStream(fos);  
+   oos.writeObject(st);  
+   oos.flush();  
+   oos.close();  
+   fos.close();  
+  
+   //Student对象反序列化过程  
+   FileInputStream fis = new FileInputStream(file);  
+   ObjectInputStream ois = new ObjectInputStream(fis);  
+   Student st1 = (Student) ois.readObject();  
+   System.out.println("name = " + st1.getName());  
+   System.out.println("sex = " + st1.getSex());  
+   System.out.println("year = " + st1.getYear());  
+   System.out.println("gpa = " + st1.getGpa());  
+   ois.close();  
+   fis.close();  
+  }  
+  catch(ClassNotFoundException e)  
+  {  
+   e.printStackTrace();  
+  }  
+  catch (IOException e)  
+  {  
+   e.printStackTrace();  
+  }               
+ }  
+}  
+结果如下所示：
+
+name = Tom
+
+sex = M
+
+year = 20
+
+gpa = 3.6
+
+总结：
+
+1）Java序列化就是把对象转换成字节序列，而Java反序列化就是把字节序列还原成Java对象。
+
+2）采用Java序列化与反序列化技术，一是可以实现数据的持久化，在MVC模式中很是有用；二是可以对象数据的远程通信。

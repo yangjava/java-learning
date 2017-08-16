@@ -1,0 +1,487 @@
+一、 序列化和反序列化概念
+
+Serialization（序列化）是一种将对象以一连串的字节描述的过程；反序列化deserialization是一种将这些字节重建成一个对象的过程。
+
+二、 序列化和反序列化的必要性
+
+当两个进程进行远程通信时，可以相互发送各种类型的数据，包括文本、图片、音频、视频等， 而这些数据都会以二进制序列的形式在网络上传送。
+而java是面向对象的开发方式，一切都是java对象，想要实现java对象的网络传输，就可以使用序列化和反序列化来实现。发送方将需要发送的Java对象序列化转换为字节序列，然后在网络上传送；接收方接收到字符序列后，使用反序列化从字节序列中恢复出Java对象。
+
+当我们了解了为什么需要Java序列化和反序列化后，我们很自然地会想Java序列化的好处。其好处一是实现了数据的持久化，通过序列化可以把数据永久地保存到硬盘上（通常存放在文件里）；二是，利用序列化实现远程通信，即在网络上传送对象的字节序列。
+
+三、 序列化和反序列化的实现
+
+1）JDK类库提供的序列化API
+
+java.io.ObjectOutputStream：表示对象输出流
+它的writeObject(Object obj)方法可以对参数指定的obj对象进行序列化，把得到的字节序列写到一个目标输出流中。
+java.io.ObjectInputStream：表示对象输入流
+它的readObject()方法从源输入流中读取字节序列，再把它们反序列化成为一个对象，并将其返回。
+2）实现序列化的要求
+
+只有实现了Serializable或Externalizable接口的类的对象才能被序列化，否则抛出异常。
+
+3）实现Java对象序列化与反序列化的方法
+
+假定一个Student类，它的对象需要序列化，可以有如下三种方法：
+
+方法一：若Student类仅仅实现了Serializable接口，则可以按照以下方式进行序列化和反序列化
+ObjectOutputStream采用默认的序列化方式，对Student对象的非transient的实例变量进行序列化。
+ObjcetInputStream采用默认的反序列化方式，对对Student对象的非transient的实例变量进行反序列化。
+方法二：若Student类仅仅实现了Serializable接口，并且还定义了readObject(ObjectInputStream in)和writeObject(ObjectOutputSteam out)，则采用以下方式进行序列化与反序列化。
+ObjectOutputStream调用Student对象的writeObject(ObjectOutputStream out)的方法进行序列化。
+ObjectInputStream会调用Student对象的readObject(ObjectInputStream in)的方法进行反序列化。
+方法三：若Student类实现了Externalnalizable接口，且Student类必须实现readExternal(ObjectInput in)和writeExternal(ObjectOutput out)方法，则按照以下方式进行序列化与反序列化。
+ObjectOutputStream调用Student对象的writeExternal(ObjectOutput out))的方法进行序列化。
+ObjectInputStream会调用Student对象的readExternal(ObjectInput in)的方法进行反序列化。
+4）JDK类库中序列化的步骤
+
+步骤一：创建一个对象输出流，它可以包装一个其它类型的目标输出流，如文件输出流：
+
+ObjectOutputStream out = new ObjectOutputStream(new fileOutputStream(“D:\\objectfile.obj”));
+步骤二：通过对象输出流的writeObject()方法写对象：
+
+out.writeObject(“Hello”);
+out.writeObject(new Date());
+5）JDK类库中反序列化的步骤
+
+步骤一：创建一个对象输入流，它可以包装一个其它类型输入流，如文件输入流：
+
+ObjectInputStream in = new ObjectInputStream(new fileInputStream(“D:\\objectfile.obj”));
+步骤二：通过对象输出流的readObject()方法读取对象：
+
+String obj1 = (String)in.readObject();
+Date obj2 = (Date)in.readObject();
+说明：为了正确读取数据，完成反序列化，必须保证向对象输出流写对象的顺序与从对象输入流中读对象的顺序一致。
+
+为了更好地理解Java序列化与反序列化，选择方法一编码实现。
+Student类定义如下：
+
+/**
+ * 实现了序列化接口的学生类
+ */
+public class Student implements Serializable {
+    private String name;
+    private char sex;
+    private int year;
+    private double gpa;
+
+    public Student() {
+    }
+    public Student(String name,char sex,int year,double gpa) {
+        this.name = name;
+        this.sex = sex;
+        this.year = year;
+        this.gpa = gpa;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public void setSex(char sex) {
+        this.sex = sex;
+    }
+
+    public void setYear(int year) {
+        this.year = year;
+    }
+
+    public void setGpa(double gpa) {
+        this.gpa = gpa;
+    }
+
+    public String getName() {
+        return this.name;
+    }
+
+    public char getSex() {
+        return this.sex;
+    }
+
+    public int getYear() {
+        return this.year;
+    }
+
+    public double getGpa() {
+        return this.gpa;
+    }
+}
+把Student类的对象序列化到文件/Users/sschen/Documents/student.txt，并从该文件中反序列化，向console显示结果。代码如下：
+
+/**
+ * 学生信息应用类
+ */
+public class UserStudent {
+    public static void main(String[] args) {
+        Student st = new Student("Tom",'M',20,3.6);
+        File file = new File("/Users/sschen/Documents/student.txt");
+        try {
+            file.createNewFile();
+        }
+        catch(IOException e) {
+            e.printStackTrace();
+        }
+        try {
+            //Student对象序列化过程
+            FileOutputStream fos = new FileOutputStream(file);
+            ObjectOutputStream oos = new ObjectOutputStream(fos);
+            oos.writeObject(st);
+            oos.flush();
+            oos.close();
+            fos.close();
+
+            //Student对象反序列化过程
+            FileInputStream fis = new FileInputStream(file);
+            ObjectInputStream ois = new ObjectInputStream(fis);
+            Student st1 = (Student) ois.readObject();
+            System.out.println("name = " + st1.getName());
+            System.out.println("sex = " + st1.getSex());
+            System.out.println("year = " + st1.getYear());
+            System.out.println("gpa = " + st1.getGpa());
+            ois.close();
+            fis.close();
+        }
+        catch(ClassNotFoundException e) {
+            e.printStackTrace();
+        }
+        catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+}
+执行结果为
+
+name = Tom
+sex = M
+year = 20
+gpa = 3.6
+而查看文件/Users/sschen/Documents/student.txt，其内保存的内容并不是可以容易阅读的内容：
+
+aced 0005 7372 001f 636f 6d2e 7373 6368
+656e 2e53 6572 6961 6c69 7a61 626c 652e
+5374 7564 656e 74f1 5dbd a4a0 3472 4d02
+0004 4400 0367 7061 4300 0373 6578 4900
+0479 6561 724c 0004 6e61 6d65 7400 124c
+6a61 7661 2f6c 616e 672f 5374 7269 6e67
+3b78 7040 0ccc cccc cccc cd00 4d00 0000
+1474 0003 546f 6d
+具体序列化之后的内容说明，可见Java序列化机制和原理中的说明
+
+四、 序列化高级，使用情境分析
+
+1. 序列化ID问题
+
+情境：两个客户端 A 和 B 试图通过网络传递对象数据，A 端将对象 C 序列化为二进制数据再传给 B，B 反序列化得到 C。
+问题：C 对象的全类路径假设为 com.inout.Test，在 A 和 B 端都有这么一个类文件，功能代码完全一致。也都实现了 Serializable 接口，但是反序列化时总是提示不成功。
+解决：虚拟机是否允许反序列化，不仅取决于类路径和功能代码是否一致，一个非常重要的一点是两个类的序列化 ID 是否一致（就是 private static final long serialVersionUID = 1L）。下面的代码中，虽然两个类的功能代码完全一致，但是序列化 ID 不同，他们无法相互序列化和反序列化。
+
+简单来说，Java的序列化机制是通过在运行时判断类的serialVersionUID来验证版本一致性的。在进行反序列化时，JVM会把传来的字节流中的serialVersionUID与本地相应实体（类）的serialVersionUID进行比较，如果相同就认为是一致的，可以进行反序列化，否则就会出现序列化版本不一致的异常。
+当实现java.io.Serializable接口的实体（类）没有显式地定义一个名为serialVersionUID，类型为long的变量时，Java序列化机制会根据编译的class自动生成一个serialVersionUID作序列化版本比较用，这种情况下，只有同一次编译生成的class才会生成相同的serialVersionUID 。
+如果我们不希望通过编译来强制划分软件版本，即实现序列化接口的实体能够兼容先前版本，未作更改的类，就需要显式地定义一个名为serialVersionUID，类型为long的变量，不修改这个变量值的序列化实体都可以相互进行串行化和反串行化。
+相同功能代码不同序列化 ID 的类对比，代码如下：
+
+public class SerialVersionIDA implements Serializable {
+    private static final long serialVersionUID=1L;
+
+    private String name;
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+    public SerialVersionIDA() {
+    }
+    public SerialVersionIDA(String name) {
+        this.name = name;
+    }
+}
+public class SerialVersionIDA implements Serializable {
+    private static final long serialVersionUID=2L;
+
+    private String name;
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+    public SerialVersionIDA() {
+    }
+    public SerialVersionIDA(String name) {
+        this.name = name;
+    }
+}
+使用serialVersionUID为1L的类进行序列化，而使用serialVersionUID为2L的类进行反序列化，会提示异常，异常内容为：
+
+java.io.InvalidClassException: com.sschen.Serializable.SerialVersionIDA; local class incompatible: stream classdesc serialVersionUID = 2, local class serialVersionUID = 1
+    at java.io.ObjectStreamClass.initNonProxy(ObjectStreamClass.java:616)
+    at java.io.ObjectInputStream.readNonProxyDesc(ObjectInputStream.java:1630)
+    at java.io.ObjectInputStream.readClassDesc(ObjectInputStream.java:1521)
+    at java.io.ObjectInputStream.readOrdinaryObject(ObjectInputStream.java:1781)
+    at java.io.ObjectInputStream.readObject0(ObjectInputStream.java:1353)
+    at java.io.ObjectInputStream.readObject(ObjectInputStream.java:373)
+    at com.sschen.Serializable.SerialVersionTest.main(SerialVersionTest.java:30)
+    at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+    at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
+    at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+    at java.lang.reflect.Method.invoke(Method.java:498)
+    at com.intellij.rt.execution.application.AppMain.main(AppMain.java:147)
+序列化 ID 在 Eclipse 下提供了两种生成策略，一个是固定的 1L，一个是随机生成一个不重复的 long 类型数据（实际上是使用 JDK 工具生成），在这里有一个建议，如果没有特殊需求，就是用默认的 1L 就可以，这样可以确保代码一致时反序列化成功。那么随机生成的序列化 ID 有什么作用呢，有些时候，通过改变序列化 ID 可以用来限制某些用户的使用。
+特性使用案例
+读者应该听过 Façade 模式，它是为应用程序提供统一的访问接口，案例程序中的 Client 客户端使用了该模式，案例程序结构图下图所示。
+
+
+案例程序结构图
+
+Client 端通过 Façade Object 才可以与业务逻辑对象进行交互。而客户端的 Façade Object 不能直接由 Client 生成，而是需要 Server 端生成，然后序列化后通过网络将二进制对象数据传给 Client，Client 负责反序列化得到 Façade 对象。该模式可以使得 Client 端程序的使用需要服务器端的许可，同时 Client 端和服务器端的 Façade Object 类需要保持一致。当服务器端想要进行版本更新时，只要将服务器端的 Façade Object 类的序列化 ID 再次生成，当 Client 端反序列化 Façade Object 就会失败，也就是强制 Client 端从服务器端获取最新程序。
+
+2. 静态变量序列化
+
+代码如下：
+
+public class SerialStaticTest implements Serializable {
+
+    private static final long serialVersionUID = 1L;
+
+    public static int staticVar = 5;
+
+    public static void main(String[] args) {
+        try {
+            File file = new File("/Users/sschen/Documents/student.txt");
+            try {
+                file.createNewFile();
+            }
+            catch(IOException e) {
+                e.printStackTrace();
+            }
+            //初始时staticVar为5
+            ObjectOutputStream out = new ObjectOutputStream(
+                    new FileOutputStream(file));
+            out.writeObject(new SerialStaticTest());
+            out.close();
+
+            //序列化后修改为10
+            SerialStaticTest.staticVar = 10;
+
+            ObjectInputStream oin = new ObjectInputStream(new FileInputStream(file));
+            SerialStaticTest t = (SerialStaticTest) oin.readObject();
+            oin.close();
+
+            //再读取，通过t.staticVar打印新的值
+            System.out.println(t.staticVar);
+
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        } catch (ClassNotFoundException e) {
+            e.printStackTrace();
+        }
+    }
+}
+上面代码中的 main 方法，将对象序列化保存到文件后，修改静态变量的数值，再将序列化对象读取出来，然后通过读取出来的对象获得静态变量的数值并打印出来。依照代码，这个 System.out.println(t.staticVar) 语句输出的是 10 还是 5 呢？
+最后的输出是 10，对于无法理解的读者认为，打印的 staticVar 是从读取的对象里获得的，应该是保存时的状态才对。之所以打印 10 的原因在于序列化时，并不保存静态变量，这其实比较容易理解，序列化保存的是对象的状态，静态变量属于类的状态，因此 序列化并不保存静态变量。
+
+3. 父类的序列化与 Transient 关键字
+
+情境：一个子类实现了 Serializable 接口，它的父类都没有实现 Serializable 接口，序列化该子类对象，然后反序列化后输出父类定义的某变量的数值，该变量数值与序列化时的数值不同。
+解决：要想将父类对象也序列化，就需要让父类也实现Serializable 接口。如果父类不实现的话的，就 需要有默认的无参的构造函数。在父类没有实现 Serializable 接口时，虚拟机是不会序列化父对象的，而一个 Java 对象的构造必须先有父对象，才有子对象，反序列化也不例外。所以反序列化时，为了构造父对象，只能调用父类的无参构造函数作为默认的父对象。因此当我们取父对象的变量值时，它的值是调用父类无参构造函数后的值。如果你考虑到这种序列化的情况，在父类无参构造函数中对变量进行初始化，否则的话，父类变量值都是默认声明的值，如 int 型的默认是 0，string 型的默认是 null。
+Transient 关键字的作用是控制变量的序列化，在变量声明前加上该关键字，可以阻止该变量被序列化到文件中，在被反序列化后，transient 变量的值被设为初始值，如 int 型的是 0，对象型的是 null。
+特性使用案例
+我们熟悉使用 Transient 关键字可以使得字段不被序列化，那么还有别的方法吗？根据父类对象序列化的规则，我们可以将不需要被序列化的字段抽取出来放到父类中，子类实现 Serializable 接口，父类不实现，根据父类序列化规则，父类的字段数据将不被序列化，形成类图如图 2 所示。
+
+
+图 2. 案例程序类图
+
+上图中可以看出，attr1、attr2、attr3、attr5 都不会被序列化，放在父类中的好处在于当有另外一个 Child 类时，attr1、attr2、attr3 依然不会被序列化，不用重复抒写 transient，代码简洁。
+
+4. 对敏感字段加密
+
+情境：服务器端给客户端发送序列化对象数据，对象中有一些数据是敏感的，比如密码字符串等，希望对该密码字段在序列化时，进行加密，而客户端如果拥有解密的密钥，只有在客户端进行反序列化时，才可以对密码进行读取，这样可以一定程度保证序列化对象的数据安全。
+解决：在序列化过程中，虚拟机会试图调用对象类里的 writeObject 和 readObject 方法，进行用户自定义的序列化和反序列化，如果没有这样的方法，则默认调用是 ObjectOutputStream 的 defaultWriteObject 方法以及 ObjectInputStream 的 defaultReadObject 方法。用户自定义的 writeObject 和 readObject 方法可以允许用户控制序列化的过程，比如可以在序列化的过程中动态改变序列化的数值。基于这个原理，可以在实际应用中得到使用，用于敏感字段的加密工作，下面的代码展示了这个过程。
+
+public class SerialPwdTest implements Serializable {
+    private static final long serialVersionUID = 1L;
+
+    private String password = "pass";
+
+    public String getPassword() {
+        return password;
+    }
+
+    public void setPassword(String password) {
+        this.password = password;
+    }
+
+    private void writeObject(ObjectOutputStream out) {
+        try {
+            ObjectOutputStream.PutField putFields = out.putFields();
+            System.out.println("原密码:" + password);
+            password = "encryption";//模拟加密
+            putFields.put("password", password);
+            System.out.println("加密后的密码" + password);
+            out.writeFields();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void readObject(ObjectInputStream in) {
+        try {
+            ObjectInputStream.GetField readFields = in.readFields();
+            Object object = readFields.get("password", "");
+            System.out.println("要解密的字符串:" + object.toString());
+            password = "pass";//模拟解密,需要获得本地的密钥
+        } catch (IOException e) {
+            e.printStackTrace();
+        } catch (ClassNotFoundException e) {
+            e.printStackTrace();
+        }
+
+    }
+
+    public static void main(String[] args) {
+        File file = new File("/Users/sschen/Documents/student.txt");
+        try {
+            file.createNewFile();
+        }
+        catch(IOException e) {
+            e.printStackTrace();
+        }
+        try {
+            ObjectOutputStream out = new ObjectOutputStream(new FileOutputStream(file));
+            out.writeObject(new SerialPwdTest());
+            out.close();
+
+            ObjectInputStream oin = new ObjectInputStream(new FileInputStream(file));
+            SerialPwdTest t = (SerialPwdTest) oin.readObject();
+            System.out.println("解密后的字符串:" + t.getPassword());
+            oin.close();
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        } catch (ClassNotFoundException e) {
+            e.printStackTrace();
+        }
+    }
+}
+SerialPwdTest的 writeObject 方法中，对密码进行了加密，在加密后进行序列化保存到文件中，在 readObject 中则在读取到密码后，对 password 进行解密，只有拥有密钥的客户端，才可以正确的解析出密码，确保了数据的安全。上面代码的执行结果为：
+
+原密码:pass
+加密后的密码encryption
+要解密的字符串:encryption
+解密后的字符串:pass
+特性使用案例
+RMI 技术是完全基于 Java 序列化技术的，服务器端接口调用所需要的参数对象来至于客户端，它们通过网络相互传输。这就涉及 RMI 的安全传输的问题。一些敏感的字段，如用户名密码（用户登录时需要对密码进行传输），我们希望对其进行加密，这时，就可以采用本节介绍的方法在客户端对密码进行加密，服务器端进行解密，确保数据传输的安全性。
+
+5. 序列化存储规则
+
+情境：问题代码如清单 4 所示。
+清单 4. 存储规则问题代码
+
+public class SerialSaveTest implements Serializable {
+    public static void main(String[] args) {
+        File file = new File("/Users/sschen/Documents/student.txt");
+        try {
+            file.createNewFile();
+        }
+        catch(IOException e) {
+            e.printStackTrace();
+        }
+        try {
+            ObjectOutputStream out = new ObjectOutputStream(new FileOutputStream(file));
+            SerialSaveTest test = new SerialSaveTest();
+            //试图将对象两次写入文件
+            out.writeObject(test);
+            out.flush();
+            System.out.println(file.length());
+            out.writeObject(test);
+            out.close();
+            System.out.println(file.length());
+
+            ObjectInputStream oin = new ObjectInputStream(new FileInputStream(file));
+            //从文件依次读出两个文件
+            SerialSaveTest t1 = (SerialSaveTest) oin.readObject();
+            SerialSaveTest t2 = (SerialSaveTest) oin.readObject();
+            oin.close();
+
+            //判断两个引用是否指向同一个对象
+            System.out.println(t1 == t2);
+        } catch (IOException e) {
+            e.printStackTrace();
+        } catch (ClassNotFoundException e) {
+            e.printStackTrace();
+        }
+    }
+}
+清单4中对同一对象两次写入文件，打印出写入一次对象后的存储大小和写入两次后的存储大小，然后从文件中反序列化出两个对象，比较这两个对象是否为同一对象。一般的思维是，两次写入对象，文件大小会变为两倍的大小，反序列化时，由于从文件读取，生成了两个对象，判断相等时应该是输入 false 才对，但是最后结果输出如下：
+
+59
+64
+true
+我们看到，第二次写入对象时文件只增加了 5 字节，并且两个对象是相等的，这是为什么呢？
+解答：Java 序列化机制为了节省磁盘空间，具有特定的存储规则，当写入文件的为同一对象时，并不会再将对象的内容进行存储，而只是再次存储一份引用，上面增加的 5 字节的存储空间就是新增引用和一些控制信息的空间。反序列化时，恢复引用关系，使得清单 3 中的 t1 和 t2 指向唯一的对象，二者相等，输出 true。该存储规则极大的节省了存储空间。
+特性案例分析
+查看清单 5 的代码。
+清单 5. 案例代码
+
+public class SerialSaveTest implements Serializable {
+    private int id;
+
+    public int getId() {
+        return id;
+    }
+
+    public void setId(int id) {
+        this.id = id;
+    }
+
+    public static void main(String[] args) {
+        File file = new File("/Users/sschen/Documents/student.txt");
+        try {
+            file.createNewFile();
+        }
+        catch(IOException e) {
+            e.printStackTrace();
+        }
+        try {
+            ObjectOutputStream out = new ObjectOutputStream(new FileOutputStream(file));
+            SerialSaveTest test = new SerialSaveTest();
+            test.setId(1);
+            //试图将对象两次写入文件
+            out.writeObject(test);
+            out.flush();
+            System.out.println(file.length());
+            test.setId(5);
+            out.writeObject(test);
+            out.close();
+            System.out.println(file.length());
+
+            ObjectInputStream oin = new ObjectInputStream(new FileInputStream(file));
+            //从文件依次读出两个文件
+            SerialSaveTest t1 = (SerialSaveTest) oin.readObject();
+            SerialSaveTest t2 = (SerialSaveTest) oin.readObject();
+            oin.close();
+
+            //判断两个引用是否指向同一个对象
+            System.out.println(t1 == t2);
+
+            System.out.println(t1.getId());
+            System.out.println(t2.getId());
+        } catch (IOException e) {
+            e.printStackTrace();
+        } catch (ClassNotFoundException e) {
+            e.printStackTrace();
+        }
+    }
+}
+清单 4 的目的是希望将 test 对象两次保存到/Users/sschen/Documents/student.txt文件中，写入一次以后修改对象属性值再次保存第二次，然后从/Users/sschen/Documents/student.txt中再依次读出两个对象，输出这两个对象的 i 属性值。案例代码的目的原本是希望一次性传输对象修改前后的状态。
+结果两个输出的都是 1， 原因就是第一次写入对象以后，第二次再试图写的时候，虚拟机根据引用关系知道已经有一个相同对象已经写入文件，因此只保存第二次写的引用，所以读取时，都是第一次保存的对象。读者在使用一个文件多次 writeObject 需要特别注意这个问题。
+

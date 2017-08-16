@@ -1,0 +1,234 @@
+前言
+
+讲OpenJDK/HotSpot编译的文章比较多了，玩Linux的朋友自是不在话下，Windows下的也有那么几篇:
+
+《深入理解Java虚拟机》作者周志明的《自己动手编译Windows版的OpenJDK 7》(http://icyfenix.iteye.com/blog/1097344)
+ZZH2009写的《在Windows中构建OpenJDK8u已经很简单了》(http://hllvm.group.iteye.com/group/topic/41271)
+本文是按照ZZH2009的思路，对一些细节作的扩充，就算是Java刚入门，没有任何构建编译方面的知识，照着下面的步骤，也可以毫无困难的编译出属于你的HotSpot。
+
+工具准备
+
+安装Visual Studio
+
+在Microsoft网站下载安装免费的Express版就可以了，设置为Visual C++风格。我这里安装的是Visual Studio 2013 Express。路径D:\Develop\VS2013。没有管理员权限的，可以拷贝一份Windows SDK和VC目录，真正需要的只是它的编译器和链接器而已，然后设置编译环境变量即可。
+
+安装Cygwin
+
+Cygwin的安装也比较简单，从官网down下安装器后，选择速度快的下载源，配置好所需的package就可以自动下载了。我用的是Windows7 64位系统，JDK也用的是64位，所以也下载64位的Cygwin，放在默认路径C:\cygwin64。 cygwin 在README-builds.html文件里，有完整的依赖包清单，见下表。其实这个是最权威的的文档了，英文好的单看这个文件就够了。这些命令在make以及创建VS项目文件的脚本中会被调用，缺少的话会造成build中断。如果对Mikefile很熟的话，当然可以通过修改Makefile，比如显示指定系统平台及架构等make变量绕过一些错误。但我们这里要保证照顾的make零基础的朋友，还是请乖乖的安装好所有这些包。要注意安装的最小单位是package，不是exe可执行文件。
+
+Binary Name	Category	Package	Description
+ar.exe	Devel	binutils	The GNU assembler, linker and binary utilities
+make.exe	Devel	make	The GNU version of the 'make' utility built for CYGWIN.
+m4.exe	Interpreters	m4	GNU implementation of the traditional Unix macro processor
+cpio.exe	Utils	cpio	A program to manage archives of files
+gawk.exe	Utils	awk	Pattern-directed scanning and processing language
+file.exe	Utils	file	Determines file type using 'magic' numbers
+zip.exe	Archive	zip	Package and compress (archive) files
+unzip.exe	Archive	unzip	Extract compressed files in a ZIP archive
+free.exe	System	procps	Display amount of free and used memory in the system
+配置环境变量
+
+可能你用的电脑没有Windows管理员权限，可能你希望保持操作系统的清洁，不希望让一大堆环境变量打架，那么下面的脚本是你需要的。当然脚本也不能藏得太深，最好放在cmd home目录下，在我的电脑上是放在C:\Users\fw8899\env.bat，每次进入cmd的时候直接敲一下env就都搞定了。这不是一劳永逸的做法，每次关闭后开启新的cmd你都得重复这个步骤。还是嫌麻烦吗，那么请看一下本段前面的两个前提。
+
+@echo off
+echo Start setting environment ...
+
+echo Setting Java ...
+set JAVA_HOME=D:\JavaTools\jdk1.7.0_75
+set PATH=%JAVA_HOME%\bin;%PATH%
+
+echo Setting NASM...
+set NASM_Home=D:\Develop\nasm
+set PATH=%NASM_Home%;%PATH%
+
+set USE_CYGWIN=true
+if "%USE_CYGWIN%"=="true" goto CYGWIN
+:MINGW
+echo Setting MinGW...
+set MINGW_HOME=D:\Develop\CodeBlocks\MinGW
+set PATH=%MINGW_HOME%\bin;%PATH%
+goto VC
+
+:CYGWIN
+echo Setting Cygwin ...
+set CYGWIN_HOME=C:\cygwin64
+set PATH=%CYGWIN_HOME%\bin;%PATH%
+
+:VC
+echo Setting Visual Studio ...
+set VC_HOME=D:\Develop\VS2013
+
+echo Setting Mercurial ...
+set MERCURIAL_HOME=D:\Develop\Mercurial
+set PATH=%MERCURIAL_HOME%;%PATH%
+
+echo Setting environment finished.
+@echo on
+下载源码
+
+OpenJDK的源码管理用的是非主流的Mecurial，跟Git极为相似，有Git基础的话绝对能毫无障碍的驾驭。啊~你连Git也没用过！没关系，只需按照下面的步骤，保证能把整个OpenJDK完整的下载下来。
+
+安装Mecuriail
+
+这种开源的软件当然是要到官网下载啦（google的除外，比如AngularJS，~你懂的）,这里是Mercurial下载页面(https://mercurial.selenic.com/downloads)。直接上最新版，当前是3.5.1，下载Mercurial WIndows x64免管理员权限版。不要下载要管理员权限的MSI安装包，以及长像貌似TortoiseSVN的TortoiseHg，这两个家伙会污染Windows系统环境变量或者右键菜单，在我里那是绝对不能容许的。当然你要是准备用它作为你的主力源码控制系统的话，那就没啥说的了（~话说你也跟Merucial一样非主流麽）。
+
+Clone源码
+
+首先是给我们的OpenJDK在本地硬盘找个窝，在我本机是D:\workspace\cpp。我的习惯是所有开发相关源码放在一个workspace，然后按照编程语言创建子目录，比如asm, c, conf, cpp, java, js, python, scala, shell。然后IDE的配置文件目录和workspace就定位到相应目录，比如Eclipse默认workspace就是D:\workspace\java， CodeBlocks的是D:\workspace\cpp。这样做的好处是所有源码和配置都集中在一起，便于在不同电脑上和不同操作系统下同步。当然这样的代码组织方式仅适合个人学习，在公司里还是乖乖按照规矩来吧。
+
+闲话少叙，OpenJDK的核心是HotSpot，HotSpot的核心部分是C++，放在cpp目录下也是自然的。接下来进入OpenJDK官网下载地址(http://openjdk.java.net/install/index.html)。选择多了也不是好事，左边这么多版本，选择哪个好呢？我们就下载编译跟所用的Oracle JDK一样的版本好了（这不是最佳实际，具体见后文）。OK，那先看一下自己的JDK版本。
+
+D:\workspace\cpp>java -version
+java version "1.7.0_75"
+Java(TM) SE Runtime Environment (build 1.7.0_75-b13)
+Java HotSpot(TM) 64-Bit Server VM (build 24.75-b04, mixed mode)
+我的JDK是1.7.0_75-b13，对应到Open JDK就是OpenJDK7 update build13。所以代码仓库repo分支就是JDK 7u，不是JDK7。关于Open JDK分支进化的详细情况，可以参考《OpenJDK源码阅读导航》(http://rednaxelafx.iteye.com/blog/1549577)。
+
+进入jdk7u的代码仓库页面(http://hg.openjdk.java.net/jdk7u/)，再次碰到选择题，各路jdk7u，jdk7u-dev，jdk7u-osx，jdk7u4，jdk7u40...都是神马啊？ 在你没有足够耐心去了解的情况下，这里给你做个选择：选jdk7u（不带任何后缀）。 jdk7u
+
+翻看它的tags(http://hg.openjdk.java.net/jdk7u/jdk7u/tags)，可以发现基本上跟Oracle官方发布的JDK是同步的。据RedNaxelaFX大神上所说，Oracle的JDK开发就是直接在这个库上搞，这下再也不用担心JDK版本的一致性了:D。 jdk7u tags
+
+接下来开始克隆代码
+
+cd D:\workspace\cpp
+# clone远程仓库到本地jdk7u文件夹
+hg clone http://hg.openjdk.java.net/jdk7u/jdk7u jdk7u
+D:\workspace\cpp>hg clone http://hg.openjdk.java.net/jdk7u/jdk7u jdk7u
+正在请求全部修改
+正在增加修改集
+正在增加清单
+正在增加文件改变
+已增加 1242 个修改集，包含 1210 个改变，修改了 34 个文件
+updating to branch default
+33 files updated, 0 files merged, 0 files removed, 0 files unresolved
+分分钟clone完毕，安静的躺在jdk7u目录里了。真的clone完了吗？OpenJDK的代码怎么说也有几百M，哪是这么快就能搞定的。进入jdk7u目录，发现有个get_source.sh，运行之。这是Linux shell脚本，咱这可是Windows，能行吗？你忘了我们之前装过的Cygwin，这货就可以干这个。当然我们没必要先进入cygwin的shell再运行，直接Windows的命令行走起。
+
+cd jdk7u
+sh get_source.sh
+这下等的时间就长了，足够吃顿饭喝杯茶。下载的时候，hg命令不会提示当前下载进度，看上去像没有响应，有点坑，需要有些耐心。这段时间里我们看一下get_source.sh的内容。
+
+# Get clones of all nested repositories
+sh ./make/scripts/hgforest.sh clone $*
+
+# Update all existing repositories to the latest sources
+sh ./make/scripts/hgforest.sh pull -u
+get_source.sh实际上调用了jdk7u\make\scripts\hgforest.sh脚本，这个脚本里定义了jdk7u的subrepo，也就是它的子代码仓库: subrepos="corba jaxp jaxws langtools jdk hotspot"。这个列表是不是有些面熟？对了，上边jdk7u图里，jdk7u下方几行所列正是这几个subrepo。
+
+get_source.sh干的活，就是把这几个子仓库一个个都clone下来，然后pull拉取代码。
+
+漫长的等待结束，运气好的话，所有subreo都会提示当前下载文件数量，并返回ErrorCode 0，表示下载正常搞定。如果出现网络故障，hg会给出ErrorCode 255并终止当前subrepo的下载，回滚删除subrepo目录，继续下一个subrepo的下载。出现这种情况只需要再次运行get_source.sh，它会重试下载失败的subrepo。
+
+代码下载完毕，默认是最新的commit，我们需要checkout所需版本号，在每个subrepo下通过tags找到对应的版本号，hotspot的jdk7u75-b13 Changeset是5557，迁出它。 7u75b13
+
+cd hotspot
+# checkout jdk7u575-b13的hotspot源码
+hg update -r 5557
+下载源码包
+
+可能你不想这么麻烦，为了下个源码还得安装一套源码工具，那么你可以直接下载已经打包好的OpenJDK源码。这里有坑要注意一下： OpenJDK 7，网上比较容易找到的，有两个官网下载地址:
+
+http://www.java.net/download/openjdk/jdk7/promoted/b147/openjdk-7-fcs-src-b147-27_jun_2011.zip
+http://download.java.net/openjdk/jdk7u40/promoted/b43/openjdk-7u40-fcs-src-b43-26_aug_2013.zip
+从时间和版本号上就可以看出，这两个版本都比较旧。第一个版本的编译Bug比较多，网上随处都能找到。第二个版本，当我用编译后的hotspot7u40联合本地JDK 1.7.0_75-b13进行调试，加载dll的时候，特码的提示JVM_findClassFromCaller函数找不到。经过检查源码，发现7u40的hotspot\src\share\vm\prims\jvm.cpp中，根本就没有这个函数。这个问题也被作为Bug 8015256在后续版本进行修复。所以经验是：
+
+尽量下载最新的OpenJDK源码，避免踩坑，
+另外BOOTSTRAP_JDK（用来编译OpenJDK的Oracle JDK）的版本不能高于当前要编译的JDK版本，最好是最低于它且接近它。比如我的BOOTSTRAP_JDK是7u75-b13，用来编译7u78的就比较合适。本文为了得到一个相同版本的OpenJDK比较差异，才选了一样的源码来build号。
+编译OpenJDK 8/8u时，最好用高build号的JDK 7作为BOOTSTRAP_JDK（这个在README-builds.html中有提及）。
+手动下载正确的做法是，直接去repo下载对应的zip包。当然你只下载jdk7u的源码包是没用的，还得下载是它下边的所有子仓库的包，相当于把Mercurial干的活都自己手动完成。在hotspot的tags下找到7u75-b13对应的commit，点进去后就可以下载该版本的源码包，然手手动解压放到jdk7u目录下。其他几个subrepo类似。
+
+编译HotSpot
+
+生成Visual Studio项目文件
+
+源码就位，开始编译。进入jdk7u\hotspot\make\windows文件夹，建立一个批处理文件vs2010.bat，因为我们要利用它生成Visual Studio 2010的项目文件。
+
+set VC_HOME=D:\Develop\VS2013\VC
+REM 设置VC相关的环境变量，指定参数x64会配置64位的编译环境变量
+REM 这样就可以使用64位的Windows SDK，和64位的编译器
+%VC_HOME%\vcvarsall.bat x64
+
+REM make工具链所在路径
+set HOTSPOTMKSHOME=C:\cygwin64\bin
+
+REM VC的版本，1600对应VC2010，jdk7u目前支持的最高版本
+set FORCE_MSC_VER=1600
+
+REM 调用OpenJDK提供的工具自动创建VS2010项目文件
+create.bat %JAVA_HOME%
+这里需要等上几分钟，create脚本会根据上边的配置，选定系统平台(Patform)和架构(Arch)创建相应的build目录，用系统JDK的javac编译并运行jdk7u\hotspot\src\share\tools\ProjectCreator下对应的java文件，创建出Visual Studio项目文件。
+
+create project
+
+这个阶段出现问题，肯定是Cygwin, Visual Studio, 或之前的JDK路径没有正确设置，导致脚本找不到相应命令。按照上面的配置，创建完成后，在jdk7u\hotspot\build\vs-amd64目录下，就会发现jvm.vcxproj，那正式我们要的。
+
+推荐有兴趣的伙伴翻看一遍hotspot的Makefile，这样对hotspot组织结构有一个详细的了解，build过程中出现问题时也能快速解决。
+
+编译源码
+
+Microsoft的工具正式出场，对于这样易用的工具没什么好说的，打开生成的jvm.vcxproj文件，直接build就可以了。build完成后，在\hotspot\build\vs-amd64\compiler1\debug下赫然躺着hotspot.exe，运行一下，跟Oracle JDK版本一模一样，只是多了个internal。
+
+D:\workspace\cpp\jdk7u\hotspot\build\vs-amd64\compiler1\debug>hotspot -version
+Using java runtime at: D:\JavaTools\jdk1.7.0_75\jre
+java version "1.7.0_75"
+Java(TM) SE Runtime Environment (build 1.7.0_75-b13)
+OpenJDK 64-Bit Client VM (build 24.75-b04-internal-debug, mixed mode)
+常见问题
+
+这里列出我碰到的几个小问题，仅供参考。
+
+MSB8020, Platform Toolset not found 我们生成的是VS2010项目，默认的Platform Toolset是Visual Studio 2010(v100)，自然找不到只需要在项目[Properties] -> [Configuration Prperties] -> [General] -> [Platform Toolset]设置成，这里设成Visual Studio 2013 (v120)。
+
+C2220: warning treated as error HotSpot源码中，个别函数的定义，与Windows SDK的文件不完全相同， 例如
+
+// C标准库math.h
+_CRTIMP double __cdecl copysign(_In_ double _X, _In_ double _Y);
+
+// hotspot\src\share\vm\runtime\sharedRuntimeTrans.cpp中的实现
+double copysign(double x, double y) {
+ __HI(x) = (__HI(x)&0x7fffffff)|(__HI(y)&0x80000000);
+ return x;
+}
+这种警告不会影响我们的编译，只要不让警告作为错误就可以了，在项目[Properties] -> [C/C++] -> [General] -> [Treat Warning As Error]中设置。
+
+error C2011: '_DISPATCHER_CONTEXT' : 'struct' type redefinition 这是真正的冲突了，最简单直接的办法，注释掉HotSpot里的注释掉这段代码。
+
+// Windows SDK 8.1 \include\um\winnt.h
+typedef struct _DISPATCHER_CONTEXT {
+   DWORD64 ControlPc;
+   DWORD64 ImageBase;
+   PRUNTIME_FUNCTION FunctionEntry;
+   DWORD64 EstablisherFrame;
+   DWORD64 TargetIp;
+   PCONTEXT ContextRecord;
+   PEXCEPTION_ROUTINE LanguageHandler;
+   PVOID HandlerData;
+   PUNWIND_HISTORY_TABLE HistoryTable;
+   DWORD ScopeIndex;
+   DWORD Fill0;
+} DISPATCHER_CONTEXT, *PDISPATCHER_CONTEXT;
+
+// hotspot\src\os_cpu\windows_x86\vm\unwind_windows_x86.hpp
+typedef struct _DISPATCHER_CONTEXT {
+   ULONG64 ControlPc;
+   ULONG64 ImageBase;
+   PRUNTIME_FUNCTION FunctionEntry;
+   ULONG64 EstablisherFrame;
+   ULONG64 TargetIp;
+   PCONTEXT ContextRecord;
+//    PEXCEPTION_ROUTINE LanguageHandler;
+   char * LanguageHandler; // double dependency problem
+   PVOID HandlerData;
+} DISPATCHER_CONTEXT, *PDISPATCHER_CONTEXT;
+调试
+
+关于调试的技巧，内容就多了，有空再来补充。
+
+总结
+
+再次总结一下编译HotSpot的步骤：
+
+安装Cygwin, Visual Studio 2013 Express, Mecurial
+设置环境变量
+下载OpenJDK源码
+生成VS2013项目文件
+在VS2013中编译，调试

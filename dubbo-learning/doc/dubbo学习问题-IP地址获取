@@ -1,0 +1,109 @@
+最近在做一个项目，这个项目里有两个系统。这是背景！
+
+这两个系统不能互相访问！这是坑爹的需求！
+
+然后我不想使用数据库共享，也不希望用rest的方式，所以我想到了用dubbo来解决！这是我的解决方案！
+
+项目A的配置（服务提供者）
+
+<!-- 提供方应用信息，用于计算依赖关系 -->
+<dubbo:application name="projectA"/>
+
+<!-- 用dubbo协议暴露服务 -->
+<dubbo:protocol name="rmi" port="20881"/>
+
+<!-- 使用暴露服务地址 -->
+<dubbo:registry id="projectARegistry" address="zookeeper://192.168.72.232:2181"/>
+
+<!-- 注册服务 -->
+<dubbo:service interface="com.company.demo.service.DemoService" ref="demoServiceImpl" registry="projectARegistry"/>
+项目B的配置（服务消费者）
+
+<dubbo:application name="projectB"/>
+
+<dubbo:registry address="zookeeper://192.168.72.232:2181"/>
+
+<dubbo:registry id="projectARegistry" address="zookeeper://192.168.72.232:2181"/>
+
+<!-- DemoService获取 -->
+<dubbo:reference interface="com.company.demo.service.DemoService" id="demoServiceImpl" registry="projectARegistry"/>
+发现错误！
+
+坑爹的错误马上就要出现了！
+
+[http-bio-8080-exec-7] WARN o.s.remoting.rmi.RmiProxyFactoryBean- Could not connect to RMI service [rmi://192.168.72.235:20881/com.company.demo.service.DemoService] - retrying
+我找了很久很久，终于在一个很不起眼的地方发现了一段代码。
+
+Caused by: org.springframework.remoting.RemoteConnectFailureException: Could not connect to remote service [rmi://192.168.72.235:20881/com.ztesoft.zsmartcity.ynzw.demo.service.DemoService]; nested exception is java.rmi.ConnectException: Connection refused to host: 127.0.0.1; nested exception is: 
+        java.net.ConnectException: 拒绝连接
+        at org.springframework.remoting.rmi.RmiClientInterceptorUtils.convertRmiAccessException(RmiClientInterceptorUtils.java:150)
+        at org.springframework.remoting.rmi.RmiClientInterceptor.doInvoke(RmiClientInterceptor.java:348)
+        at org.springframework.remoting.rmi.RmiClientInterceptor.refreshAndRetry(RmiClientInterceptor.java:331)
+        at org.springframework.remoting.rmi.RmiClientInterceptor.handleRemoteConnectFailure(RmiClientInterceptor.java:307)
+        at org.springframework.remoting.rmi.RmiClientInterceptor.invoke(RmiClientInterceptor.java:263)
+        at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:179)
+        at org.springframework.aop.framework.JdkDynamicAopProxy.invoke(JdkDynamicAopProxy.java:213)
+        at com.sun.proxy.$Proxy64.list(Unknown Source)
+        at com.alibaba.dubbo.common.bytecode.Wrapper0.invokeMethod(Wrapper0.java)
+        at com.alibaba.dubbo.rpc.proxy.javassist.JavassistProxyFactory$1.doInvoke(JavassistProxyFactory.java:46)
+        at com.alibaba.dubbo.rpc.proxy.AbstractProxyInvoker.invoke(AbstractProxyInvoker.java:72)
+        at com.alibaba.dubbo.rpc.protocol.AbstractProxyProtocol$2.doInvoke(AbstractProxyProtocol.java:93)
+        at com.alibaba.dubbo.rpc.protocol.AbstractInvoker.invoke(AbstractInvoker.java:144)
+        at com.alibaba.dubbo.rpc.listener.ListenerInvokerWrapper.invoke(ListenerInvokerWrapper.java:74)
+        at com.alibaba.dubbo.rpc.protocol.dubbo.filter.FutureFilter.invoke(FutureFilter.java:53)
+        at com.alibaba.dubbo.rpc.protocol.ProtocolFilterWrapper$1.invoke(ProtocolFilterWrapper.java:91)
+        at com.ztesoft.zsmart.pot.dubbo.filter.ConsumerTraceFilter.invoke(ConsumerTraceFilter.java:36)
+        at com.alibaba.dubbo.rpc.protocol.ProtocolFilterWrapper$1.invoke(ProtocolFilterWrapper.java:91)
+        at com.alibaba.dubbo.monitor.support.MonitorFilter.invoke(MonitorFilter.java:74)
+        at com.alibaba.dubbo.rpc.protocol.ProtocolFilterWrapper$1.invoke(ProtocolFilterWrapper.java:91)
+        at com.alibaba.dubbo.rpc.filter.ConsumerContextFilter.invoke(ConsumerContextFilter.java:48)
+        at com.alibaba.dubbo.rpc.protocol.ProtocolFilterWrapper$1.invoke(ProtocolFilterWrapper.java:91)
+        at com.alibaba.dubbo.rpc.protocol.InvokerWrapper.invoke(InvokerWrapper.java:53)
+        at com.alibaba.dubbo.rpc.cluster.support.FailoverClusterInvoker.doInvoke(FailoverClusterInvoker.java:77)
+        ... 74 more
+我特么什么时候写了127.0.0.1这个地址的，我擦嘞！！！而且明明获取的是rmi://192.168.72.235:20881/com.company.demo.service.DemoService这个啊。
+
+尝试解决问题
+
+遇到这种叼问题第一个想到的就是debug
+
+我先是在服务注册的地方，讲协议格式改成：
+
+<dubbo:protocol name="rmi" port="20881" host="192.168.72.235"/>
+192.168.72.235是服务提供者所在服务器的ip
+配置服务器上的debug端口
+在idea中配置debug远程tomcat
+开始debug
+他妈的，发现dubbo在某一个位置，讲我的url的ip给改了，如下：
+
+private void exportLocal(URL url) {
+    if (!Constants.LOCAL_PROTOCOL.equalsIgnoreCase(url.getProtocol())) {
+        // 他娘的，设置成127.0.0.1了
+        URL local = URL.valueOf(url.toFullString()).setProtocol(Constants.LOCAL_PROTOCOL).setHost(NetUtils.LOCALHOST).setPort(0);
+        // rest
+        ServiceImplHolder.getInstance().pushServiceImpl(ref);
+        // rest end
+        Exporter<?> exporter = protocol.export(proxyFactory.getInvoker(ref, (Class) interfaceClass, local));
+        exporters.add(exporter);
+        logger.info("Export dubbo service " + interfaceClass.getName() + " to local registry");
+    }
+}
+好了，没办法，搞不定，总不能去改dubbo的代码吧。。。
+
+然后我就用Naming去获取上面那个rmi://...
+
+Object obj = Naming.lookup("rmi://192.168.72.235:20881/com.company.demo.service.DemoService");
+发现果然被坑了，获取的类是代理出来的，里面果然有个127.0.0.1
+
+真正开始解决问题了
+
+在网上查，dubbo怎么去获取本机ip
+翻看dubbo源码，在NetUtils中的getLocalAddress0这个方法
+dubbo获取本机所有网卡中的ip地址，然后拿到第一个不是127.0.0.1的那个ip
+设置服务器上的hosts，vim /etc/hosts
+192.168.72.235  localhost hostname
+
+# 192.168.72.235 服务器ip
+# localhost
+# hostname 是主机名，在/etc/sysconfig/network进行配置
+重启服务提供者服务，完美解决问题！！！

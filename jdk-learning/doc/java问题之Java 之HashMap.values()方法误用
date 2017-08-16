@@ -1,0 +1,88 @@
+1.出错
+
+　　　今天在测试代码的时候发现程序报错，看代码才知道是使用HashMap.values()方法的时候出错。因为项目中需要获取Map的值的集合然后进行遍历，所以就很自然的调用了HashMap.values()方法，如下所示
+
+package collections;
+ 
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+ 
+public class Test {
+ 
+    /**
+     * @param args
+     */
+    public static void main(String[] args) {
+          
+        Map<String,String> map = new HashMap<String,String>();
+        map.put("A", "A");
+        map.put("B", "B");
+        map.put("C", "C");
+        map.put("D", "D");
+        map.put("E", "E");
+        List<String> valuesList = (List<String>) map.values();
+        for(String str:valuesList){
+            System.out.println(str);
+        }
+    }
+ 
+}
+ 
+
+运行时候抛出异常，异常信息如下：
+
+Exception in thread "main" java.lang.ClassCastException: java.util.HashMap$Values cannot be cast to java.util.List
+    at collections.Test.main(Test.java:20)
+　　2.错误原因分析
+
+　　首先找到了values()方法所在的源码，信息如下：
+
+public Collection<V> values() {
+      Collection<V> vs = values;
+      return (vs != null ? vs : (values = new Values()));
+  }
+
+　　原来values()方法只是返回了一个Collection集合，可是如程序中的用法所示，在向下转型的时候出现了类型转换错误。那我们应该怎么才能获取自己想要的结构呢？
+
+3.解决方法
+
+　　在ArrayList中，有一个构造函数
+
+public ArrayList(Collection<? extends E> c) {
+    elementData = c.toArray();
+    size = elementData.length;
+    // c.toArray might (incorrectly) not return Object[] (see 6260652)
+    if (elementData.getClass() != Object[].class)
+        elementData = Arrays.copyOf(elementData, size, Object[].class);
+}
+　　可以接受一个集合类型的参数，然后返回一个list；这样就达到了预期目的。代码如下
+
+package collections;
+ 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+ 
+public class Test {
+ 
+    /**
+     * @param args
+     */
+    public static void main(String[] args) {
+          
+        Map<String,String> map = new HashMap<String,String>();
+        map.put("A", "A");
+        map.put("B", "B");
+        map.put("C", "C");
+        map.put("D", "D");
+        map.put("E", "E");
+        //List<String> valuesList = (List<String>) map.values();
+        List<String> valuesList = new ArrayList<String>(map.values());
+        for(String str:valuesList){
+            System.out.println(str);
+        }
+    }
+ 
+}

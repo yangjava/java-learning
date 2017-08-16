@@ -1,0 +1,66 @@
+类
+public class HelloWorldServiceNull implements HelloWorldService{
+	
+    private String msg;
+    
+	@Override
+	public void sayHello() {
+		if(msg==null){
+			System.out.println("Hello World 测试null");
+		}else{
+			System.out.println("Hello World"+msg);
+		}
+		
+		
+	}
+	public String getMsg() {
+		return msg;
+	}
+	public void setMsg(String msg) {
+		this.msg = msg;
+	}
+   
+}
+
+配置文件:
+##	1)
+<bean id="helloWorldService-null" class="com.java.spring.ioc.HelloWorldServiceNull">
+<property name="msg">
+<value>null</value>
+</property>
+</bean>
+
+相当于执行 msg="null"  设置的是”null”字符串。
+
+## 2)
+
+<bean id="helloWorldService-null" class="com.java.spring.ioc.HelloWorldServiceNull">
+<property name="msg">
+<value></value>
+</property>
+</bean>
+相当于 msg="",
+## 3)
+
+<bean id="helloWorldService-null" class="com.java.spring.ioc.HelloWorldServiceNull">
+<property name="msg">
+<value></value>
+</property>
+</bean>
+
+
+<bean id="helloWorldService-null" class="com.java.spring.ioc.HelloWorldServiceNull">
+<property name="msg" value="">
+</property>
+</bean>
+
+同上.相当于 msg="",
+
+##  4)
+<bean id="helloWorldService-null" class="com.java.spring.ioc.HelloWorldServiceNull">
+<property name="msg" >
+<null></null>
+</property>
+</bean>
+
+相当于 msg=null  <null/>用于处理null值。

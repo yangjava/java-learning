@@ -1,0 +1,81 @@
+## 数据模型一览
+
+正如你看到的，数据模型基本结构是树状的。这棵树可以复杂而且有很大的深度，比如
+root
+
+	+- animals
+	
+		+- mouse
+				+- size = "small"
+				+- price = 50
+			
+		+-	elephant
+				+- size = "large"
+				+- price = 5000
+				
+		+- python
+				+- size = "medium"
+				+- price = 4999
+				
+	+- test = "It is a test"
+	
+	+- whatnot
+		+- because = "don't know"
+	
+上图中变量扮演目录的角色（根 root，animal，mouse，elephant，python， whatnot）被称为 hash 哈希表。
+哈希表通过可查找的名称（例如：”animal”, ”mouse”, ”price”） 来访问存储的其他变量（如子变量）。
+如果仅存储单值的变量（size，price，text 和 because）则它们被称为 scalars标量。
+
+如果要在模板中使用子变量，那应该从根 root 开始指定它的路径，每级之间用点来分 隔。
+要访问 price 和 mouse 的话，应该从根开始，先是 animals，然后是 mouse， 最后是 price，
+所以应该这样写：animals.mouse.price。
+当放置${…}这种特定 代码在表达式的前后时，我们就告诉 FreeMarker 在那个位置上要来输出对应的文本。
+sequences 序列也是一种非常重要的变量，它们和哈希表变量相似，但是它们不存储所 包含变量的名称，而是按顺序存储子变量。
+这样，就可以使用数字索引来访问这些子变量。
+
+在这种数据模型中，animal 和 whatnot.fruits 就是序列:
+
+root)
+|
+	+- animals
+
+			+- (1st)
+			+- name = "mouse"
+			+- size = "small"
+			+- price = 50
+
+			- (2nd)
+			- name = "elephant"
+			+- size = "large"
+			+- price = 5000
+			
+			- (3rd)
+			+- name = "python"
+			+- size = "medium"
+			+- price = 4999
+
+	- whatnot
+			+- fruits
+			+- (1st) = "orange"
+			+- (2nd) = "banana"
+			
+可以使用数组的方括号方式来访问一个序列的子变量。
+索引从零开始（从零开始是程序 员写代码的传统习惯），那么就意味着序列第一项的索引是 0，第二项的索引是 1，并以此类 推。
+要得到第一个动物的名称的话，那么就应该这么写代码：animals[0].name。
+要得到 whatnot.fruits（就是”banana”这个字符串）的第二项，那么就应该这么来写:whatnot.fruits[1]。 
+标量可以分为如下类别：
+
+字符串：这是文本类型，字符的任意序列，比如”m”，“o”，“u”，“s”，“e”这些，
+而且name-S 和 size-S 也是字符串范畴。
+
+数字：这是数字值类型，比如 price-S 这些。在 FreeMarker 中字符串”50”和数字 50 是两种完全不同的类型。
+前者只是两个字符的序列（这恰好是我们可以读的一个数字），而 后者是一个可以在算数运算中直接被使用的数值。
+
+日期/时间：这是时间日期类型。例如动物被捕捉的日期，或商店开始营业的时间。 布尔值：对应对/错（是/否，开/关等）这样仅仅代表正反的值。
+比如动物可以有一个受保护（protected，译者注）的子变量，这个变量存储这个动物是否被保护起来。
+
+ 总结：数据模型可以被看做是树状结构的。 标量存储单一的值，这种类型的值可以是字符串，数字，日期/时间或者是布尔值。
+  哈希表是存储变量和与其相关且有唯一标识名称变量的容器。 序列是存储有序变量的容器。
+  存储的变量可以通过数字索引来检索，索引通常从零开始。			
+	
+			

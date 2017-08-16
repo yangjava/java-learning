@@ -1,0 +1,18 @@
+
+场景描述：将导入系统的Excel数据显示在页面上，其中Excel列名、列数都不确定，要求页面上显示数据排序跟导入的Excel中数据排序一样。
+
+例如如下的Excel
+
+Tiguan
+系列	Santana系列民用	Lamando系列	民用总计	Lavida
+系列特种	Touran
+系列特种	Santana
+系列特种	总计
+ 	 	 	 	 	 	 	 
+解决方案：数据库中用JSON格式存储这种数据
+
+遇到的问题：存储的JSON数据跟Excel中数据顺序不一致，导致页面显示与Excel不一致
+
+产生问题的原因：调试发现解析Excel数据到JSON格式中使用了HashMap来存储Excel中数据，由于HashMap是无序的，当我们把HashMap转换成JSON数据时，数据顺序不固定，导致存储的JSON数据顺序与Excel中数据顺序不一致。
+
+问题解决：将HashMap换成LinkedHashMap，LinkedHashMap保存了记录的插入顺序，在用Iterator遍历LinkedHashMap时，先得到的记录肯定是先插入的。

@@ -1,0 +1,1072 @@
+spring共提供了五种类型的通知：
+
+通知类型	接口	描述
+Around 环绕通知	org.aopalliance.intercept.MethodInterceptor	拦截对目标方法调用
+Before 前置通知	org.springframework.aop.MethodBeforeAdvice 	在目标方法调用前调用
+After  后置通知	org.springframework.aop.AfterReturningAdvice	在目标方法调用后调用
+Throws 异常通知	org.springframework.aop.ThrowsAdvice	当目标方法抛出异常时调用 还有一类是引入通知，用来定义切入点的。
+上一篇里面已经介绍了前置通知，就是在方法被调用前先执行前置通知
+
+现在介绍一下其他的通知：
+
+1、后置通知：
+
+后置通知类的写法：
+
+[java] view plain copy
+package com.cdtax.aop;  
+  
+import java.lang.reflect.Method;  
+  
+import org.springframework.aop.AfterReturningAdvice;  
+  
+public class MyAfterReturningAdvice <span style="color:#ff0000;">implements AfterReturningAdvice</span>  
+{  
+  
+    @Override  
+    public void afterReturning(Object returnValue, Method method,  
+            Object[] args, Object target) throws Throwable  
+    {  
+        System.out.println("后置通知被：关闭资源，");  
+    }  
+  
+}  
+在beans.xml中的配置：
+[html] view plain copy
+<?xml version="1.0" encoding="UTF-8"?>  
+<beans xmlns="http://www.springframework.org/schema/beans"  
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"  
+        xmlns:context="http://www.springframework.org/schema/context"  
+        xmlns:tx="http://www.springframework.org/schema/tx"  
+        xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-2.5.xsd  
+                http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-2.5.xsd  
+                http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx-2.5.xsd">  
+  
+<!-- 配置被代理的对象 -->  
+<bean id="test1Service" class="com.cdtax.aop.Test1Service">  
+    <property name="name" value="小明"></property>  
+</bean>  
+  
+<!-- 配置前置通知 -->  
+<bean id="myMethodBeforeAdvice" class="com.cdtax.aop.MyMethodBeforeAdvice"></bean>  
+  
+<span style="color:#ff0000;"><!-- 配置后置通知 --></span>  
+<bean id="myAfterReturningAdvice" class="com.cdtax.aop.MyAfterReturningAdvice"></bean>  
+  
+<!-- 配置代理对象 -->  
+<bean id="proxyFactoryBean" class="org.springframework.aop.framework.ProxyFactoryBean">   
+<!-- 代理接口集 -->  
+    <property name="proxyInterfaces">  
+        <list>  
+            <value>com.cdtax.aop.TestServiceInter</value>  
+            <value>com.cdtax.aop.TestServiceInter2</value>  
+        </list>  
+    </property>  
+      
+    <!-- 把通知织入到代理对象  | 拦截器名集-->  
+    <property name="interceptorNames">  
+        <list>  
+        <!-- 相当于把 MyMethodBeforeAdvice前置通知和代理对象关联起来，我们也可以把通知看成拦截器，struts2核心就是拦截器 -->  
+         <value>myMethodBeforeAdvice</value>   
+                  
+        <span style="color:#ff0000;"><!-- 织入后置通知 --></span>  
+        <value>myAfterReturningAdvice</value>  
+                  
+        </list>  
+    </property>  
+      
+    <!-- 配置被代理对象，可以指定 -->  
+    <property name="target" ref="test1Service">  
+          
+    </property>  
+</bean>  
+</beans>  
+
+测试类：
+[java] view plain copy
+package com.cdtax.aop;  
+  
+import org.springframework.context.ApplicationContext;  
+import org.springframework.context.support.ClassPathXmlApplicationContext;  
+  
+public class App1  
+{  
+    public static void main(String[] args)  
+    {  
+        ApplicationContext ac = new ClassPathXmlApplicationContext("com/cdtax/aop/beans.xml");  
+          
+//      Test1Service ts = (Test1Service) ac.getBean("test1Service");  
+//      ts.sayHello();  
+          
+        TestServiceInter ts1 =  (TestServiceInter) ac.getBean("proxyFactoryBean");  
+        ts1.sayHello();  
+        ((TestServiceInter2)ts1).sayBye();  
+    }  
+}  
+
+执行结果：
+-----------------------------
+前置通知  ：记录日志...sayHello
+hai 小明
+后置通知被调用：关闭资源，
+-----------------------------
+前置通知  ：记录日志...sayBye
+bye 小明
+后置通知被调用：关闭资源，
+
+2、环绕通知
+
+[java] view plain copy
+package com.cdtax.aop;  
+  
+import org.aopalliance.intercept.MethodInterceptor;  
+import org.aopalliance.intercept.MethodInvocation;  
+  
+public class MyMethodInterceptor <span style="color:#ff0000;">implements MethodInterceptor</span>  
+{  
+  
+    @Override  
+    public Object invoke(MethodInvocation arg0) throws Throwable  
+    {  
+        System.out.println("环绕通知被调用：调用方法前执行  ");  
+        Object obj = arg0.proceed();  
+        System.out.println("环绕通知被调用：调用方法后执行   ");  
+        return obj;  
+    }  
+}  
+
+配置beans.xml
+[html] view plain copy
+<?xml version="1.0" encoding="UTF-8"?>  
+<beans xmlns="http://www.springframework.org/schema/beans"  
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"  
+        xmlns:context="http://www.springframework.org/schema/context"  
+        xmlns:tx="http://www.springframework.org/schema/tx"  
+        xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-2.5.xsd  
+                http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-2.5.xsd  
+                http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx-2.5.xsd">  
+  
+<!-- 配置被代理的对象 -->  
+<bean id="test1Service" class="com.cdtax.aop.Test1Service">  
+    <property name="name" value="小明"></property>  
+</bean>  
+  
+<!-- 配置前置通知 -->  
+<bean id="myMethodBeforeAdvice" class="com.cdtax.aop.MyMethodBeforeAdvice"></bean>  
+  
+<!-- 配置后置通知 -->  
+<bean id="myAfterReturningAdvice" class="com.cdtax.aop.MyAfterReturningAdvice"></bean>  
+  
+<span style="color:#ff0000;"><!-- 配置环绕通知 --></span>  
+<bean id="myMethodInterceptor" class="com.cdtax.aop.MyMethodInterceptor"></bean>  
+  
+  
+<!-- 配置代理对象 -->  
+<bean id="proxyFactoryBean" class="org.springframework.aop.framework.ProxyFactoryBean">   
+<!-- 代理接口集 -->  
+    <property name="proxyInterfaces">  
+        <list>  
+            <value>com.cdtax.aop.TestServiceInter</value>  
+            <value>com.cdtax.aop.TestServiceInter2</value>  
+        </list>  
+    </property>  
+      
+    <!-- 把通知织入到代理对象  | 拦截器名集-->  
+    <property name="interceptorNames">  
+        <list>  
+        <!-- 相当于把 MyMethodBeforeAdvice前置通知和代理对象关联起来，我们也可以把通知看成拦截器，struts2核心就是拦截器 -->  
+         <value>myMethodBeforeAdvice</value>   
+                  
+        <!-- 织入后置通知 -->  
+        <value>myAfterReturningAdvice</value>  
+          
+        <span style="color:#ff0000;"><!-- 织入环绕通知 --></span>  
+        <value>myMethodInterceptor</value>  
+                  
+        </list>  
+    </property>  
+      
+    <!-- 配置被代理对象，可以指定 -->  
+    <property name="target" ref="test1Service">  
+          
+    </property>  
+</bean>  
+</beans>  
+
+执行App1测试类，执行结果：
+-----------------------------
+前置通知  ：记录日志...sayHello
+环绕通知被调用：调用方法前执行  
+hai 小明
+环绕通知被调用：调用方法后执行   
+后置通知被调用：关闭资源，
+-----------------------------
+前置通知  ：记录日志...sayBye
+环绕通知被调用：调用方法前执行  
+bye 小明
+环绕通知被调用：调用方法后执行   
+后置通知被调用：关闭资源，
+3、异常通知：
+
+修改Test1Service类，
+
+[java] view plain copy
+package com.cdtax.aop;  
+  
+public class Test1Service implements TestServiceInter,TestServiceInter2  
+{  
+  
+    private String name;  
+      
+    public String getName()  
+    {  
+        return name;  
+    }  
+  
+    public void setName(String name)  
+    {  
+        this.name = name;  
+    }  
+  
+    @Override  
+    public void sayHello()  
+    {  
+        System.out.println("hai " + name);  
+    }  
+  
+    @Override  
+    public void sayBye()  
+    {  
+        System.out.println("bye " + name);  
+        <span style="color:#ff0000;">int i = 9 / 0;</span>  
+    }  
+}  
+
+在sayBye（）方法中增加一个除零异常
+编写异常通知：
+
+[java] view plain copy
+package com.cdtax.aop;  
+  
+import java.lang.reflect.Method;  
+  
+import org.springframework.aop.ThrowsAdvice;  
+  
+public class MyThrowsAdvice <span style="color:#ff0000;">implements ThrowsAdvice</span>  
+{  
+    public void afterThrowing(Method m,Object[] os,Object target,Exception throwable)  
+    {  
+        System.out.println("异常通知：出大事了" + throwable.getMessage());  
+    }  
+}  
+
+在beans.xml中配置：
+[html] view plain copy
+<?xml version="1.0" encoding="UTF-8"?>  
+<beans xmlns="http://www.springframework.org/schema/beans"  
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"  
+        xmlns:context="http://www.springframework.org/schema/context"  
+        xmlns:tx="http://www.springframework.org/schema/tx"  
+        xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-2.5.xsd  
+                http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-2.5.xsd  
+                http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx-2.5.xsd">  
+  
+<!-- 配置被代理的对象 -->  
+<bean id="test1Service" class="com.cdtax.aop.Test1Service">  
+    <property name="name" value="小明"></property>  
+</bean>  
+  
+<!-- 配置前置通知 -->  
+<bean id="myMethodBeforeAdvice" class="com.cdtax.aop.MyMethodBeforeAdvice"></bean>  
+  
+<!-- 配置后置通知 -->  
+<bean id="myAfterReturningAdvice" class="com.cdtax.aop.MyAfterReturningAdvice"></bean>  
+  
+<!-- 配置环绕通知 -->  
+<bean id="myMethodInterceptor" class="com.cdtax.aop.MyMethodInterceptor"></bean>  
+  
+<span style="color:#ff0000;"><!-- 配置异常通知 --></span>  
+<bean id="myThrowsAdvice" class="com.cdtax.aop.MyThrowsAdvice"></bean>  
+  
+<!-- 配置代理对象 -->  
+<bean id="proxyFactoryBean" class="org.springframework.aop.framework.ProxyFactoryBean">   
+<!-- 代理接口集 -->  
+    <property name="proxyInterfaces">  
+        <list>  
+            <value>com.cdtax.aop.TestServiceInter</value>  
+            <value>com.cdtax.aop.TestServiceInter2</value>  
+        </list>  
+    </property>  
+      
+    <!-- 把通知织入到代理对象  | 拦截器名集-->  
+    <property name="interceptorNames">  
+        <list>  
+        <!-- 相当于把 MyMethodBeforeAdvice前置通知和代理对象关联起来，我们也可以把通知看成拦截器，struts2核心就是拦截器 -->  
+         <!-- 织入前置通知 -->  
+         <value>myMethodBeforeAdvice</value>   
+                  
+        <!-- 织入后置通知 -->  
+        <value>myAfterReturningAdvice</value>  
+          
+        <!-- 织入环绕通知 -->  
+        <value>myMethodInterceptor</value>  
+          
+        <span style="color:#ff0000;"><!-- 织入异常通知 --></span>  
+        <value>myThrowsAdvice</value>  
+                  
+        </list>  
+    </property>  
+      
+    <!-- 配置被代理对象，可以指定 -->  
+    <property name="target" ref="test1Service">  
+          
+    </property>  
+</bean>  
+</beans>  
+
+运行App1测试类结果：
+-----------------------------
+前置通知  ：记录日志...sayHello
+环绕通知被调用：调用方法前执行  
+hai 小明
+环绕通知被调用：调用方法后执行   
+后置通知被调用：关闭资源，
+-----------------------------
+前置通知  ：记录日志...sayBye
+环绕通知被调用：调用方法前执行  
+bye 小明
+异常通知：出大事了/ by zero
+Exception in thread "main" Java.lang.ArithmeticException: / by zero
+at com.cdtax.aop.Test1Service.sayBye(Test1Service.java:28)
+at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:39)
+at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:25)
+at java.lang.reflect.Method.invoke(Method.java:597)
+at org.springframework.aop.support.AopUtils.invokeJoinpointUsingReflection(AopUtils.java:307)
+at org.springframework.aop.framework.ReflectiveMethodInvocation.invokeJoinpoint(ReflectiveMethodInvocation.java:182)
+at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:149)
+at org.springframework.aop.framework.adapter.ThrowsAdviceInterceptor.invoke(ThrowsAdviceInterceptor.java:126)
+at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:171)
+at com.cdtax.aop.MyMethodInterceptor.invoke(MyMethodInterceptor.java:13)
+at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:171)
+at org.springframework.aop.framework.adapter.AfterReturningAdviceInterceptor.invoke(AfterReturningAdviceInterceptor.java:50)
+at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:171)
+at org.springframework.aop.framework.adapter.MethodBeforeAdviceInterceptor.invoke(MethodBeforeAdviceInterceptor.java:50)
+at org.springframework.aop.framework.ReflectiveMethodInvocation.proceed(ReflectiveMethodInvocation.java:171)
+at org.springframework.aop.framework.JdkDynamicAopProxy.invoke(JdkDynamicAopProxy.java:204)
+at $Proxy0.sayBye(Unknown Source)
+at com.cdtax.aop.App1.main(App1.java:17)
+4、最后一个是引入通知，引入通知不需要编写相应的类，只需要进行配置，目的是用来指定哪些方法需要执行相应的通知，如，我们想指定只有sayHello（）方法执行前置通知，
+
+在beans.xml中如下配置：
+
+[html] view plain copy
+<?xml version="1.0" encoding="UTF-8"?>  
+<beans xmlns="http://www.springframework.org/schema/beans"  
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"  
+        xmlns:context="http://www.springframework.org/schema/context"  
+        xmlns:tx="http://www.springframework.org/schema/tx"  
+        xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-2.5.xsd  
+                http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-2.5.xsd  
+                http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx-2.5.xsd">  
+  
+<!-- 配置被代理的对象 -->  
+<bean id="test1Service" class="com.cdtax.aop.Test1Service">  
+    <property name="name" value="小明"></property>  
+</bean>  
+  
+<!-- 配置前置通知 -->  
+<bean id="myMethodBeforeAdvice" class="com.cdtax.aop.MyMethodBeforeAdvice"></bean>  
+  
+<!-- 配置后置通知 -->  
+<bean id="myAfterReturningAdvice" class="com.cdtax.aop.MyAfterReturningAdvice"></bean>  
+  
+<!-- 配置环绕通知 -->  
+<bean id="myMethodInterceptor" class="com.cdtax.aop.MyMethodInterceptor"></bean>  
+  
+<!-- 配置异常通知 -->  
+<bean id="myThrowsAdvice" class="com.cdtax.aop.MyThrowsAdvice"></bean>  
+  
+<span style="color:#ff0000;"><!-- 定义前置通知的切入点 （引用通知） -->  
+<bean id="myMethodBeforeAdviceFilter" class="org.springframework.aop.support.NameMatchMethodPointcutAdvisor">  
+    <property name="advice" ref="myMethodBeforeAdvice"></property>  
+    <property name="mappedNames">  
+        <list>  
+            <value>sayHello</value>  
+        </list>  
+    </property>  
+</bean></span>  
+  
+<!-- 配置代理对象 -->  
+<bean id="proxyFactoryBean" class="org.springframework.aop.framework.ProxyFactoryBean">   
+<!-- 代理接口集 -->  
+    <property name="proxyInterfaces">  
+        <list>  
+            <value>com.cdtax.aop.TestServiceInter</value>  
+            <value>com.cdtax.aop.TestServiceInter2</value>  
+        </list>  
+    </property>  
+      
+    <!-- 把通知织入到代理对象  | 拦截器名集-->  
+    <property name="interceptorNames">  
+        <list>  
+        <!-- 相当于把 MyMethodBeforeAdvice前置通知和代理对象关联起来，我们也可以把通知看成拦截器，struts2核心就是拦截器 -->  
+        <!-- <value>myMethodBeforeAdvice</value>   -->  
+          
+        <span style="color:#ff0000;"><!-- 使用自定义切入点的前置通知 -->  
+        <value>myMethodBeforeAdviceFilter</value></span>  
+                  
+        <!-- 织入后置通知 -->  
+        <value>myAfterReturningAdvice</value>  
+          
+        <!-- 织入环绕通知 -->  
+        <value>myMethodInterceptor</value>  
+          
+        <!-- 织入异常通知 -->  
+        <value>myThrowsAdvice</value>  
+                  
+        </list>  
+    </property>  
+      
+    <!-- 配置被代理对象，可以指定 -->  
+    <property name="target" ref="test1Service">  
+          
+    </property>  
+</bean>  
+</beans>  
+更改Test1Service的sayBye（）方法，去掉除零异常这一步，执行App1测试类结果：
+-----------------------------
+前置通知  ：记录日志...sayHello
+环绕通知被调用：调用方法前执行  
+hai 小明
+环绕通知被调用：调用方法后执行   
+后置通知被调用：关闭资源，
+环绕通知被调用：调用方法前执行  
+bye 小明
+环绕通知被调用：调用方法后执行   
+后置通知被调用：关闭资源，
+
+可以看到，只有sayHello（）方法执行了前置通知，sayBye（）方法没有执行
+
+这就是引用通知，用来定义切入点的。
+
+5、关于ts1的类型，
+
+[java] view plain copy
+package com.cdtax.aop;  
+  
+import org.springframework.context.ApplicationContext;  
+import org.springframework.context.support.ClassPathXmlApplicationContext;  
+  
+public class App1  
+{  
+    public static void main(String[] args)  
+    {  
+        ApplicationContext ac = new ClassPathXmlApplicationContext("com/cdtax/aop/beans.xml");  
+          
+//      Test1Service ts = (Test1Service) ac.getBean("test1Service");  
+//      ts.sayHello();  
+          
+        TestServiceInter ts1 =  (TestServiceInter) ac.getBean("proxyFactoryBean");  
+        ts1.sayHello();  
+        <span style="color:#cc0000;">System.out.println("ts1的类型：" + ts1);</span>  
+        ((TestServiceInter2)ts1).sayBye();  
+    }  
+}  
+我们获得ts1是通过getBean("proxyFactoryBean");获得的，proxyFactoryBean的class是org.springframework.aop.framework.ProxyFactoryBean，那么ts1的类型是不是也是它呢？运行上述程序，结果：
+-----------------------------
+前置通知  ：记录日志...sayHello
+环绕通知被调用：调用方法前执行  
+hai 小明
+环绕通知被调用：调用方法后执行   
+后置通知被调用：关闭资源，
+环绕通知被调用：调用方法前执行  
+环绕通知被调用：调用方法后执行   
+后置通知被调用：关闭资源，
+ts1的类型：com.cdtax.aop.Test1Service@1982fc1
+环绕通知被调用：调用方法前执行  
+bye 小明
+环绕通知被调用：调用方法后执行   
+后置通知被调用：关闭资源，
+
+可以看出，ts1的类型是com.cdtax.aop.Test1Service，它是proxyFactoryBean动态代理生成的。org.springframework.aop.framework.ProxyFactoryBean内部实现了动态代理方式。
+
+spring在运行期创建代理，不需要特殊的编译器，spring有两种代理方式：
+
+（1）若目标对象实现了若干接口，spring使用JDK的java.lang.reflect.Proxy类代理该类让spring动态产生一个新类，他实现了所需的接口，织入了通知，并且代理对目标对象的所有请求。
+（2）若目标对象没有实现任何接口，spring使用CGLIB库生成目标对象的子类。使用该方式时需要注意：
+        1）对接口创建代理优先于对类创建代理，因为会产生更加松耦合的系统。对类代理是让遗留系统或无法实现接口的第三方类库同样可以得到通知，这种方式应该是beiyongfang'an。
+        2）标记为final的方法不能够被通知。spring是为目标类产生子类。任何需要被通知的方法都被复写。将通知织入。final方法是不允许重写的。
+
+spring实现了aop联盟接口。
+
+spring只支持方法连接点：不提供属性接入点，spring的观点是属性拦截破坏了封装。面向对象的概念是对象自己处理工作，其他对象只能通过方法调用来得到结果。
+
+6、对于引入通知，定义切面时可以使用正则表达式，如在定义切入点时使用say*，表示以say开头的所有方法。
+
+
+
+
+
+
+
+spring中的5种通知和3种加载通知的方式
+ 
+
+Spring中的5种通知
+前置通知：
+Code:
+/**  
+ * 前置通知：执行方法之前调用。前置通知类需要实现MethodBeforeAdvice接口  
+ * */   
+public class EmpBeforeAdvice implements MethodBeforeAdvice {   
+    @Override   
+    public void before(Method arg0, Object[] arg1, Object target)   
+            throws Throwable {   
+        System.out.println("这里是before方法");   
+        System.out.println("方法的名字："+arg0+"方法的参数："+arg1.length+"目标对象："+target);   
+        System.out.println("===================");   
+           
+    }   
+}  
+ 
+后置通知：
+Code:
+/**  
+ * 后置通知：调用完方法之后调用，后置通知类要实现AfterReturningAdvice接口  
+ * */   
+public class EmpAfterAdvice implements AfterReturningAdvice {   
+    @Override   
+    public void afterReturning(Object arg0, Method arg1, Object[] arg2,   
+            Object target) throws Throwable {   
+        // TODO Auto-generated method stub   
+        System.out.println("这里是afterReturning方法！");   
+        System.out.println("返回的对象：" + arg0 + "调用的方法的名字：" + arg1 + "方法的参数："   
+                + arg2.length + "目标对象：" + target);   
+        System.out.println("======================");   
+  
+    }   
+}  
+ 
+环绕通知：
+Code:
+/**  
+ * 环绕通知：在调用方法的前后调用.该类需要继承MethodInterceptor接口  
+ * */   
+public class EmpReturning implements MethodInterceptor{   
+    @Override   
+    public Object invoke(MethodInvocation arg0) throws Throwable {   
+        // TODO Auto-generated method stub   
+        System.out.println("invoke方法的开始");   
+        Object obj=arg0.proceed();//让他执行目标方法   
+        System.out.println("invoke方法的结束");   
+        System.out.println("=====================");   
+        return obj;//如果返回的是null的话，就会报错   
+    }   
+}  
+ 
+异常通知：
+Code:
+/**  
+ * 异常通知：当执行目标类发生异常时，执行该通知。该类继承了ThrowingAdivice接口  
+ * */   
+public class EmpException implements ThrowsAdvice {   
+    public void afterThrowing(Method method, Object[] args, Object target,   
+            Exception ex) {   
+        System.out.println("这里是afterThrowing方法！");   
+        System.out.println("调用方法的名字是：" + method + "方法的参数的个数：" + args.length   
+                + "调用的目标对象：" + target + "抛出的异常：" + ex);   
+        System.out.println("================");   
+    }   
+}  
+ 
+引用通知：待写
+ 
+3种加载通知的方式
+用代理类加载方式：
+Code:
+<!-- 前置通知 -->   
+    <bean id="empBeforeAdvice" class="cn.csdn.aop.EmpBeforeAdvice"  />   
+    <!-- 后置通知(方法的操作之后进行处理) -->   
+    <bean id="empAfterAdvice" class="cn.csdn.aop.EmpAfterAdvice"  />   
+    <!-- 环绕通知(方法执行前后处理) -->   
+    <bean id="empReturning" class="cn.csdn.aop.EmpReturning"  />   
+    <!-- 异常通知(方法执行期间出现bug的时候) -->   
+    <bean id="empException" class="cn.csdn.aop.EmpException"  />   
+    <!-- 目标类 -->   
+    <bean id="empServiceImpl" class="cn.csdn.service.EmpServiceImpl">   
+        <property name="worktime">   
+            <value>my worktime is 8 hours!</value>   
+        </property>   
+    </bean>   
+    <!-- 配置一个静态的advisor -->   
+    <bean id="slbeforeadvistor"   
+        class="org.springframework.aop.support.NameMatchMethodPointcutAdvisor">   
+        <property name="advice" ref="empBeforeAdvice"></property>   
+        <property name="mappedNames">   
+            <list>   
+                <value>sleep</value>   
+            </list>   
+        </property>   
+    </bean>   
+    <!-- 配置另一个静态的advisor -->   
+    <bean id="wkaroundAdvisor"   
+        class="org.springframework.aop.support.NameMatchMethodPointcutAdvisor">   
+        <property name="advice" ref="empReturning"></property>   
+        <property name="mappedNames">   
+            <list>   
+                <value>work</value>   
+            </list>   
+        </property>   
+    </bean>   
+    <!-- 代理-->   
+    <bean id="proxyFactoryBean" class="org.springframework.aop.framework.ProxyFactoryBean">   
+  
+        <!-- 设置代理的名称proxyInterfaces -->   
+        <property name="proxyInterfaces">   
+            <list>   
+                <value>cn.csdn.service.EmpService</value>   
+            </list>   
+        </property>   
+        <!-- 拦截的名称 -->   
+        <property name="interceptorNames">   
+            <list>   
+                <!--在这定义那个通知，就加载那个通知   
+                    <value>empBeforeAdvice</value> <value>empAfterAdvice</value>   
+                    <value>empReturning</value> <value>empException</value>   
+                -->   
+                <value>slbeforeadvistor</value>   
+                <value>wkaroundAdvisor</value>   
+  
+            </list>   
+        </property>   
+  
+        <!-- 目标对象 -->   
+        <property name="target" ref="empServiceImpl"  />   
+    </bean>  
+ 
+默认的自动加载通知：
+Code:
+<!-- 前置通知 -->   
+    <bean id="empBeforeAdvice" class="cn.csdn.aop.EmpBeforeAdvice"  />   
+    <!-- 后置通知(方法的操作之后进行处理) -->   
+    <bean id="empAfterAdvice" class="cn.csdn.aop.EmpAfterAdvice"  />   
+    <!-- 环绕通知(方法执行前后处理) -->   
+    <bean id="empReturning" class="cn.csdn.aop.EmpReturning"  />   
+    <!-- 异常通知(方法执行期间出现bug的时候) -->   
+    <bean id="empException" class="cn.csdn.aop.EmpException"  />   
+    <!-- 目标类 -->   
+    <bean id="empServiceImpl" class="cn.csdn.service.EmpServiceImpl">   
+        <property name="worktime">   
+            <value>my worktime is 8 hours!</value>   
+        </property>   
+    </bean>   
+  
+    <!-- 配置一个静态的advisor -->   
+    <bean id="slbeforeadvistor"   
+        class="org.springframework.aop.support.NameMatchMethodPointcutAdvisor">   
+        <property name="advice" ref="empBeforeAdvice"></property>   
+        <property name="mappedNames">   
+            <list>   
+                <value>sleep</value>   
+            </list>   
+        </property>   
+    </bean>   
+    <!-- 配置另一个静态的advisor -->   
+    <bean id="wkaroundAdvisor"   
+        class="org.springframework.aop.support.NameMatchMethodPointcutAdvisor">   
+        <property name="advice" ref="empReturning"></property>   
+        <property name="mappedNames">   
+            <list>   
+                <value>work</value>   
+            </list>   
+        </property>   
+    </bean>   
+    <!-- 声明引入的通知 -->   
+    <bean id="modifyDateImpl" class="cn.csdn.service.ModifyDateImpl"  />   
+    <!-- 引入通知配置一个advisor -->   
+    <bean id="DefaultIntroductionAdvisor"   
+        class="org.springframework.aop.support.DefaultIntroductionAdvisor">   
+        <constructor-arg ref="modifyDateImpl"></constructor-arg>   
+    </bean>   
+    <bean id="defaultAdvisorAutoProxyCreator" class="org.springframework.aop.framework.autoproxy.DefaultAdvisorAutoProxyCreator" />   
+      
+ 
+Nameauto：
+Code:
+<!-- 前置通知 -->   
+    <bean id="empBeforeAdvice" class="cn.csdn.aop.EmpBeforeAdvice"  />   
+    <!-- 后置通知(方法的操作之后进行处理) -->   
+    <bean id="empAfterAdvice" class="cn.csdn.aop.EmpAfterAdvice"  />   
+    <!-- 环绕通知(方法执行前后处理) -->   
+    <bean id="empReturning" class="cn.csdn.aop.EmpReturning"  />   
+    <!-- 异常通知(方法执行期间出现bug的时候) -->   
+    <bean id="empException" class="cn.csdn.aop.EmpException"  />   
+  
+  
+  
+    <!-- 目标类 -->   
+    <bean id="empServiceImpl" class="cn.csdn.service.EmpServiceImpl">   
+        <property name="worktime">   
+            <value>my worktime is 8 hours!</value>   
+        </property>   
+    </bean>   
+  
+    <!-- 配置一个静态的advisor -->   
+    <bean id="slbeforeadvistor"   
+        class="org.springframework.aop.support.NameMatchMethodPointcutAdvisor">   
+        <property name="advice" ref="empBeforeAdvice"></property>   
+        <property name="mappedNames">   
+            <list>   
+                <value>sleep</value>   
+            </list>   
+        </property>   
+    </bean>   
+  
+  
+    <!-- 配置另一个静态的advisor -->   
+    <bean id="wkaroundAdvisor"   
+        class="org.springframework.aop.support.NameMatchMethodPointcutAdvisor">   
+        <property name="advice" ref="empReturning"></property>   
+        <property name="mappedNames">   
+            <list>   
+                <value>work</value>   
+            </list>   
+        </property>   
+    </bean>   
+  
+    <!-- 声明引入的通知 -->   
+    <bean id="modifyDateImpl" class="cn.csdn.service.ModifyDateImpl"  />   
+    <!-- 引入通知配置一个advisor -->   
+    <bean id="DefaultIntroductionAdvisor"   
+        class="org.springframework.aop.support.DefaultIntroductionAdvisor">   
+        <constructor-arg ref="modifyDateImpl"></constructor-arg>   
+    </bean>   
+  
+    <!-- 根据名字自动代理 -->   
+    <bean id="beanNameAutoProxyCreator"   
+        class="org.springframework.aop.framework.autoproxy.BeanNameAutoProxyCreator">   
+        <!-- 目标对象 -->   
+        <property name="beanNames">   
+        <value>empServiceImpl</value>   
+        </property>   
+        <!--拦截的名称  -->   
+        <property name="interceptorNames">   
+            <list>   
+                <!--   
+                    <value>empBeforeAdvice</value> <value>empAfterAdvice</value>   
+                    <value>empReturning</value> <value>empException</value>   
+                -->   
+                   
+                <value>wkaroundAdvisor</value>   
+                <value>DefaultIntroductionAdvisor</value>   
+            </list>   
+        </property>   
+  
+    </bean>  
+    
+    
+    
+    
+    
+  /****************************************/
+  
+  
+  Spring AOP 四大通知
+Spring 3.X 以前
+1.前置通知，实现  MethodBeforeAdvice 接口，重写
+
+            public  void  before(Method  method, Object[]  args, Object  target) throws Throwable方法
+
+ 　　　　
+
+　　　　import java.lang.reflect.Method;
+
+　　　　import org.springframework.aop.MethodBeforeAdvice;
+
+　　　　public class TestMethodBeforeAdvice implements MethodBeforeAdvice {
+
+　　　　　　　　/** arg0  方法
+
+ 　　　　　　　　* arg1 参数
+
+ 　　　　　　　　* arg2 操作对象
+
+ 　　　　　　　　* */
+
+　　　　　　　　@Override
+
+　　　　　　　　public void before(Method arg0, Object[] arg1, Object arg2) throws Throwable {
+
+　　　　　　　　　　System.out.println("前置通知：----》方法："+arg0.getName()+"传入参数"+arg1+"操作象"+arg2);
+
+　　　　　　　　}
+
+　　　　　}
+
+2.后置通知，实现 AfterReturningAdvice  接口，重写
+
+　　　　　　public void afterReturning(Object returnValue, Method method, Object[] args, Object target) throws Throwable 方法
+
+ 
+
+　　　　　　import java.lang.reflect.Method;
+
+　　　　　　import org.springframework.aop.AfterReturningAdvice;
+
+　　　　　　public class TestAfterReturningAdvice implements AfterReturningAdvice{
+
+　　　　　　　　　　　　/**
+
+ 　　　　　　　　　　　　* arg0:return 的返回值
+
+ 　　　　　　　　　　　　* arg1:执行的方法对象
+
+ 　　　　　　　　　　　　* arg2:方法执行中传递过来的参数
+
+ 　　　　　　　　　　　　* arg3:执行方法的对象
+
+ 　　　　　　　　　　　　*/
+
+　　　　　　　　　　　　@Override
+
+　　　　　　　　　　　　public void afterReturning(Object arg0, Method arg1, Object[] arg2, Object arg3) throws Throwable {
+
+ 　　　　　　　　　　　　　　System.out.println("后置通知：----》方法："+arg1.getName()+"返回值："+arg0+"执行方对象："+arg3);
+
+　　　　　　　　　　　　}　　
+
+　　　　　　}
+
+ 
+
+3.环绕通知， 实现 MethodInterceptor  接口，重写
+
+　　　　　　public  Object  invoke(MethodInvocation  invocation) throws Throwable 方法
+
+ 
+
+　　　　　　import java.lang.reflect.Method;
+
+　　　　　　import org.aopalliance.intercept.MethodInterceptor;
+
+　　　　　　import org.aopalliance.intercept.MethodInvocation;
+
+　　　　　　public class TestMethodinterceptor implements MethodInterceptor {
+
+　　　　　　　　　　@Override
+
+　　　　　　　　　　public Object invoke(MethodInvocation invocation) throws Throwable {
+
+　　　　　　　　　　　　　　Method method = invocation.getMethod() ; //方法
+
+　　　　　　　　　　　　　　Object[] objs = invocation.getArguments() ; //参数
+
+　　　　　　　　　　　　　　Object obj = invocation.getThis() ; //操作对象
+
+　　　　　　　　　　　　　　System.out.println("环绕通知：-----》 开始: 方法："+method.getName()+"传入的参数："+objs+" 操作对象："+obj);
+
+　　　　　　　　　　　　　　Object result = invocation.proceed() ;   //放行
+
+　　　　　　　　　　　　　　System.out.println("环绕通知：-----》 结束：  返回值："+result);
+
+　　　　　　　　　　　　　　return result ;
+
+　　　　　　　　　　}
+
+　　　　　　}
+
+ 
+
+4.异常通知，实现 ThrowsAdvice 接口，重写
+
+         public void afterThrowing(Method  m, Object  args, Object  target,Throwable  e) 方法
+
+ 
+
+　　　　import java.lang.reflect.Method;
+
+　　　　import org.springframework.aop.ThrowsAdvice;
+
+　　　　public class TestThrowsAdvice implements ThrowsAdvice {
+
+ 　　　　　　　　public void afterThrowing(Method m, Object args, Object target, Throwable e) {  
+
+       　　　　　　　　　　System.out.println("异常通知:方法"+m.getName()+"发生异常,"+e.getMessage());
+
+      　　　　　　　　　　 System.exit(0);
+
+ 　　　　　　　　}
+
+　　　　　}
+
+注意：查看ThrowsAdvice源码会发现这个接口里面没有定义方法，但是这个方法必须这么写，
+
+ 
+
+Spring 3.X 以后版本
+
+ 
+
+　　　　import org.aspectj.lang.JoinPoint;
+
+　　　　import org.aspectj.lang.ProceedingJoinPoint;
+
+　　　　public class TestAdvice {
+
+　　　　　　　public void before(JoinPoint joinPoint){ //前置通知
+
+　　　　　　　　　　System.out.println("操作者"+joinPoint.getTarget()+"参数             "+joinPoint.getArgs()[0]);
+
+　　　　　　　　　　System.out.println("*********************前置通知*********************");
+
+　　　　　　　}
+
+　　　　　　　//后置通知:当方法执行完会触发，出错则不执行
+
+　　　　　　　public void afterReturning(JoinPoint joinPoint,Object obj){
+
+　　　　　　　　　　　　System.out.println("后置通知");
+
+　　　　　　　　　　　　System.out.println("返回结果："+obj);
+
+　　　　　　　　}
+
+　　　　　　　　//最终通知
+
+　　　　　　　　public void after(JoinPoint joinPoint){
+
+　　　　　　　　　　　　System.out.println("最终通知");
+
+　　　　　　　　　　　　System.out.println("调用的方法"+joinPoint.getSignature());
+
+　　　　　　　　}
+
+　　　　　　　　//异常通知
+
+　　　　　　　　public void throwAdvice(Exception exception){
+
+　　　　　　　　　　　　System.out.println("--------异常通知--------");
+
+　　　　　　　　　　　　System.out.println("异常消息"+exception.getMessage());
+
+　　　　　　　　}
+
+　　　　　　　　//环绕通知
+
+　　　　　　　　public Object around(ProceedingJoinPoint proceedingJoinPoint){
+
+　　　　　　　　　　　　System.out.println("环绕通知开始");
+
+　　　　　　　　　　　　try {
+
+　　　　　　　　　　　　　　Object  obj = proceedingJoinPoint.proceed() ;
+
+　　　　　　　　　　　　　　System.out.println("环绕通知结束");
+
+　　　　　　　　　　　　　　return obj ;
+
+　　　　　　　　　　　　} catch (Throwable e) {
+
+　　　　　　　　　　　　　　e.printStackTrace();
+
+　　　　　　　　　　　　}
+
+　　　　　　　　　　　　return null ;
+
+　　　　　　}
+
+　　}
+
+ 
+
+配置信息
+
+<!--Spring3.X以前-->
+
+<!--后置通知-->
+
+　　<bean id="afterAdvice" class="com.spring.advice.TestAfterReturningAdvice"/>
+
+<!--前置通知-->
+
+　　<bean id="beforeAdvice" class="com.spring.advice.TestMethodBeforeAdvice"/>
+
+<!--环绕通知-->
+
+　　<bean id="interceptorAdvice" class="com.spring.advice.TestMethodinterceptor"/>
+
+<!--异常通知-->
+
+　　<bean id="throwsAdvice" class="com.spring.advice.TestThrowsAdvice"/>
+
+<!--Spring3.X以后整合-->
+
+　　<bean id="advice" class="com.spring.advice.TestAdvice"/>
+
+<!-- AOP设置 -->
+
+<aop:config>
+
+　　　　<aop:pointcut expression="execution(* com.spring.service.*.*(..))" id="mycut"/>
+
+　　　　<aop:advisor advice-ref="afterAdvice" pointcut-ref="mycut"/>
+
+　　　　<aop:advisor advice-ref="beforeAdvice" pointcut-ref="mycut"/>
+
+　　　　<aop:advisor advice-ref="interceptorAdvice" pointcut-ref="mycut"/>
+
+　　　　<aop:advisor advice-ref="throwsAdvice" pointcut-ref="mycut"/>
+
+　　　　<!-- 新版本 -->
+
+　　　　<aop:aspect ref="advice">
+
+　　　　　　　　<aop:before method="before" pointcut-ref="mycut"/>
+
+　　　　　　　　<aop:after-returning method="afterReturning" returning="obj" pointcut-ref="mycut"/>
+
+　　　　　　　　<aop:after method="after" pointcut-ref="mycut"/>
+
+　　　　　　　　<aop:after-throwing method="throwAdvice" throwing="exception" pointcut-ref="mycut"/>
+
+　　　　　　　　<aop:around method="around" pointcut-ref="mycut"/>
+
+　　　　　</aop:aspect>
+
+</aop:config>
+
+两种方法：
+
+　　Spring3.X版本以前写法思路更清晰，新版本，虽然把4个通知整合在了一起，但是，如果业务复杂的话，通知较多建议分开写，
+
+两种方法区别不是很大，具体还得开需求
+
+ 
+
+expression的value值
+
+任意公共方法的执行：
+
+　　execution(public * *(..))
+
+任何一个以“set”开始的方法的执行：
+
+　　execution(* set*(..))
+
+AccountService 接口的任意方法的执行：
+
+　　execution(* com.xyz.service.AccountService.*(..))
+
+定义在service包里的任意方法的执行：
+
+　　execution(* com.xyz.service.*.*(..))
+
+定义在service包或者子包里的任意方法的执行：
+
+　　execution(* com.xyz.service..*.*(..))
+
+ 
+  
+    
+    

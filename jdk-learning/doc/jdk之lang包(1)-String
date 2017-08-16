@@ -1,0 +1,1289 @@
+从一段代码说起：
+
+public void stringTest(){
+    String a = "a"+"b"+1;
+    String b = "ab1";
+    System.out.println(a == b);
+}
+ 
+
+大家猜一猜结果如何？如果你的结论是true。好吧，再来一段代码：
+
+public void stringTest(){
+    String a = new String("ab1");
+    String b = "ab1";
+    System.out.println(a == b);
+}
+ 
+
+结果如何呢？正确答案是false。
+
+让我们看看经过编译器编译后的代码如何
+
+//第一段代码
+public void stringTest() {
+    String a = "ab1";
+    String b = "ab1";
+    System.out.println(a == b);
+}
+//第二段代码
+public void stringTest() {
+    String a1 = new String("ab1");
+    String b = "ab1";
+    System.out.println(a1 == b);
+}
+ 
+
+也就是说第一段代码经过了编译期优化，原因是编译器发现"a"+"b"+1和"ab1"的效果是一样的，都是不可变量组成。但是为什么他们的内存地址会相同呢？如果你对此还有兴趣，那就一起看看String类的一些重要源码吧。
+
+ 
+
+一 String类
+
+    String类被final所修饰，也就是说String对象是不可变量，并发程序最喜欢不可变量了。String类实现了Serializable, Comparable<String>, CharSequence接口。
+
+    Comparable接口有compareTo(String s)方法，CharSequence接口有length()，charAt(int index)，subSequence(int start,int end)方法。
+
+ 
+
+二 String属性
+
+    String类中包含一个不可变的char数组用来存放字符串，一个int型的变量hash用来存放计算后的哈希值。
+
+/** The value is used for character storage. */
+private final char value[];
+
+/** Cache the hash code for the string */
+private int hash; // Default to 0
+
+/** use serialVersionUID from JDK 1.0.2 for interoperability */
+private static final long serialVersionUID = -6849794470754667710L;
+ 
+
+ 
+
+三 String构造函数
+
+//不含参数的构造函数，一般没什么用，因为value是不可变量
+public String() {
+    this.value = new char[0];
+}
+
+//参数为String类型
+public String(String original) {
+    this.value = original.value;
+    this.hash = original.hash;
+}
+
+//参数为char数组，使用java.utils包中的Arrays类复制
+public String(char value[]) {
+    this.value = Arrays.copyOf(value, value.length);
+}
+
+//从bytes数组中的offset位置开始，将长度为length的字节，以charsetName格式编码，拷贝到value
+public String(byte bytes[], int offset, int length, String charsetName)
+        throws UnsupportedEncodingException {
+    if (charsetName == null)
+        throw new NullPointerException("charsetName");
+    checkBounds(bytes, offset, length);
+    this.value = StringCoding.decode(charsetName, bytes, offset, length);
+}
+
+//调用public String(byte bytes[], int offset, int length, String charsetName)构造函数
+public String(byte bytes[], String charsetName)
+        throws UnsupportedEncodingException {
+    this(bytes, 0, bytes.length, charsetName);
+}
+ 
+
+ 
+
+三 String常用方法
+
+boolean equals(Object anObject)
+
+public boolean equals(Object anObject) {
+    //如果引用的是同一个对象，返回真
+    if (this == anObject) {
+        return true;
+    }
+    //如果不是String类型的数据，返回假
+    if (anObject instanceof String) {
+        String anotherString = (String) anObject;
+        int n = value.length;
+        //如果char数组长度不相等，返回假
+        if (n == anotherString.value.length) {
+            char v1[] = value;
+            char v2[] = anotherString.value;
+            int i = 0;
+            //从后往前单个字符判断，如果有不相等，返回假
+            while (n-- != 0) {
+                if (v1[i] != v2[i])
+                        return false;
+                i++;
+            }
+            //每个字符都相等，返回真
+            return true;
+        }
+    }
+    return false;
+}
+ 
+
+equals方法经常用得到，它用来判断两个对象从实际意义上是否相等，String对象判断规则：
+
+内存地址相同，则为真。
+
+如果对象类型不是String类型，则为假。否则继续判断。
+
+如果对象长度不相等，则为假。否则继续判断。
+
+从后往前，判断String类中char数组value的单个字符是否相等，有不相等则为假。如果一直相等直到第一个数，则返回真。
+
+由此可以看出，如果对两个超长的字符串进行比较还是非常费时间的。
+
+ 
+
+int compareTo(String anotherString)
+
+public int compareTo(String anotherString) {
+    //自身对象字符串长度len1
+    int len1 = value.length;
+    //被比较对象字符串长度len2
+    int len2 = anotherString.value.length;
+    //取两个字符串长度的最小值lim
+    int lim = Math.min(len1, len2);
+    char v1[] = value;
+    char v2[] = anotherString.value;
+
+    int k = 0;
+    //从value的第一个字符开始到最小长度lim处为止，如果字符不相等，返回自身（对象不相等处字符-被比较对象不相等字符）
+    while (k < lim) {
+        char c1 = v1[k];
+        char c2 = v2[k];
+        if (c1 != c2) {
+            return c1 - c2;
+        }
+        k++;
+    }
+    //如果前面都相等，则返回（自身长度-被比较对象长度）
+    return len1 - len2;
+}
+ 
+
+这个方法写的很巧妙，先从0开始判断字符大小。如果两个对象能比较字符的地方比较完了还相等，就直接返回自身长度减被比较对象长度，如果两个字符串长度相等，则返回的是0，巧妙地判断了三种情况。
+
+ 
+
+int hashCode()
+
+public int hashCode() {
+    int h = hash;
+    //如果hash没有被计算过，并且字符串不为空，则进行hashCode计算
+    if (h == 0 && value.length > 0) {
+        char val[] = value;
+
+        //计算过程
+        //s[0]*31^(n-1) + s[1]*31^(n-2) + ... + s[n-1]
+        for (int i = 0; i < value.length; i++) {
+            h = 31 * h + val[i];
+        }
+        //hash赋值
+        hash = h;
+    }
+    return h;
+}
+ 
+
+String类重写了hashCode方法，Object中的hashCode方法是一个Native调用。String类的hash采用多项式计算得来，我们完全可以通过不相同的字符串得出同样的hash，所以两个String对象的hashCode相同，并不代表两个String是一样的。
+
+ 
+
+boolean startsWith(String prefix,int toffset)
+
+public boolean startsWith(String prefix, int toffset) {
+    char ta[] = value;
+    int to = toffset;
+    char pa[] = prefix.value;
+    int po = 0;
+    int pc = prefix.value.length;
+    // Note: toffset might be near -1>>>1.
+    //如果起始地址小于0或者（起始地址+所比较对象长度）大于自身对象长度，返回假
+    if ((toffset < 0) || (toffset > value.length - pc)) {
+        return false;
+    }
+    //从所比较对象的末尾开始比较
+    while (--pc >= 0) {
+        if (ta[to++] != pa[po++]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+public boolean startsWith(String prefix) {
+    return startsWith(prefix, 0);
+}
+
+public boolean endsWith(String suffix) {
+    return startsWith(suffix, value.length - suffix.value.length);
+}
+ 
+
+起始比较和末尾比较都是比较经常用得到的方法，例如在判断一个字符串是不是http协议的，或者初步判断一个文件是不是mp3文件，都可以采用这个方法进行比较。
+
+ 
+
+String concat(String str)
+
+public String concat(String str) {
+    int otherLen = str.length();
+    //如果被添加的字符串为空，返回对象本身
+    if (otherLen == 0) {
+        return this;
+    }
+    int len = value.length;
+    char buf[] = Arrays.copyOf(value, len + otherLen);
+    str.getChars(buf, len);
+    return new String(buf, true);
+}
+ 
+
+concat方法也是经常用的方法之一，它先判断被添加字符串是否为空来决定要不要创建新的对象。
+
+ 
+
+String replace(char oldChar,char newChar)
+
+public String replace(char oldChar, char newChar) {
+    //新旧值先对比
+    if (oldChar != newChar) {
+        int len = value.length;
+        int i = -1;
+        char[] val = value; /* avoid getfield opcode */
+
+        //找到旧值最开始出现的位置
+        while (++i < len) {
+            if (val[i] == oldChar) {
+                break;
+            }
+        }
+        //从那个位置开始，直到末尾，用新值代替出现的旧值
+        if (i < len) {
+            char buf[] = new char[len];
+            for (int j = 0; j < i; j++) {
+                buf[j] = val[j];
+            }
+            while (i < len) {
+                char c = val[i];
+                buf[i] = (c == oldChar) ? newChar : c;
+                i++;
+            }
+            return new String(buf, true);
+        }
+    }
+    return this;
+}
+ 
+
+这个方法也有讨巧的地方，例如最开始先找出旧值出现的位置，这样节省了一部分对比的时间。replace(String oldStr,String newStr)方法通过正则表达式来判断。
+
+ 
+
+String trim()
+
+public String trim() {
+    int len = value.length;
+    int st = 0;
+    char[] val = value;    /* avoid getfield opcode */
+
+    //找到字符串前段没有空格的位置
+    while ((st < len) && (val[st] <= ' ')) {
+        st++;
+    }
+    //找到字符串末尾没有空格的位置
+    while ((st < len) && (val[len - 1] <= ' ')) {
+        len--;
+    }
+    //如果前后都没有出现空格，返回字符串本身
+    return ((st > 0) || (len < value.length)) ? substring(st, len) : this;
+}
+ 
+
+trim方法用起来也6的飞起
+
+ 
+
+String intern()
+
+public native String intern();
+ 
+
+intern方法是Native调用，它的作用是在方法区中的常量池里通过equals方法寻找等值的对象，如果没有找到则在常量池中开辟一片空间存放字符串并返回该对应String的引用，否则直接返回常量池中已存在String对象的引用。
+
+将引言中第二段代码
+
+//String a = new String("ab1");
+//改为
+String a = new String("ab1").intern();
+ 
+
+则结果为为真，原因在于a所指向的地址来自于常量池，而b所指向的字符串常量默认会调用这个方法，所以a和b都指向了同一个地址空间。
+
+ 
+
+int hash32()
+
+private transient int hash32 = 0;
+int hash32() {
+    int h = hash32;
+    if (0 == h) {
+       // harmless data race on hash32 here.
+       h = sun.misc.Hashing.murmur3_32(HASHING_SEED, value, 0, value.length);
+
+       // ensure result is not zero to avoid recalcing
+       h = (0 != h) ? h : 1;
+
+       hash32 = h;
+    }
+
+    return h;
+}
+ 
+
+在JDK1.7中，Hash相关集合类在String类作key的情况下，不再使用hashCode方式离散数据，而是采用hash32方法。这个方法默认使用系统当前时间，String类地址，System类地址等作为因子计算得到hash种子，通过hash种子在经过hash得到32位的int型数值。
+
+ 
+
+public int length() {
+    return value.length;
+}
+public String toString() {
+    return this;
+}
+public boolean isEmpty() {
+    return value.length == 0;
+}
+public char charAt(int index) {
+    if ((index < 0) || (index >= value.length)) {
+        throw new StringIndexOutOfBoundsException(index);
+    }
+    return value[index];
+}
+ 
+
+以上是一些简单的常用方法。
+
+ 
+
+总结
+
+String对象是不可变类型，返回类型为String的String方法每次返回的都是新的String对象，除了某些方法的某些特定条件返回自身。
+
+String对象的三种比较方式：
+
+==内存比较：直接对比两个引用所指向的内存值，精确简洁直接明了。
+
+equals字符串值比较：比较两个引用所指对象字面值是否相等。
+
+hashCode字符串数值化比较：将字符串数值化。两个引用的hashCode相同，不保证内存一定相同，不保证字面值一定相同。
+
+
+
+
+String类型
+
+String 方法介绍
+
+构造方法，介绍一种
+
+public String(String original) {
+    this.value = original.value;
+    //通过散列码进行缓存
+    this.hash = original.hash;
+}
+返回指定位置的字符，从0开始记 public char charAt(int index)
+
+返回指定位置的字符的unicode编码，从0开始记 public int codePointAt(int index)
+
+返回指定位置前一位的字符的unicode编码，从0开始记 其实也可以理解为指定位置字符unicode编码，从1开始记 public int codePointBefore(int index)
+
+查询范围 endIndex-beginIndex endIndex范围取 0~ length endIndex范围取 0~ length + 1 public int codePointCount(int beginIndex, int endIndex)
+
+比较大小 从首位开始比较，若不同输出 s - anotherString 值 相同输出0 public int compareTo(String anotherString)
+
+比较大小忽略大小写 public int compareToIgnoreCase(String str)
+
+合并字符串 相当于append public String concat(String str)
+
+替换字符串 public String replace(char oldChar, char newChar)
+
+正则表达式匹配 public boolean matches(String regex)
+
+判断是否包含 CharSequence接口String及其配套类（StringBuffer、StringBuilfer）实现 public boolean contains(CharSequence s)
+
+替换 正则表达式匹配到的第一个 字符串 public String replaceFirst(String regex, String replacement)
+
+替换 正则表达式匹配到的所有字符串 public String replaceAll(String regex, String replacement)
+
+替换字符串中 target 为 replacement public String replace(CharSequence target, CharSequence replacement)
+
+String 接口分析
+
+String类型所实现的接口
+
+public final class String
+implements java.io.Serializable, Comparable<String>, CharSequence
+Serializable接口和Comparable接口大家都比较熟悉，一个是序列化接口，一个是比较able类接口，分别对应
+
+//序列化标记号
+private static final long serialVersionUID = -6849794470754667710L;
+
+ public int compareTo(String anotherString) {
+    int len1 = value.length;
+    int len2 = anotherString.value.length;
+    int lim = Math.min(len1, len2);
+    char v1[] = value;
+    char v2[] = anotherString.value;
+
+    int k = 0;
+    while (k < lim) {
+        char c1 = v1[k];
+        char c2 = v2[k];
+        if (c1 != c2) {
+            return c1 - c2;
+        }
+        k++;
+    }
+    return len1 - len2;
+}
+CharSequence接口，着这里我们得看一下，为什么常用的String类型不能算是基本类型了
+
+//String的实际内部实现
+private final char value[];
+CharSequence接口的基本定义节选如下，基本意思是 该接口定义的是 可读 的 字符 序列,提供了 标准 只读对不同类型的 字符序列。
+
+A CharSequence is a readable sequence of char values. This interface provides uniform, read-only access to many different kinds of char sequences. 
+根据String的定义来看，字符序列实际的体现就是String实际内容是char型数组，只读体现在final上。Final描述的属性是常量属性，对于数组来说，其数组引用无法改变。对于这方面的讨论，之后会有详细的讨论。
+
+//CharSequence提供了如下方法
+
+//包内可见
+int length();
+char charAt(int index);
+CharSequence subSequence(int start, int end);
+
+//公共
+public String toString();
+这几种方法也常用到其中subSequence的实际实现就是调用了subString方法
+
+public CharSequence subSequence(int beginIndex, int endIndex) {
+    return this.substring(beginIndex, endIndex);
+}
+此处的toString方法是将实现该接口的对象提供可转换为 字符序列的方法，虽然命名上与Object的toString方法重复，但从理念上是不同的
+
+//Object toString方法
+public String toString() {
+    return getClass().getName() + "@" + Integer.toHexString(hashCode());
+}
+String 加和等于的实现
+
+记得开始学习String时候，对于String的最大疑惑就是 为何String 能实现 +和= 却不是基本类型。
+
+实际上如果我们做个很有意思的实验的话，可以看到如下结果。
+
+//原始代码
+System.out.println("Hello" + " world!");
+
+//反编译代码
+System.out.println("Hello world!");
+静态String + 实现
+
+我们知道，java文件在运行之后会被编译为class文件，class文件的基本信息会在jvm方法区中的运行常量池中进行加载，其加载之时就包括字面量的相关信息。实际上反映在jvm之中的字面量，在加载之初就会开辟内存进行存储。
+
+动态String + 实现 JAVA堆主要负责 对象的实例分配,虚拟机栈负责对象引用以及基本数据类型。而在运行时，基本数据类型的内存分配主要集中在虚拟机栈中，而堆中是对于基本数据类型的引用。
+
+加的问题解决了，但final的String value是如何实现等于的呢？ 首先我们可以想到 char[] value = ""这种双引号实现的赋值是可以的，但final修饰的char数组是无法重新引用新的内存区域的，也就是说 char数组可以重新赋值数组元素，但不可以变更数组长度。但实际用到的String 长度变更的赋值是如何实现的呢？
+
+实际上
+
+String a = "abc";
+
+String a = a + "d"
+
+String a = new String("abc" + d");
+实际上发生指针改变的Stirng类的引用指正改变，此时的内存划分实在虚拟机栈中的，JVM主要GC实现在堆内存中，因此这种方式一方面浪费内存，另外一方面效率十分差。
+
+StringBuffer 和 StringBuilder
+
+为了解决String在字符变换时的效率差问题，JDK提供了StringBuffer和StringBuilder。
+
+//与String相比，减去了Comparable接口，两个都继承了AbstractStringBuilder
+public final class StringBuilder
+    extends AbstractStringBuilder
+    implements java.io.Serializable, CharSequence
+
+ public final class StringBuffer
+    extends AbstractStringBuilder
+    implements java.io.Serializable, CharSequence
+
+//AbstractStringBuilder的定义如下，其增加了Appendable，对应的就是append方法
+abstract class AbstractStringBuilder implements Appendable, CharSequence
+可以看到，为了给StringBuilder和StringBuffer提供 加的功能，AbstractStringBuilder通过Appendable接口提供了append方法。
+
+/**
+ * 属性，Char 数组
+ */
+char[] value;
+
+/**
+ * 属性，标记数组长度
+ */
+int count;
+
+/**
+ * 无参数构造方法，子类 序列化必须提供
+ */
+AbstractStringBuilder() {
+}
+
+/**
+ * 创建一个指定容量的char数组
+ */
+AbstractStringBuilder(int capacity) {
+    value = new char[capacity];
+}
+
+
+//StringBuffer和StringBuilder都是通过调用父类的构造方法进行构造，默认申请16个长度
+public StringBuffer() {
+    super(16);
+}
+
+/**
+ * 自定义长度申请
+ */
+public StringBuffer(int capacity) {
+    super(capacity);
+}
+StringBuffer和StringBuilder实现capacity变换长度是如何实现的呢?
+
+//AbstractStringBuilder的expandCapacity方法
+void expandCapacity(int minimumCapacity) {
+    int newCapacity = value.length * 2 + 2;
+    if (newCapacity - minimumCapacity < 0)
+        newCapacity = minimumCapacity;
+    if (newCapacity < 0) {
+        if (minimumCapacity < 0) // overflow
+            throw new OutOfMemoryError();
+        newCapacity = Integer.MAX_VALUE;
+    }
+
+    //这里 Arrays类虽然常用，但copyOf方法没有接触过吧
+    value = Arrays.copyOf(value, newCapacity);
+}
+
+//Arrays copyOf
+public static char[] copyOf(char[] original, int newLength) {
+    char[] copy = new char[newLength];
+    //调用System.arraycopy
+    System.arraycopy(original, 0, copy, 0,
+                     Math.min(original.length, newLength));
+    return copy;
+}
+
+/**
+注释如下
+Copies an array from the specified source array, beginning at the specified position, to the specified position of the destination array. A subsequence of array components are copied from the source array referenced by src to the destination array referenced by dest. The number of components copied is equal to the length argument. The components at positions srcPos through srcPos+length-1 in the source array are copied into positions destPos through destPos+length-1, respectively, of the destination array. 
+*/
+public static native void arraycopy(Object src,  int  srcPos,
+                                    Object dest, int destPos,
+                                    int length);
+<font color=#8A2BE2>String Buffer和StringBuilder主要的区别在于，StringBuffer是线程安全的，StringBuilder非线程安全的。 </font>
+
+其主要实现是通过synchronized实现线程安全
+
+//String Buffer实现
+public synchronized StringBuffer append(Object obj) {
+    super.append(String.valueOf(obj));
+    return this;
+}
+
+//String Builder实现
+public StringBuilder append(double d) {
+    super.append(d);
+    return this;
+}
+compareToIgnoreCase、compareTo 和 regionMatches
+
+compareToIgnoreCase这个方法在String 中的实现很有意思，String在源码中生成静态内部类CaseInsensitiveComparator实现忽略大小比较。
+
+仔细查看源码，我们可以看到compare实现了两次比较，之所以使用两次比较，是因为在不同语言环境下（格鲁吉亚语 、希腊语等）单独的toUpperCase或toLowerCase解决不了比较问题。因此使用两次比较。
+
+针对上面的问题，为解决平台平台无关化，考虑String日后扩展，因此将该比较单独抽象做惊天内部类。
+
+此处，个人认为对于可访问性最小化原则，compare访问性应该该更为包内可见。
+
+public static final Comparator<String> CASE_INSENSITIVE_ORDER
+                                     = new CaseInsensitiveComparator();
+
+//静态内部类
+private static class CaseInsensitiveComparator
+        implements Comparator<String>, java.io.Serializable {
+
+    private static final long serialVersionUID = 8575799808933029326L;
+
+    public int compare(String s1, String s2) {
+        int n1 = s1.length();
+        int n2 = s2.length();
+        int min = Math.min(n1, n2);
+        for (int i = 0; i < min; i++) {
+            char c1 = s1.charAt(i);
+            char c2 = s2.charAt(i);
+            if (c1 != c2) {
+                //第一次比较
+                c1 = Character.toUpperCase(c1);
+                c2 = Character.toUpperCase(c2);
+                if (c1 != c2) {
+                    //第二次比较
+                    c1 = Character.toLowerCase(c1);
+                    c2 = Character.toLowerCase(c2);
+                    if (c1 != c2) {
+                        // No overflow because of numeric promotion
+                        return c1 - c2;
+                    }
+                }
+            }
+        }
+        return n1 - n2;
+    }
+}
+
+public int compareToIgnoreCase(String str) {
+    return CASE_INSENSITIVE_ORDER.compare(this, str);
+}
+CaseInsensitiveComparator实现Comparator和Serializable接口。Comparator这个接口有没有看到有些熟悉，String里边扩展了接口comparable接口。 jdk中对于命名使用是比较规范的，这点值得借鉴。
+
+public interface Comparator<T> {
+    int compare(T o1, T o2);
+    boolean equals(Object obj);
+}
+
+public interface Comparable<T> {
+    public int compareTo(T o);
+}
+对于comparator，我们可以看到compare方法的实现是趋于静态工厂方法的，而Comparable方法是属于类型能力接口，所比较的是对象主体。
+
+两次比较的策略所能解决平台无关化问题，但随之带来的问题是性能的牺牲。String中提供了regionMatches，regionMatches所返回的是boolean型值，所以只能匹配是否相等，并不能比较大小，但根据源码来看，该方法提供了单次比较的实现。
+
+public boolean regionMatches(boolean ignoreCase, int toffset,
+        String other, int ooffset, int len) {
+    char ta[] = value;
+    int to = toffset;
+    char pa[] = other.value;
+    int po = ooffset;
+    // Note: toffset, ooffset, or len might be near -1>>>1.
+    if ((ooffset < 0) || (toffset < 0)
+            || (toffset > (long)value.length - len)
+            || (ooffset > (long)other.value.length - len)) {
+        return false;
+    }
+    while (len-- > 0) {
+        char c1 = ta[to++];
+        char c2 = pa[po++];
+        if (c1 == c2) {
+            continue;
+        }
+        if (ignoreCase) {
+            // If characters don't match but case may be ignored,
+            // try converting both characters to uppercase.
+            // If the results match, then the comparison scan should
+            // continue.
+            char u1 = Character.toUpperCase(c1);
+            char u2 = Character.toUpperCase(c2);
+            if (u1 == u2) {
+                continue;
+            }
+            // Unfortunately, conversion to uppercase does not work properly
+            // for the Georgian alphabet, which has strange rules about case
+            // conversion.  So we need to make one last check before
+            // exiting.
+            if (Character.toLowerCase(u1) == Character.toLowerCase(u2)) {
+                continue;
+            }
+        }
+        return false;
+    }
+    return true;
+}
+format方法
+
+
+
+在Java开发中，String是我们经常使用的类，使用频率应该是最高的之一。对于这样频繁使用的java类难道你就没有冲动去了解它吗？！好的，打开java源码，进入lang包，找到String类，你会发现这个类很庞大，3100+行（当然包括了注释），可以到我的oscgit上查看，你会发现String超过一半的函数都是重载函数。所以我们不能把所有代码都贴出来了，得选一些精华出来。下面是我选的关于String类的关键性函数。talk is cheap,show you the code!
+
+package java.lang;
+
+import java.io.ObjectStreamField;
+import java.io.UnsupportedEncodingException;
+import java.nio.charset.Charset;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.Formatter;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.StringJoiner;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
+
+
+public final class String
+    implements java.io.Serializable, Comparable<String>, CharSequence {
+
+    private final char value[];
+
+    private int hash; // Default to 0
+
+    private static final long serialVersionUID = -6849794470754667710L;
+
+    public String() {
+        this.value = "".value;
+    }
+
+
+    public String(String original) {
+        this.value = original.value;
+        this.hash = original.hash;
+    }
+
+
+    public String(char value[]) {
+        this.value = Arrays.copyOf(value, value.length);
+    }
+
+
+    public String(char value[], int offset, int count) {
+        if (offset < 0) {
+            throw new StringIndexOutOfBoundsException(offset);
+        }
+        if (count <= 0) {
+            if (count < 0) {
+                throw new StringIndexOutOfBoundsException(count);
+            }
+            if (offset <= value.length) {
+                this.value = "".value;
+                return;
+            }
+        }
+        // Note: offset or count might be near -1>>>1.
+        if (offset > value.length - count) {
+            throw new StringIndexOutOfBoundsException(offset + count);
+        }
+        this.value = Arrays.copyOfRange(value, offset, offset+count);
+    }
+
+    public String(StringBuffer buffer) {
+        synchronized(buffer) {
+            this.value = Arrays.copyOf(buffer.getValue(), buffer.length());
+        }
+    }
+
+    public String(StringBuilder builder) {
+        this.value = Arrays.copyOf(builder.getValue(), builder.length());
+    }
+
+    public int length() {
+        return value.length;
+    }
+
+
+    public boolean isEmpty() {
+        return value.length == 0;
+    }
+
+
+    public char charAt(int index) {
+        if ((index < 0) || (index >= value.length)) {
+            throw new StringIndexOutOfBoundsException(index);
+        }
+        return value[index];
+    }
+
+    public boolean equals(Object anObject) {
+        if (this == anObject) {
+            return true;
+        }
+        if (anObject instanceof String) {
+            String anotherString = (String)anObject;
+            int n = value.length;
+            if (n == anotherString.value.length) {
+                char v1[] = value;
+                char v2[] = anotherString.value;
+                int i = 0;
+                while (n-- != 0) {
+                    if (v1[i] != v2[i])
+                        return false;
+                    i++;
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean nonSyncContentEquals(AbstractStringBuilder sb) {
+        char v1[] = value;
+        char v2[] = sb.getValue();
+        int n = v1.length;
+        if (n != sb.length()) {
+            return false;
+        }
+        for (int i = 0; i < n; i++) {
+            if (v1[i] != v2[i]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+
+    public boolean contentEquals(CharSequence cs) {
+        // Argument is a StringBuffer, StringBuilder
+        if (cs instanceof AbstractStringBuilder) {
+            if (cs instanceof StringBuffer) {
+                synchronized(cs) {
+                   return nonSyncContentEquals((AbstractStringBuilder)cs);
+                }
+            } else {
+                return nonSyncContentEquals((AbstractStringBuilder)cs);
+            }
+        }
+        // Argument is a String
+        if (cs instanceof String) {
+            return equals(cs);
+        }
+        // Argument is a generic CharSequence
+        char v1[] = value;
+        int n = v1.length;
+        if (n != cs.length()) {
+            return false;
+        }
+        for (int i = 0; i < n; i++) {
+            if (v1[i] != cs.charAt(i)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+
+    public int compareTo(String anotherString) {
+        int len1 = value.length;
+        int len2 = anotherString.value.length;
+        int lim = Math.min(len1, len2);
+        char v1[] = value;
+        char v2[] = anotherString.value;
+
+        int k = 0;
+        while (k < lim) {
+            char c1 = v1[k];
+            char c2 = v2[k];
+            if (c1 != c2) {
+                return c1 - c2;
+            }
+            k++;
+        }
+        return len1 - len2;
+    }
+
+    public int hashCode() {
+        int h = hash;
+        if (h == 0 && value.length > 0) {
+            char val[] = value;
+
+            for (int i = 0; i < value.length; i++) {
+                h = 31 * h + val[i];
+            }
+            hash = h;
+        }
+        return h;
+    }
+
+    public String substring(int beginIndex, int endIndex) {
+        if (beginIndex < 0) {
+            throw new StringIndexOutOfBoundsException(beginIndex);
+        }
+        if (endIndex > value.length) {
+            throw new StringIndexOutOfBoundsException(endIndex);
+        }
+        int subLen = endIndex - beginIndex;
+        if (subLen < 0) {
+            throw new StringIndexOutOfBoundsException(subLen);
+        }
+        return ((beginIndex == 0) && (endIndex == value.length)) ? this
+                : new String(value, beginIndex, subLen);
+    }
+
+
+    public String concat(String str) {
+        int otherLen = str.length();
+        if (otherLen == 0) {
+            return this;
+        }
+        int len = value.length;
+        char buf[] = Arrays.copyOf(value, len + otherLen);
+        str.getChars(buf, len);
+        return new String(buf, true);
+    }
+
+
+    public String replace(char oldChar, char newChar) {
+        if (oldChar != newChar) {
+            int len = value.length;
+            int i = -1;
+            char[] val = value; /* avoid getfield opcode */
+
+            while (++i < len) {
+                if (val[i] == oldChar) {
+                    break;
+                }
+            }
+            if (i < len) {
+                char buf[] = new char[len];
+                for (int j = 0; j < i; j++) {
+                    buf[j] = val[j];
+                }
+                while (i < len) {
+                    char c = val[i];
+                    buf[i] = (c == oldChar) ? newChar : c;
+                    i++;
+                }
+                return new String(buf, true);
+            }
+        }
+        return this;
+    }
+
+    public boolean contains(CharSequence s) {
+        return indexOf(s.toString()) > -1;
+    }
+
+    public String[] split(String regex, int limit) {
+        /* fastpath if the regex is a
+         (1)one-char String and this character is not one of the
+            RegEx's meta characters ".$|()[{^?*+\\", or
+         (2)two-char String and the first char is the backslash and
+            the second is not the ascii digit or ascii letter.
+         */
+        char ch = 0;
+        if (((regex.value.length == 1 &&
+             ".$|()[{^?*+\\".indexOf(ch = regex.charAt(0)) == -1) ||
+             (regex.length() == 2 &&
+              regex.charAt(0) == '\\' &&
+              (((ch = regex.charAt(1))-'0')|('9'-ch)) < 0 &&
+              ((ch-'a')|('z'-ch)) < 0 &&
+              ((ch-'A')|('Z'-ch)) < 0)) &&
+            (ch < Character.MIN_HIGH_SURROGATE ||
+             ch > Character.MAX_LOW_SURROGATE))
+        {
+            int off = 0;
+            int next = 0;
+            boolean limited = limit > 0;
+            ArrayList<String> list = new ArrayList<>();
+            while ((next = indexOf(ch, off)) != -1) {
+                if (!limited || list.size() < limit - 1) {
+                    list.add(substring(off, next));
+                    off = next + 1;
+                } else {    // last one
+                    //assert (list.size() == limit - 1);
+                    list.add(substring(off, value.length));
+                    off = value.length;
+                    break;
+                }
+            }
+            // If no match was found, return this
+            if (off == 0)
+                return new String[]{this};
+
+            // Add remaining segment
+            if (!limited || list.size() < limit)
+                list.add(substring(off, value.length));
+
+            // Construct result
+            int resultSize = list.size();
+            if (limit == 0) {
+                while (resultSize > 0 && list.get(resultSize - 1).length() == 0) {
+                    resultSize--;
+                }
+            }
+            String[] result = new String[resultSize];
+            return list.subList(0, resultSize).toArray(result);
+        }
+        return Pattern.compile(regex).split(this, limit);
+    }
+
+
+    public String[] split(String regex) {
+        return split(regex, 0);
+    }
+
+
+    public static String join(CharSequence delimiter, CharSequence... elements) {
+        Objects.requireNonNull(delimiter);
+        Objects.requireNonNull(elements);
+        // Number of elements not likely worth Arrays.stream overhead.
+        StringJoiner joiner = new StringJoiner(delimiter);
+        for (CharSequence cs: elements) {
+            joiner.add(cs);
+        }
+        return joiner.toString();
+    }
+
+
+    public static String join(CharSequence delimiter,
+            Iterable<? extends CharSequence> elements) {
+        Objects.requireNonNull(delimiter);
+        Objects.requireNonNull(elements);
+        StringJoiner joiner = new StringJoiner(delimiter);
+        for (CharSequence cs: elements) {
+            joiner.add(cs);
+        }
+        return joiner.toString();
+    }
+
+
+
+    public String trim() {
+        int len = value.length;
+        int st = 0;
+        char[] val = value;    /* avoid getfield opcode */
+
+        while ((st < len) && (val[st] <= ' ')) {
+            st++;
+        }
+        while ((st < len) && (val[len - 1] <= ' ')) {
+            len--;
+        }
+        return ((st > 0) || (len < value.length)) ? substring(st, len) : this;
+    }
+
+
+    public String toString() {
+        return this;
+    }
+
+
+    public char[] toCharArray() {
+        // Cannot use Arrays.copyOf because of class initialization order issues
+        char result[] = new char[value.length];
+        System.arraycopy(value, 0, result, 0, value.length);
+        return result;
+    }
+
+
+    public static String format(String format, Object... args) {
+        return new Formatter().format(format, args).toString();
+    }
+
+
+    public static String format(Locale l, String format, Object... args) {
+        return new Formatter(l).format(format, args).toString();
+    }
+
+
+    public static String valueOf(Object obj) {
+        return (obj == null) ? "null" : obj.toString();
+    }
+
+
+    public static String valueOf(char data[]) {
+        return new String(data);
+    }
+
+
+    public static String valueOf(char data[], int offset, int count) {
+        return new String(data, offset, count);
+    }
+
+    public static String copyValueOf(char data[], int offset, int count) {
+        return new String(data, offset, count);
+    }
+
+
+    public static String copyValueOf(char data[]) {
+        return new String(data);
+    }
+
+    public static String valueOf(boolean b) {
+        return b ? "true" : "false";
+    }
+
+
+    public static String valueOf(char c) {
+        char data[] = {c};
+        return new String(data, true);
+    }
+
+
+    public static String valueOf(int i) {
+        return Integer.toString(i);
+    }
+
+
+    public static String valueOf(long l) {
+        return Long.toString(l);
+    }
+
+    public static String valueOf(float f) {
+        return Float.toString(f);
+    }
+
+
+    public static String valueOf(double d) {
+        return Double.toString(d);
+    }
+
+
+    public native String intern();
+}
+经过我精心的筛（shan）选（jian），我把经常用的函数留下了，接下来，我们好好的分析这些函数。
+
+String被定义为final类，意味着它不能被继承，它是个不可变类，这样也是有一定的好处的，比如编译器针对性的代码优化、多线程环境下的安全共享等。
+
+String的字符串内容用的char数组来保存，而这个char数据变量也是final的，意味着字符串是不可变的，所以一个String一旦被声明定义则是不可变的。那有人说了，为啥它使用的时候可以灵活的更改String的内容呢？注意，你改变的只是String对象变量的引用，JVM中有一个地方是位于方法区的运行时常量池，这里保存的都是new出来的String字符串以及被遗弃的字符串，更改String内容的本质就是：查看常量池中是否有对应的字符串，如果有则直接把变量引用到这个字符串上，若没有，则新建一个字符串扔到常量池，然后对它进行变量引用。有点喜新厌旧的味道。
+
+大家看看下面的两个方法。
+
+    public String(StringBuffer buffer) {
+        synchronized(buffer) {
+            this.value = Arrays.copyOf(buffer.getValue(), buffer.length());
+        }
+    }
+
+    public String(StringBuilder builder) {
+        this.value = Arrays.copyOf(builder.getValue(), builder.length());
+    }
+String提供了两个构造方法，StringBuffer与StringBuilder。它们有一点区别：StringBuffer多了一个synchronized约束，其实这也是这两者的主要区别，StringBuffer是线程安全的，而StringBuilder是线程不安全的，严谨的话几乎所有涉及StringBuffer的都会考虑线程竞争的问题。后面我会两个专题来讲这两个类，这两者几乎一致，StringBuffer每个方法扔掉synchronized约束的话，StringBuffer 几乎等于 StringBuilder。
+
+    public boolean equals(Object anObject) {
+        if (this == anObject) {
+            return true;
+        }
+        if (anObject instanceof String) {
+            String anotherString = (String)anObject;
+            int n = value.length;
+            if (n == anotherString.value.length) {
+                char v1[] = value;
+                char v2[] = anotherString.value;
+                int i = 0;
+                while (n-- != 0) {
+                    if (v1[i] != v2[i])
+                        return false;
+                    i++;
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+String重写了Object的equals方法，可以发现比较的内容是字符串。先是看看是否同一个内存地址，然后再比较一下长度，最后再比较内容，非常严谨高效的逻辑。
+
+   public String substring(int beginIndex, int endIndex) {
+        if (beginIndex < 0) {
+            throw new StringIndexOutOfBoundsException(beginIndex);
+        }
+        if (endIndex > value.length) {
+            throw new StringIndexOutOfBoundsException(endIndex);
+        }
+        int subLen = endIndex - beginIndex;
+        if (subLen < 0) {
+            throw new StringIndexOutOfBoundsException(subLen);
+        }
+        return ((beginIndex == 0) && (endIndex == value.length)) ? this
+                : new String(value, beginIndex, subLen);
+    }
+应该用的是substring返回的也是一个新的String对象，几乎所有String操作都会涉及new一个String对象，所以可以想象常量池里面的内容是多么的庞大，特别是大型的企业级项目，如果不注意合理使用String类的话，GC是非常频繁的。
+
+    public char[] toCharArray() {
+        // Cannot use Arrays.copyOf because of class initialization order issues
+        char result[] = new char[value.length];
+        System.arraycopy(value, 0, result, 0, value.length);
+        return result;
+    }
+大家注意一下这个方法System.arraycopy，对于很多底层的数据拷贝这个函数用得很频繁，也非常的好用，它不是一个java方法，它是一个JNI，调用的是系统本地实现方法，可以去看一下System类。
+
+    public String trim() {
+        int len = value.length;
+        int st = 0;
+        char[] val = value;    /* avoid getfield opcode */
+
+        while ((st < len) && (val[st] <= ' ')) {
+            st++;
+        }
+        while ((st < len) && (val[len - 1] <= ' ')) {
+            len--;
+        }
+        return ((st > 0) || (len < value.length)) ? substring(st, len) : this;
+    }
+String是如何去掉前后的空格的？就是截取前后不属于空格内容的部分。
+
+    public String replace(char oldChar, char newChar) {
+        if (oldChar != newChar) {
+            int len = value.length;
+            int i = -1;
+            char[] val = value; /* avoid getfield opcode */
+
+            while (++i < len) {
+                if (val[i] == oldChar) {
+                    break;
+                }
+            }
+            if (i < len) {
+                char buf[] = new char[len];
+                for (int j = 0; j < i; j++) {
+                    buf[j] = val[j];
+                }
+                while (i < len) {
+                    char c = val[i];
+                    buf[i] = (c == oldChar) ? newChar : c;
+                    i++;
+                }
+                return new String(buf, true);
+            }
+        }
+        return this;
+    }
+String替换方法replace是在char数组内进行的，先定位到要替换字符的位置，然后把不需要替换的部分复制到一个新的char数组内，把要替换的部分替换成新的字符，然后利用新的char数组生成一个新的String对象返回。
+
+    public static String valueOf(boolean b) {
+        return b ? "true" : "false";
+    }
+    public static String valueOf(char c) {
+        char data[] = {c};
+        return new String(data, true);
+    }
+    public static String valueOf(int i) {
+        return Integer.toString(i);
+    }
+    public static String valueOf(long l) {
+        return Long.toString(l);
+    }
+    public static String valueOf(float f) {
+        return Float.toString(f);
+    }
+    public static String valueOf(double d) {
+        return Double.toString(d);
+    }
+所有的valueof操作都是利用基本数据类型包装类重写的toString方法。
+
+接下来放点干货吧。重点来了！敲黑板了！ 关于String我们会经常这样使用：
+
+String a = "hello" + "world" + b;
+在C++中，中间的+号是会定义个运载符重载的，在java中没有这个操作，那这是怎么回事呢？很简单，编译器在编译的时候会这样编译：
+
+String a = new StringBuilder("helloworld").append(b).toString();
+看明白了吗？它会利用StringBuilder来实现+号的操作。
+
+String类内容还是挺多的，大家看源码会理解得更深。

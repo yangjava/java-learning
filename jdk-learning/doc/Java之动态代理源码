@@ -1,0 +1,533 @@
+Java API 源码阅读：动态代理（Dynamic Proxy）
+
+引言
+
+本文由浅入深的分析动态代理及其在 Java API 中的默认实现。
+
+代理模式
+
+为保证文章完整性，首先简要说明一下什么是代理（Proxy）模式，相关定义摘抄自《Java 与模式》。（个人认为这本书不适合初学者学习设计模式，语言和例子都较为生硬，特别是对于设计模式的目的讲述的不够明确。但若已经对常用设计模式比较理解，并使用 Java 语言，则可阅读本书让知识形成体系。）
+
+定义
+
+代理模式是对象的结构模式[GOF95]。代理模式给某一个对象提供一个代理对象，并由代理对象控制对原对象的引用。
+
+涉及角色
+
+代理模式所涉及的角色有：
+抽象主题角色：声明了真实主题和代理主题的共同接口，这样一来在任何可以使用真实主题的地方都可以使用代理主题。
+代理主题角色：代理主题角色内部含有对真实主题的引用，从而可以在任何时候操作真实主题对象；代理主题角色提供一个与真实主题角色相同的接口，以便可以在任何时候代替真实主题：控制对真是主题的引用，负责在需要的时候创建真实主题对象（和删除真实主题对象）；代理角色通常在将客户端调用传递给真实的主题之前或者之后，都要执行某个操作，而不是单纯地将调用传递给真实主题对象。
+真实主题角色：定义了代理角色所代表的真实对象。
+
+示例代码
+
+/**
+ * 抽象主题
+ */
+public interface Subject {
+
+    /**
+     * 声明抽象请求方法
+     */
+    void request();
+
+}
+/**
+ * 真实主题
+ */
+public class RealSubject implements Subject {
+
+    /**
+     * 实现请求方法
+     */
+    @Override
+    public void request() {
+        System.out.println("Request.");
+    }
+
+}
+/**
+ * 代理主题
+ */
+public class ProxySubject implements Subject {
+
+    /**
+     * 被代理对象
+     */
+    private RealSubject realSubject;
+
+    /**
+     * 通过被代理对象访问方法
+     */
+    @Override
+    public void request() {
+        System.out.println("Start.");
+        if (realSubject == null) {
+            realSubject = new RealSubject();
+        }
+        realSubject.request();
+        System.out.println("End.");
+    }
+
+}
+public class Client {
+
+    public static void main(String[] args) {
+        Subject subject = new ProxySubject();
+        subject.request();
+    }
+
+}
+动态代理
+
+为了让开发人员能在运行时间动态创建代理对象，进一步提高软件的可维护性与可复用性，Java 在反射库中使用 Proxy, InvocationHandler 类支持了动态代理模式。
+
+形成过程
+
+个人以我粗浅的理解来描述一下动态代理的形成过程。
+首先，静态代理在扩展上有局限性，若需要对很多真实主题都实现代理，则需要编写很多的代理类。若能把代理的逻辑与真实主题对象当做参数传递给一个工厂方法，直接生成一个该对象的代理对象，那么同一个代理逻辑就只需要编写一份，就会大大的简化开发。这样，把代理的逻辑封装成一个调用管理器，提供一个方法接收 Method 对象及其相关参数，实现对该方法的代理逻辑，再将该调用管理器对象传给工厂方法以供调用。工厂方法通过真实主题的所有接口使用动态编译功能生成代理类及其需要实现的所有方法，而方法内部的逻辑是将该方法本身及其参数传递给调用管理器来运行逻辑。最后，生成代理对象实例，返回给客户端，当客户端调用方法时，则会包含代理的逻辑。这样就实现了动态代理。
+这里只是做简单文字说明，具体实现原理看后面的源码分析。
+
+示例代码
+
+Java 使用 java.lang.reflect.Proxy 类和 java.lang.reflect.InvocationHandler 接口实现动态代理。
+上文代理模式示例代码保留 Subject 接口与 RealSubject 类，添加 LogInvocationHandler 类实现调用管理器，并通过 Proxy 提供的工厂方法生成代理。
+
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Method;
+
+public class LogInvocationHandler implements InvocationHandler {
+
+    /**
+     * 被代理对象
+     */
+    private Object obj;
+
+    public LogInvocationHandler(Object obj) {
+        this.obj = obj;
+    }
+
+    @Override
+    public Object invoke(Object proxy, Method method, Object[] args)
+            throws Throwable {
+        System.out.println("Start.");
+        method.invoke(obj, args);
+        System.out.println("End.");
+        return null;
+    }
+
+}
+import java.lang.reflect.Proxy;
+
+public class Client {
+
+    public static void main(String[] args) {
+
+        Subject subject = new RealSubject();
+        // 使用 Proxy.newProxyInstance 方法生成代理对象
+        Subject proxy = (Subject) Proxy.newProxyInstance(subject.getClass()
+                .getClassLoader(), subject.getClass().getInterfaces(),
+                new LogInvocationHandler(subject));
+        System.out.println("自动生成代理类：" + proxy.getClass().getName());
+        proxy.request();
+
+    }
+
+}
+输出如下：
+
+自动生成代理类：com.sun.proxy.$Proxy0
+Start.
+Request.
+End.
+源码分析
+
+openjdk version "1.7.0"
+OpenJDK Runtime Environment (build 1.7.0-b147)
+OpenJDK Client VM (build 21.0-b17, mixed mode)
+由于当前版本 jdk 源码增加了一些安全性检查，方便起见，这次选用了一个低版本的 openjdk 源码进行分析。
+下面直接从 newProxyInstance 方法入手分析实现过程。
+
+    /**
+     * 返回一个指定接口的代理类实例，将方法调用指派到指定的调用处理程序。
+     */
+    public static Object newProxyInstance(ClassLoader loader,
+            Class<?>[] interfaces, InvocationHandler h)
+            throws IllegalArgumentException {
+
+        if (h == null) {
+            throw new NullPointerException();
+        }
+
+        /*
+         * 调用 getProxyClass 方法查找或生成指定代理类。
+         */
+        Class<?> cl = getProxyClass(loader, interfaces);
+
+        /*
+         * 调用构造方法传入构造管理器生成代理类实例。
+         */
+        try {
+            // constructorParams = { InvocationHandler.class };
+            Constructor cons = cl.getConstructor(constructorParams);
+            // 生成实例
+            return cons.newInstance(new Object[] { h });
+        } catch (NoSuchMethodException e) {
+            throw new InternalError(e.toString());
+        } catch (IllegalAccessException e) {
+            throw new InternalError(e.toString());
+        } catch (InstantiationException e) {
+            throw new InternalError(e.toString());
+        } catch (InvocationTargetException e) {
+            throw new InternalError(e.toString());
+        }
+    }
+构造代理类实例时，传入 InvocationHandler 实现类的实例，这样就可以将方法调用指派到调用管理器中的处理程序。而代理类就是通过 getProxyClass 方法动态生成的，下面看一下这个方法。
+
+    /**
+     * 查找或生成指定代理类。
+     */
+    public static Class<?> getProxyClass(ClassLoader loader,
+            Class<?>... interfaces) throws IllegalArgumentException {
+
+        if (interfaces.length > 65535) {
+            throw new IllegalArgumentException("interface limit exceeded");
+        }
+
+        Class<?> proxyClass = null;
+
+        // 接口的名字
+        String[] interfaceNames = new String[interfaces.length];
+
+        // 接口集合 使用 set 防止重复
+        Set<Class<?>> interfaceSet = new HashSet<>();
+
+        // 参数内接口对象存入 interfaceSet 接口名字存入 interfaceNames 数组
+        for (int i = 0; i < interfaces.length; i++) {
+
+            String interfaceName = interfaces[i].getName();
+            Class<?> interfaceClass = null;
+            try {
+                interfaceClass = Class.forName(interfaceName, false, loader);
+            } catch (ClassNotFoundException e) {
+            }
+            if (interfaceClass != interfaces[i]) {
+                throw new IllegalArgumentException(interfaces[i]
+                        + " is not visible from class loader");
+            }
+
+            if (!interfaceClass.isInterface()) {
+                throw new IllegalArgumentException(interfaceClass.getName()
+                        + " is not an interface");
+            }
+
+            if (interfaceSet.contains(interfaceClass)) {
+                throw new IllegalArgumentException("repeated interface: "
+                        + interfaceClass.getName());
+            }
+            interfaceSet.add(interfaceClass);
+
+            interfaceNames[i] = interfaceName;
+        }
+
+        /*
+         * 数组转成列表集合
+         */
+        List<String> key = Arrays.asList(interfaceNames);
+
+        /*
+         * 每个 classloader 对应一组代理类的 map
+         */
+        Map<List<String>, Object> cache;
+        synchronized (loaderToCache) {
+            // loaderToCache = new WeakHashMap<>()
+            cache = loaderToCache.get(loader);
+            if (cache == null) {
+                cache = new HashMap<>();
+                loaderToCache.put(loader, cache);
+            }
+        }
+
+        synchronized (cache) {
+            /*
+             * 从代理类 map 中取出实现了一组接口的代理对象 第一次为 null
+             */
+            do {
+                Object value = cache.get(key);
+                if (value instanceof Reference) {
+                    proxyClass = (Class<?>) ((Reference) value).get();
+                }
+                if (proxyClass != null) {
+                    // 代理类存在则直接返回
+                    return proxyClass;
+                } else if (value == pendingGenerationMarker) {
+                    // 若其他线程正在创建代理类则等待并进行下次尝试
+                    try {
+                        cache.wait();
+                    } catch (InterruptedException e) {
+                    }
+                    continue;
+                } else {
+                    // 代理类不存在则存入正在创建中的标记
+                    cache.put(key, pendingGenerationMarker);
+                    break;
+                }
+            } while (true);
+        }
+
+        try {
+            String proxyPkg = null;
+
+            /*
+             * 若为非公有接口则需要记录包名且判断必须为同一包
+             */
+            for (int i = 0; i < interfaces.length; i++) {
+                int flags = interfaces[i].getModifiers();
+                if (!Modifier.isPublic(flags)) {
+                    String name = interfaces[i].getName();
+                    int n = name.lastIndexOf('.');
+                    String pkg = ((n == -1) ? "" : name.substring(0, n + 1));
+                    if (proxyPkg == null) {
+                        proxyPkg = pkg;
+                    } else if (!pkg.equals(proxyPkg)) {
+                        throw new IllegalArgumentException(
+                                "non-public interfaces from different packages");
+                    }
+                }
+            }
+
+            /*
+             * 无非公有接口则包名可为空
+             */
+            if (proxyPkg == null) {
+                proxyPkg = ""; 
+            }
+
+            {
+                /*
+                 * 代理类名字 第一个为 $Proxy1
+                 */
+                long num;
+                synchronized (nextUniqueNumberLock) {
+                    num = nextUniqueNumber++;
+                }
+                String proxyName = proxyPkg + proxyClassNamePrefix + num;
+
+                /*
+                 * 生成指定代理类的核心代码
+                 */
+                byte[] proxyClassFile = ProxyGenerator.generateProxyClass(
+                        proxyName, interfaces);
+                try {
+                    proxyClass = defineClass0(loader, proxyName,
+                            proxyClassFile, 0, proxyClassFile.length);
+                } catch (ClassFormatError e) {
+
+                    throw new IllegalArgumentException(e.toString());
+                }
+            }
+            // 将所有代理类存入一个 set 方便 isProxyClass 方法调用
+            proxyClasses.put(proxyClass, null);
+
+        } finally {
+            /*
+             * 最后将代理类存入 map 方便下次取得
+             */
+            synchronized (cache) {
+                if (proxyClass != null) {
+                    cache.put(key, new WeakReference<Class<?>>(proxyClass));
+                } else {
+                    cache.remove(key);
+                }
+                cache.notifyAll();
+            }
+        }
+        // 返回该代理类
+        return proxyClass;
+    }
+阅读此方法可以看出，其将所有生成的代理类都存入一个 map 中，由生成的接口与其对应。而不同的 classloader 也会对应不同的这组 map，形成的数据结构为 Map<ClassLoader cl, Map<List<String interfaceName>, Class proxy> cache>()。当已经拥有此代理类时则直接取出，无此代理类时则动态生成。此外还做了一些多线程的设计。
+而生成代理类的核心代码也并为包含在此，而是使用以下语句：
+
+                byte[] proxyClassFile = ProxyGenerator.generateProxyClass(
+                        proxyName, interfaces);
+                try {
+                    proxyClass = defineClass0(loader, proxyName,
+                            proxyClassFile, 0, proxyClassFile.length);
+                } catch (ClassFormatError e) {
+
+                    throw new IllegalArgumentException(e.toString());
+                }
+ProxyGenerator.generateProxyClass 方法用于生成一个代理类字节码二进制数据，之后再调用 defineClass0 方法加载类。这个方法是个 native 方法，作用应该就类似于 ClassLoader.loadClass。
+看一下二进制字节码是如何生成的：
+
+    /**
+     * 生成代理类
+     */
+    public static byte[] generateProxyClass(final String name,
+            Class[] interfaces) {
+        ProxyGenerator gen = new ProxyGenerator(name, interfaces);
+        // generateClassFile
+        final byte[] classFile = gen.generateClassFile();
+        if (saveGeneratedFiles) {
+            java.security.AccessController
+                    .doPrivileged(new java.security.PrivilegedAction<Void>() {
+                        public Void run() {
+                            try {
+                                // 在调试时可以将其输出
+                                FileOutputStream file = new FileOutputStream(
+                                        dotToSlash(name) + ".class");
+                                file.write(classFile);
+                                file.close();
+                                return null;
+                            } catch (IOException e) {
+                                throw new InternalError(
+                                        "I/O exception saving generated file: "
+                                                + e);
+                            }
+                        }
+                    });
+        }
+        return classFile;
+    }
+其调用了 generateClassFile 方法生成字节码数据。
+
+    private byte[] generateClassFile() {
+
+        /*
+         * 第一步：组装方法
+         */
+
+        /*
+         * 需要先添加 Object 类的三个方法
+         */
+        // addProxyMethod 方法将 ProxyMethod 添加到 proxyMethods 中
+        addProxyMethod(hashCodeMethod, Object.class);
+        addProxyMethod(equalsMethod, Object.class);
+        addProxyMethod(toStringMethod, Object.class);
+
+        /*
+         * 添加所有所有接口中的方法
+         */
+        for (int i = 0; i < interfaces.length; i++) {
+            Method[] methods = interfaces[i].getMethods();
+            for (int j = 0; j < methods.length; j++) {
+                addProxyMethod(methods[j], interfaces[i]);
+            }
+        }
+
+        /*
+         * 处理相同名称方法
+         */
+        for (List<ProxyMethod> sigmethods : proxyMethods.values()) {
+            checkReturnTypes(sigmethods);
+        }
+
+        /*
+         * 第二步：组装 FieldInfo 和 MethodInfo
+         */
+        try {
+            methods.add(generateConstructor());
+
+            // proxyMethods.values 为上面 addProxyMethod 存入的 MethodInfo
+            for (List<ProxyMethod> sigmethods : proxyMethods.values()) {
+                for (ProxyMethod pm : sigmethods) {
+
+                    // add static field for method's Method object
+                    fields.add(new FieldInfo(pm.methodFieldName,
+                            "Ljava/lang/reflect/Method;", ACC_PRIVATE
+                                    | ACC_STATIC));
+
+                    // generate code for proxy method and add it
+                    methods.add(pm.generateMethod());
+                }
+            }
+
+            methods.add(generateStaticInitializer());
+
+        } catch (IOException e) {
+            throw new InternalError("unexpected I/O Exception");
+        }
+
+        if (methods.size() > 65535) {
+            throw new IllegalArgumentException("method limit exceeded");
+        }
+        if (fields.size() > 65535) {
+            throw new IllegalArgumentException("field limit exceeded");
+        }
+
+        /*
+         * 第三步：write 数据
+         * 未做注释
+         */
+
+        /*
+         * Make sure that constant pool indexes are reserved for the following
+         * items before starting to write the final class file.
+         */
+        cp.getClass(dotToSlash(className));
+        cp.getClass(superclassName);
+        for (int i = 0; i < interfaces.length; i++) {
+            cp.getClass(dotToSlash(interfaces[i].getName()));
+        }
+
+        /*
+         * Disallow new constant pool additions beyond this point, since we are
+         * about to write the final constant pool table.
+         */
+        cp.setReadOnly();
+
+        ByteArrayOutputStream bout = new ByteArrayOutputStream();
+        DataOutputStream dout = new DataOutputStream(bout);
+
+        try {
+            /*
+             * Write all the items of the "ClassFile" structure. See JVMS
+             * section 4.1.
+             */
+            // u4 magic;
+            dout.writeInt(0xCAFEBABE);
+            // u2 minor_version;
+            dout.writeShort(CLASSFILE_MINOR_VERSION);
+            // u2 major_version;
+            dout.writeShort(CLASSFILE_MAJOR_VERSION);
+
+            cp.write(dout); // (write constant pool)
+
+            // u2 access_flags;
+            dout.writeShort(ACC_PUBLIC | ACC_FINAL | ACC_SUPER);
+            // u2 this_class;
+            dout.writeShort(cp.getClass(dotToSlash(className)));
+            // u2 super_class;
+            dout.writeShort(cp.getClass(superclassName));
+
+            // u2 interfaces_count;
+            dout.writeShort(interfaces.length);
+            // u2 interfaces[interfaces_count];
+            for (int i = 0; i < interfaces.length; i++) {
+                dout.writeShort(cp.getClass(dotToSlash(interfaces[i].getName())));
+            }
+
+            // u2 fields_count;
+            dout.writeShort(fields.size());
+            // field_info fields[fields_count];
+            for (FieldInfo f : fields) {
+                f.write(dout);
+            }
+
+            // u2 methods_count;
+            dout.writeShort(methods.size());
+            // method_info methods[methods_count];
+            for (MethodInfo m : methods) {
+                m.write(dout);
+            }
+
+            // u2 attributes_count;
+            dout.writeShort(0); // (no ClassFile attributes for proxy classes)
+
+        } catch (IOException e) {
+            throw new InternalError("unexpected I/O Exception");
+        }
+
+        return bout.toByteArray();
+    }
+本想仔细分析一下 generateClassFile 的实现，但直接生成 class 文件这种方式确实较为复杂，我就简单说一下其原理吧。有一种比较土的生成 class 文件的方法就是直接使用源码的字符串，用 JavaCompiler 动态编译生成。这样就可以通过所需实现的接口运用反射获得其方法信息，方法实现则直接调用 InvocationHandler 实现类的 invoke 方法，拼出整个代理类的源码，编译生成。而直接组装 class 文件的这种方式更为直接，根据 JVM 规范所定义的 class 文件的格式，省去了组装源码的步骤，使用输出流直接按格式生成 class 文件，相当于自己实现了 JVM 的功能。这样生成 class 后通过 classloader 加载类，反射调用构造方法进行实例化，就可以得到代理类对象了。上面的代码（还有一部分没贴）就是组装 class 文件的过程，奈何我对其也不是很懂，本次只是对阅读 Spring AOP 源码做一些准备，暂时就先不深入分析了。

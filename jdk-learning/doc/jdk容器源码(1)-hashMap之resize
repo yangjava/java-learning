@@ -1,0 +1,63 @@
+什么是resize？
+resize就是重新计算容量；向HashMap对象里不停的添加元素，而HashMap对象内部的数组无法装载更多的元素时，对象就需要扩大数组的长度，以便能装入更多的元素；当然java里的数组是无法自动扩容的，方法是使用一个新的数组代替已有的容量小的数组；就像我们用一个小桶装水，如果想装更多的水，就得换大水桶。
+
+1. 何时resize，下面是addEntry()方法的代码片段
+
+...
+if (size++ >= threshold)
+            resize(2 * table.length);
+...
+map里的元素个数(size)大于一个阈值(threshold)时，map将自动扩容，容量扩大到原来的2倍； 
+阈值(threshold)是怎么计算的？如下源码： 
+threshold = (int)(capacity * loadFactor);
+阈值 = 容量 X 负载因子；容量默认为16,负载因子(loadFactor)默认是0.75; map扩容后，要重新计算阈值；当元素个数大于新的阈值时，map再自动扩容； 
+以默认值为例，阈值=16*0.75=12，当元素个数大于12时就要扩容；那剩下的4(如果内部形成了Entry链则大于4)个数组位置还没有放置对象就要扩容，岂不是浪费空间了？ 
+这是时间和空间的折中考虑；loadFactor过大时，map内的数组使用率高了，内部极有可能形成Entry链，影响查找速度；loadFactor过小时，map内的数组使用率旧低，不过内部不会生成Entry链，或者生成的Entry链很短，由此提高了查找速度，不过会占用更多的内存；所以可以根据实际硬件环境和程序的运行状态来调节loadFactor； 
+
+2. 如何做resize？我们看一看resize()源码： 
+void resize(int newCapacity) {   //传入新的容量
+    Entry[] oldTable = table;    //引用扩容前的Entry数组
+    int oldCapacity = oldTable.length;         
+    if (oldCapacity == MAXIMUM_CAPACITY) {  //扩容前的数组大小如果已经达到最大(2^30)了
+        threshold = Integer.MAX_VALUE; //修改阈值为int的最大值(2^31-1)，这样以后就不会扩容了
+        return;
+    }
+
+    Entry[] newTable = new Entry[newCapacity];  //初始化一个新的Entry数组
+    transfer(newTable);                         //！！将数据转移到新的Entry数组里
+    table = newTable;                           //HashMap的table属性引用新的Entry数组
+    threshold = (int)(newCapacity * loadFactor);//修改阈值
+}
+这里就是使用一个容量更大的数组来代替已有的容量小的数组；transfer()方法将原有Entry数组的元素拷贝到新的Entry数组里； 
+
+３. transfer()偷偷干了些什么？ 
+如果把旧的Entry链放到新数组的对应位置上，简单明了，但是这样操作对吗？？ 
+看一看transfer()源码： 
+void transfer(Entry[] newTable) {
+    Entry[] src = table;                   //src引用了旧的Entry数组
+    int newCapacity = newTable.length;
+    for (int j = 0; j < src.length; j++) { //遍历旧的Entry数组
+        Entry<K,V> e = src[j];             //取得旧Entry数组的每个元素
+        if (e != null) {
+            src[j] = null;//释放旧Entry数组的对象引用（for循环后，旧的Entry数组不再引用任何对象）
+            do {
+                Entry<K,V> next = e.next;
+                int i = indexFor(e.hash, newCapacity); //！！重新计算每个元素在数组中的位置
+                e.next = newTable[i]; //标记[1]
+                newTable[i] = e;      //将元素放在数组上
+                e = next;             //访问下一个Entry链上的元素
+            } while (e != null);
+        }
+    }
+}
+注释标记[1]处，将newTable[i]的引用赋给了e.next，也就是使用了单链表的头插入方式，同一位置上新元素总会被放在链表的头部位置；这样先放在一个索引上的元素终会被放到Entry链的尾部(如果发生了hash冲突的话)； 
+indexFor()是计算每个元素在数组中的位置，源码： 
+static int indexFor(int h, int length) {
+    return h & (length-1); //位AND计算
+}
+这样，在旧数组中同一条Entry链上的元素，通过重新计算索引位置后，有可能被放到了新数组的不同位置上； 
+例如，旧数组容量为16，对象A的hash值是4，对象B的hash值是20,对象C的hash值是36； 
+通过indexFor()计算后，A、B、C对应的数组索引位置分别为4,4,4; 说明这3个对象在数组的同一位置上，形成了Entry链； 
+旧数组扩容后容量为16*2，重新计算对象所在的位置索引，A、B、C对应的数组索引位置分别为4,20,4; B对象已经被放到别处了； 
+
+总结：resize时，HashMap使用新数组代替旧数组，对原有的元素根据hash值重新就算索引位置，重新安放所有对象；resize是耗时的操作。

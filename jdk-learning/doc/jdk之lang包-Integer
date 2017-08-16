@@ -1,0 +1,221 @@
+Integer是平时开发中最常用的类之一，但是如果没有研究过源码很多特性和坑可能就不知道，下面深入源码来分析一下Integer的设计和实现。
+
+Integer：
+
+　　继承结构：
+
+　　-Java.lang.Object
+
+　　　　--java.lang.Number
+
+　　　　　　---java.lang.Integer
+
+　　其中父类Number是个抽象类，是所有数字类型相关的类的父类，例如Double、Float、Integer、Long 和Short。
+
+　　Integer类还实现了Comparable接口用以比较两个Integer的大小。
+
+//源码
+public final class Integer extends Number implements Comparable<Integer>
+　　Integer类中规定了范围大小时在-2^31~2^31-1之间。
+
+//源码
+    /**
+     * A constant holding the minimum value an {@code int} can
+     * have, -2<sup>31</sup>.
+     */
+    @Native public static final int   MIN_VALUE = 0x80000000;
+
+    /**
+     * A constant holding the maximum value an {@code int} can
+     * have, 2<sup>31</sup>-1.
+     */
+    @Native public static final int   MAX_VALUE = 0x7fffffff;
+　　另外还有用来以二进制补码形式表示 int 值的比特位数的SIZE字段，表示基本类型 int 的 Class 实例的TYPE字段。
+
+　　内部方法实现：
+
+　　Integer大概实现了四五十个方法，下面结合源码分析一下平时常用又比较重要的几个方法。
+
+　　首先构造一个Integer对象，Integer的构造方法非常简单直接传入一个int或者string即可。传入int是直接赋值给value字段保存。传入string是先把s通过parseInt方法转换成十进制int再赋值给value字段。
+
+//源码
+    public Integer(int value) {
+        this.value = value;
+    }
+    public Integer(String s) throws NumberFormatException {
+        this.value = parseInt(s, 10);
+    }
+　　接下来看一下这个不简单的parseInt方法。
+
+　　从方法签名就可以看出这个方法的作用是把传入的字符串s解析单做radix机制的字串来解析成十进制int值。并进行了一些异常处理。举个栗子：
+
+parseInt("0", 10) returns 0
+     parseInt("473", 10) returns 473
+     parseInt("+42", 10) returns 42
+     parseInt("-0", 10) returns 0
+     parseInt("-FF", 16) returns -255
+     parseInt("1100110", 2) returns 102
+     parseInt("2147483647", 10) returns 2147483647
+     parseInt("-2147483648", 10) returns -2147483648
+     parseInt("2147483648", 10) throws a NumberFormatException
+     parseInt("99", 8) throws a NumberFormatException
+     parseInt("Kona", 10) throws a NumberFormatException
+     parseInt("Kona", 27) returns 411787
+　　下面来看一下具体实现（为了更清楚的分析实现过程，文字都作为注释写在源代码里了）：
+
+　　//源码，限于篇幅简化了源码格式。
+　　public static int parseInt(String s, int radix) throws NumberFormatException {
+        //这里有这个警告是因为valueOf方法使用了parseInt方法和IntegerCache对象，
+        //因为valueOf在IntegerCache初始化之前使用导致异常情况。后面会详细分析。
+        /*
+         * WARNING: This method may be invoked early during VM initialization
+         * before IntegerCache is initialized. Care must be taken to not use
+         * the valueOf method.
+         */
+
+        //下面三个if用来判断参数是否合法。radix大小在2~36之间。
+        if (s == null) {
+            throw new NumberFormatException("null");
+        }
+        if (radix < Character.MIN_RADIX) {
+            throw new NumberFormatException("radix " + radix + " less than Character.MIN_RADIX");
+        }
+        if (radix > Character.MAX_RADIX) {
+            throw new NumberFormatException("radix " + radix + " greater than Character.MAX_RADIX");
+        }
+
+        int result = 0; //解析结果
+        boolean negative = false; //是否是负数
+        int i = 0, len = s.length(); //索引变量和字符串长度
+        int limit = -Integer.MAX_VALUE; //最大值限制
+        int multmin; //基数下的最小值
+        int digit; //记录每一位的数字
+
+        if (len > 0) {
+            char firstChar = s.charAt(0);
+            if (firstChar < '0') { // 判断是否带‘+’或‘-’
+                if (firstChar == '-') {
+                    negative = true;
+                    limit = Integer.MIN_VALUE;
+                } else if (firstChar != '+')
+                    throw NumberFormatException.forInputString(s);
+
+                if (len == 1) // 格式非法，含有除了‘+’‘-’之外的字符。
+                    throw NumberFormatException.forInputString(s);
+                i++;
+            }
+            multmin = limit / radix;
+            while (i < len) {
+                //利用了Character类中的digit非法，作用是解析一个字符。
+                digit = Character.digit(s.charAt(i++),radix);
+                //进行异常判断。
+                //这个解析字符串为数字的算法和平时想到的不太一样，是从字符串左边开始，初始化结果是0，
+                //其实是把结果算成负的，返回的时候再转回来。result -= digit;
+                if (digit < 0) {
+                    throw NumberFormatException.forInputString(s);
+                }
+                if (result < multmin) {
+                    throw NumberFormatException.forInputString(s);
+                }
+                result *= radix;
+                if (result < limit + digit) {
+                    throw NumberFormatException.forInputString(s);
+                }
+                result -= digit;
+            }
+        } else {
+            throw NumberFormatException.forInputString(s);
+        }
+        return negative ? result : -result; //如果是负的就直接返回，因为算出来的已经是负数。
+    }
+　　平时经常使用的Integer.parseInt(String s)也是基于这个方法实现的。只不过默认radix为10.
+
+　　//源码    
+　　public static int parseInt(String s) throws NumberFormatException {
+        return parseInt(s,10);
+    }
+　　接下来就来分析一下上面提到的，valueOf方法。一共有三个valueOf方法，只是传参不同。其中有两个的内部实现是依据valueOf(int i)和parseInt(String s, int radix)来实现的。
+
+//源码
+public static Integer valueOf(String s, int radix) throws NumberFormatException {
+        return Integer.valueOf(parseInt(s,radix));
+    }
+public static Integer valueOf(String s) throws NumberFormatException {
+        return Integer.valueOf(parseInt(s, 10));
+    }
+那就来分析一下valueOf(int i)方法就好了。
+
+　　//源码
+　　public static Integer valueOf(int i) {
+        if (i >= IntegerCache.low && i <= IntegerCache.high)
+            return IntegerCache.cache[i + (-IntegerCache.low)];
+        return new Integer(i);
+    }
+可以看到这里使用到了IntegerCache缓存，IntegerCache默认缓存-128~127之间的Integer。IntegerCache是Integer类的静态内部类。
+
+//源码
+private static class IntegerCache {
+    static final int low = -128; //默认low=-128
+    static final int high; //high可以配置，通过 VM 参数-XX:AutoBoxCacheMax=<size>
+        //high可以配置，所以默认缓存-128~127，但是也可以缓存另外的常用数。
+    static final Integer cache[]; //缓存数组
+
+    //静态代码块，Integer类加载时就缓存。
+    static {
+        // high value may be configured by property
+        int h = 127; //默认127
+        String integerCacheHighPropValue =
+            sun.misc.VM.getSavedProperty("java.lang.Integer.IntegerCache.high"); //读取VM参数配置。
+        if (integerCacheHighPropValue != null) {
+            try {
+                int i = parseInt(integerCacheHighPropValue);
+                i = Math.max(i, 127); //缓存大数
+                // Maximum array size is Integer.MAX_VALUE
+                h = Math.min(i, Integer.MAX_VALUE - (-low) -1); //防止越界
+            } catch( NumberFormatException nfe) {
+                // If the property cannot be parsed into an int, ignore it.
+            }
+        }
+        high = h;
+
+        cache = new Integer[(high - low) + 1]; //创建缓存数组。
+        int j = low;
+        for(int k = 0; k < cache.length; k++)
+            cache[k] = new Integer(j++); //缓存。
+
+        // range [-128, 127] must be interned (JLS7 5.1.7)
+        assert IntegerCache.high >= 127; //保证[-128, 127]在缓存范围内。
+    }
+
+    private IntegerCache() {}
+}
+下面看一段测试代码：
+
+　　
+　　//首先要明确一点，对象之间的==是比较内存地址，常数之间的比较是数值比较。
+　　public static void main(String[] args) {
+        Integer num1 = new Integer(100);
+        Integer num2 = new Integer(100);
+        System.out.println(num1 == num2);//false,因为这两个对象是独立创建的，有自己的内存空间和地址。
+        Integer num3 = 100;
+        Integer num4 = 100;
+        System.out.println(num3 == num4);//true，常数之间比较数值。
+        Integer num5 = 128;
+        Integer num6 = 128;
+        System.out.println(num5 == num6);//false，自动装箱成对象，但是超过了默认的缓存范围，同第一个。如果是127就是true。
+        Integer num7 = 100;
+        Integer num8 = new Integer(100);
+        System.out.println(num7 == num8);//false，两个对象之间比较内存地址，不同的是num7通过自动装箱调用valueOf方法，指向缓存的100，而num8是指向自己内存空间里的100.
+        int num9 = 100;
+        Integer num10 = new Integer(100);
+　　　　 System.out.println(num9 == num10);//true，Integer对象和int比较时，Integer会自动拆箱（intValue方法）成为int，变成两个数值比较。
+        Integer num11 = 100;
+        System.out.println(num9 == num11);//true，num11通过自动装箱调用valueOf方法指向缓存中的100，比较的时候缓存中的100对象自动拆箱成为数值100.
+    }
+　　如果没有认真研究过Integer的缓存机制和自动拆箱装箱机制的话，这个程序的运行结果绝对会让你出乎意料。理解之后就OK了。
+
+　　理解这个缓存机制也是非常重要的，因为如果程序中因为这个出现了bug那么如果不知道缓存机制估计到死也调不出来。
+
+　　这里说一下关于Long，Short是和Integer机制类似，只不过不支持high的配置。Double，Float是没有缓存机制的，因为即使是-128~127之间的浮点数接近无穷大。
+
+　　这一次的Integer类的源码分析就到这里，Integer类里还有一些关于反码、补码计算等位运算的方法。如果有兴趣或者开发中用到再来研究。

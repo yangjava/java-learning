@@ -1,0 +1,36 @@
+System.gc()是触发FGC最简单暴力的方式，在JDK源码中实际上是调用了Runtime的gc方法
+
+public static void gc() {
+    Runtime.getRuntime().gc();
+}
+Runtime.gc的底层实现位于Runtime.c文件中
+
+JNIEXPORT void JNICALL
+Java_java_lang_Runtime_gc(JNIEnv *env, jobject this)
+{
+    JVM_GC();
+}
+其中JVM_GC()的实现位于jvm.cpp中
+
+JVM_ENTRY_NO_ENV(void, JVM_GC(void))
+  JVMWrapper("JVM_GC");
+  if (!DisableExplicitGC) {
+    Universe::heap()->collect(GCCause::_java_lang_system_gc);
+  }
+JVM_END
+这里有一个DisableExplicitGC参数，默认是false，如果启动JVM时添加了参数-XX:+DisableExplicitGC，那么JVM_GC相当于一个空函数，并不会进行GC。
+
+其中Universe::heap()返回当前堆对象，由collect方法开始执行GC，并设置当前触发GC的条件为_java_lang_system_gc，内部会根据GC条件执行不同逻辑。
+
+JVM的具体堆实现，在Universe.cpp文件中的initialize_heap()由启动参数所设置的垃圾回收算法决定。
+
+
+堆实现和回收算法对应关系：
+1、UseParallelGC：ParallelScavengeHeap
+2、UseG1GC：G1CollectedHeap
+3、默认或者CMS：GenCollectedHeap
+
+作者：占小狼
+链接：http://www.jianshu.com/p/be8740726cef
+來源：简书
+著作权归作者所有。商业转载请联系作者获得授权，非商业转载请注明出处。

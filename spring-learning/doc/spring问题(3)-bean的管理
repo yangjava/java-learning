@@ -1,0 +1,106 @@
+在spring中有三种管理Bean的方式，分别为BeanWrapper管理Bean,BeanFactory管理Bean,ApplicationContext管理Bean。
+
+一,BeanWrapper管理Bean
+
+在org.springframework.beans包中，有两个很重要的类：BeanWrapper接口和它的实现类BeanWrapperImpl。
+
+BeanWrapper封装了对bean的设置和获取属性值，看看实例：
+
+public class HelloWorld {
+
+	private String msg;
+	
+	private Date date;
+
+	public String getMsg() {
+		return msg;
+	}
+
+	public void setMsg(String msg) {
+		this.msg = msg;
+	}
+
+	public Date getDate() {
+		return date;
+	}
+
+	public void setDate(Date date) {
+		this.date = date;
+	}
+	
+	
+	
+}
+
+
+
+<bean id="date" class="java.util.Date"></bean>
+<bean id="helloWorld"  class="com.java.spring.ioc.HelloWorld">
+<property name="msg" value="HelloWorld"></property>
+<property name="date" ref="date"></property>
+</bean>
+
+
+
+测试类
+    @Test
+ 	public void testBean() throws Exception{
+    	//通过Beanwrap管理
+    	Object obj=Class.forName("com.java.spring.ioc.HelloWorld").newInstance();
+    	BeanWrapper bean=new BeanWrapperImpl(obj);
+    	bean.setPropertyValue("msg","HelloWorld bean");;
+    	System.out.println(bean.getPropertyValue("msg"));
+    	
+    	//通过BeanFactory管理
+    	BeanFactory beanFactory = new XmlBeanFactory(new ClassPathResource(
+				"bean1.xml"));
+		HelloWorld helloWorld1 = (HelloWorld) beanFactory
+ 				.getBean("helloWorld");
+		System.out.println(helloWorld1.getMsg());
+    	
+		//通过ApplicationContext管理
+ 		ApplicationContext applicationContext = new ClassPathXmlApplicationContext(
+ 				"classpath:bean1.xml");
+ 		HelloWorld helloWorld2 = (HelloWorld) applicationContext
+ 				.getBean("helloWorld");
+ 		System.out.println(helloWorld2.getMsg());
+    }
+ 二,BeanFactory管理Bean
+
+BeanFactory实际上是实例化，配置和管理多个Bean的容器。这些Bean可能彼此合作，相互依赖。
+
+一个BeanFactory可以用接口org.springframework.beans.factory.BeanFactory表示，这个接口有多个实现类。
+
+最简单的实现类org.springframework.beans.factory.xml.XmlBeanFactory，从上面的测试程序中可以看到演示。
+
+
+
+
+
+
+三,ApplicationContext管理Bean
+
+ApplicationContext建立在BeanFactory的基础之上，并增加了其他功能，事件传递等等。
+
+BeanFactory提供配置框架和基本功能，而ApplicationContext增加了更加强大的功能。
+一般说法，ApplicationContext是BeanFactory的超集,包含了BeanFactory的所有功能，
+
+也就是说任何BeanFactory的功能同样适用于ApplicationContext。
+
+演示实例看上面的测试程序。
+
+
+=======================================================================
+关于这三种管理Bean方式的总结：
+
+在以上三种管理Bean的方式实现的都是同样的功能，对Bean的配置和属性设置。从上的实例中，
+
+可以清楚的认识到第一种管理方式BeanWrapper管理Bean的方式并没有用到spring配置文件，而且
+
+只能对单个Bean进行配置和设置，一般不用。
+
+一般用BeanFactory和ApplicationContext,而ApplicationContext是BeanFactory的超集，
+
+所以重点中的重点是研究明白ApplicationContext是怎么对Bean进行管理，比BeanFactory
+
+多使用了哪些额外的功能的。   

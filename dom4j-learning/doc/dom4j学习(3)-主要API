@@ -1,0 +1,128 @@
+一、DOM4j中，获得Document对象的方式有三种：
+	1.读取XML文件,获得document对象            
+                   SAXReader reader = new SAXReader();              
+		   Document   document = reader.read(new File("csdn.xml"));
+	2.解析XML形式的文本,得到document对象.
+                   String text = "<csdn></csdn>";            
+                   Document document = DocumentHelper.parseText(text);
+	3.主动创建document对象.
+                  Document document = DocumentHelper.createDocument();             //创建根节点
+                  Element root = document.addElement("csdn");
+                  
+
+                  
+二、节点对象操作的方法
+
+	1.获取文档的根节点.
+      Element root = document.getRootElement();
+      
+    2.取得某个节点的子节点.
+      Element element=node.element(“四大名著");
+      
+    3.取得节点的文字
+        String text=node.getText();
+        
+    4.取得某节点下所有名为“csdn”的子节点，并进行遍历.
+       List nodes = rootElm.elements("csdn");
+         for (Iterator it = nodes.iterator(); it.hasNext();) {  
+	  Element elm = (Element) it.next();  
+  	// do something
+     }
+     
+     5.对某节点下的所有子节点进行遍历   
+      for(Iterator it=root.elementIterator();it.hasNext();){     
+        Element element = (Element) it.next();      
+       // do something 
+     }
+     
+    6.在某节点下添加子节点
+     Element elm = newElm.addElement("朝代");
+      
+    7.设置节点文字  
+    elm.setText("明朝");
+    
+    8.删除某节点//childElement是待删除的节点,parentElement是其父节点  p
+    arentElement.remove(childElment);
+    
+    9.添加一个CDATA节点
+    Element contentElm = infoElm.addElement("content");contentElm.addCDATA(“cdata区域”);
+    
+    
+ 
+ 
+ 三、节点对象的属性方法操作
+ 
+ 	1.取得某节点下的某属性 
+  		Element root=document.getRootElement();   
+   		//属性名name
+         Attribute attribute=root.attribute("id");
+         
+    2.取得属性的文字
+	String text=attribute.getText();
+	
+    3.删除某属性 
+     Attribute attribute=root.attribute("size");
+     root.remove(attribute);
+     
+    4.遍历某节点的所有属性   
+      Element root=document.getRootElement();     
+       for(Iterator it=root.attributeIterator();it.hasNext();){        
+           Attribute attribute = (Attribute) it.next();        
+           String text=attribute.getText();        
+           System.out.println(text);  
+  }
+  
+    5.设置某节点的属性和文字.   
+    newMemberElm.addAttribute("name", "sitinspring");
+    
+    6.设置属性的文字  
+    Attribute attribute=root.attribute("name");  
+    attribute.setText("csdn");
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 四、将文档写入XML文件
+ 
+ 1.文档中全为英文,不设置编码,直接写入的形式. 
+       XMLWriter writer = new XMLWriter(new  FileWriter("ot.xml")); 
+       writer.write(document); 
+       writer.close();
+    2.文档中含有中文,设置编码格式写入的形式.
+       OutputFormat format = OutputFormat.createPrettyPrint();// 创建文件输出的时候，自动缩进的格式                  
+       format.setEncoding("UTF-8");//设置编码
+       XMLWriter writer = new XMLWriter(newFileWriter("output.xml"),format);
+       writer.write(document);
+       writer.close();
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 五、字符串与XML的转换
+ 
+ 1.将字符串转化为XML
+      String text = "<csdn> <java>Java班</java></csdn>";
+      Document document = DocumentHelper.parseText(text);
+      
+    2.将文档或节点的XML转化为字符串.
+       SAXReader reader = new SAXReader();
+       Document   document = reader.read(new File("csdn.xml"));            
+       Element root=document.getRootElement();    
+       String docXmlText=document.asXML();
+       String rootXmlText=root.asXML();
+       Element memberElm=root.element("csdn");
+       String memberXmlText=memberElm.asXML();
+ 
+ 
+ 
+ 
+    
+    
+    

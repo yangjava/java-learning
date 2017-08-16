@@ -1,0 +1,31 @@
+Java虚拟机编译机制:更改常量部分 
+
+最近一个Java项目中需要修改一个静态常量的值，本地修改编译以后调试正常，然后把对应的entity类的class文件上传到服务器对应的目录以后系统依旧我行我素，各种清除缓存，各种重启，最后查询了相关资料，使用GUI反编译工具反编译查看编译后源码，终于找到问题所在： 
+
+***    单纯的修改静态变量是没用的，还要重新编译所有引用静态变量的类，不然不会生效的。 
+
+这里就牵扯到Java虚拟机编译机制：在Java文件中，指向编译时static final的静态常量， 会被在运行时解析为一个局部的常量值（也就是说静态常量在编译后，成为了常量，而不是原先的代码）。这对所有的基础数据类型（就像int ，float等）和java.lang.String都适用。 
+
+例如：
+
+public class Contant{
+		public static final String STR = "alexgaoyh";
+		//...... 
+    }
+然后在某些逻辑代码段里使用了这些常量。这样做可以便于管理常量，避免了大量的magic number/text，在修改常量内容时只需改这一个类就行了。
+public class TestService {
+		public void doSome() {
+			//这里应用了上一个类的静态常量Contant.STR
+			System.out.println(Contant.STR);
+		}
+    }
+类TestService使用了Contant.STR这个常量，表面上是通过Contant类取得的这个值，实际上在TestService被编译后，其代码已经改变为
+public class TestService {
+		public void doSome() {
+		//这里把静态常量Contant.STR直接编译成为了一个常量"alexgaoyh"
+		System.out.println("alexgaoyh");
+		}
+	}
+
+
+也就是说    在所有使用常量的地方，都要重新进行编译才能生效。

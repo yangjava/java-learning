@@ -1,0 +1,336 @@
+本文内容
+
+HashSet概述
+
+HashSet源码分析
+
+HashSet概述
+
+HashSet是Set的一种实现，其底层是用HashMap实现的，整个HashSet看起来就像一个包装类！
+
+HashSet的继承图如下：
+
+
+
+HashSet继承了Set、Abstract类，实现了Cloneable 、Serializable 接口。
+
+HashSet实现
+
+看一下HashSet的属性
+
+private transient HashMap<E,Object> map;
+
+// Dummy value to associate with an Object in the backing Map
+private static final Object PRESENT = new Object();
+底层直接用了HashMap.PRESENT就是用来填充map的value。为何不用null呢？？
+
+默认构造函数：
+
+public HashSet() {
+    map = new HashMap<>();
+}
+public HashSet(Collection<? extends E> c) {
+    map = new HashMap<>(Math.max((int) (c.size()/.75f) + 1, 16));
+    addAll(c);
+}
+public HashSet(int initialCapacity, float loadFactor) {
+    map = new HashMap<>(initialCapacity, loadFactor);
+}
+public HashSet(int initialCapacity) {
+    map = new HashMap<>(initialCapacity);
+}
+HashSet(int initialCapacity, float loadFactor, boolean dummy) {
+    map = new LinkedHashMap<>(initialCapacity, loadFactor);
+}
+前面四个构造函数都容易理解，最后那个，定义一个默认权限的构造函数，而且还是LinkedHashMap是什么用呢？从注释上得知，是给LinkedHashSet用的。暂时不理它了。
+
+Constructs a new, empty linked hash set. (This package private constructor is only used by LinkedHashSet.) The backing HashMap instance is a LinkedHashMap with the specified initial capacity and the specified load factor.
+
+add方法
+
+public boolean add(E e) {
+    return map.put(e, PRESENT)==null;
+}
+封装了下map，看一下其他的
+
+public boolean remove(Object o) {
+    return map.remove(o)==PRESENT;
+}
+public void clear() {
+    map.clear();
+}
+
+public boolean contains(Object o) {
+    return map.containsKey(o);
+}
+public int size() {
+    return map.size();
+}
+public Iterator<E> iterator() {
+    return map.keySet().iterator();
+}
+都是封装，不看了。
+
+总结
+
+HashSet的底层使用了HashMap,用map的key作为set的结果。所以源码非常简单。
+
+
+
+
+
+1. HashSet 概述
+HashSet 实现 Set 接口，由哈希表（实际上是一个 HashMap 实例）支持。它不保证 set 的迭代顺序；特别是它不保证该顺序恒久不变。此类允许使用 null 元素。
+2. HashSet 的实现
+对于 HashSet 而言，它是基于 HashMap 实现的， HashSet 底层使用 HashMap 来保存所有元素，因此 HashSet 的实现比较简单，相关 HashSet 的操作，基本上都是直接调用底层HashMap 的相关方法来完成， HashSet 的源代码如下：
+Java 代码
+
+public class HashSet<E>  extends AbstractSet<E>  
+      implements Set<E>, Cloneable, java.io.Serializable  {  
+      static final long serialVersionUID = -5024744406713321676L;  
+      // 底层使用 HashMap 来保存 HashSet 中所有元素。  
+      private transient HashMap<E,Object> map;          
+      // 定义一个虚拟的 Object 对象作为 HashMap 的 value，将此对象定义为 static final。
+   
+      private static final Object PRESENT = new Object();      
+      /** 
+       * 默认的无参构造器，构造一个空的 HashSet。 
+       *  
+       * 实际底层会初始化一个空的 HashMap，并使用默认初始容量为 16 和加载因子 0.75。 
+       */  
+      public HashSet() {  
+      map = new HashMap<E,Object>();  
+      }
+/** 
+       * 构造一个包含指定 collection 中的元素的新 set。 
+       * 
+       * 实际底层使用默认的加载因子 0.75 和足以包含指定 
+       * collection 中所有元素的初始容量来创建一个 HashMap。 
+       * @param c 其中的元素将存放在此 set 中的 collection。 
+       */  
+      public HashSet(Collection<? extends E> c) {  
+      map = new HashMap<E,Object>(Math.max((int) (c.size()/.75f) + 1, 16));  
+      addAll(c);  
+      }  
+    
+      /** 
+       * 以指定的 initialCapacity 和 loadFactor 构造一个空的 HashSet。 
+       * 
+       * 实际底层以相应的参数构造一个空的 HashMap。 
+       * @param initialCapacity 初始容量。 
+       * @param loadFactor 加载因子。 
+       */  
+      public HashSet(int initialCapacity, float loadFactor) {  
+      map = new HashMap<E,Object>(initialCapacity, loadFactor);  
+      }  
+      /** 
+       * 以指定的 initialCapacity 构造一个空的 HashSet。 
+       * 
+       * 实际底层以相应的参数及加载因子 loadFactor 为 0.75 构造一个空的 HashMap。 
+       * @param initialCapacity 初始容量。 
+       */  
+      public HashSet(int initialCapacity) {  
+      map = new HashMap<E,Object>(initialCapacity);  
+      }  
+      /** 
+       * 以指定的 initialCapacity 和 loadFactor 构造一个新的空链接哈希集合。 
+       * 此构造函数为包访问权限，不对外公开，实际只是是对 LinkedHashSet 的支持。 
+       * 
+       * 实际底层会以指定的参数构造一个空 LinkedHashMap 实例来实现。 
+       * @param initialCapacity 初始容量。 
+       * @param loadFactor 加载因子。 
+       * @param dummy 标记。 
+       */  
+      HashSet(int initialCapacity, float loadFactor, boolean dummy) {  
+      map = new LinkedHashMap<E,Object>(initialCapacity, loadFactor);
+      }  
+      /** 
+       * 返回对此 set 中元素进行迭代的迭代器。返回元素的顺序并不是特定的。 
+       *  
+       * 底层实际调用底层 HashMap 的 keySet 来返回所有的 key。 
+       * 可见 HashSet 中的元素，只是存放在了底层 HashMap 的 key 上， 
+       * value 使用一个 static final 的 Object 对象标识。 
+       * @return 对此 set 中元素进行迭代的 Iterator。 
+       */  
+      public Iterator<E> iterator() {  
+      return map.keySet().iterator();  
+      }  
+      /** 
+       * 返回此 set 中的元素的数量（set 的容量）。 
+       * 
+       * 底层实际调用 HashMap 的 size()方法返回 Entry 的数量，就得到该 Set 中元素的个数。  
+       * @return 此 set 中的元素的数量（set 的容量）。 
+       */  
+      public int size() {  
+      return map.size();  
+      }  
+      /** 
+       * 如果此 set 不包含任何元素，则返回 true。 
+       * 
+       * 底层实际调用 HashMap 的 isEmpty()判断该 HashSet 是否为空。 
+       * @return 如果此 set 不包含任何元素，则返回 true。 
+       */  
+      public boolean isEmpty() {  
+      return map.isEmpty();  
+      }  
+      /** 
+       * 如果此 set 包含指定元素，则返回 true。 
+       * 更确切地讲，当且仅当此 set 包含一个满足(o==null ? e==null : o.equals(e)) 
+       * 的 e 元素时，返回 true。 
+       * 
+       * 底层实际调用 HashMap 的 containsKey 判断是否包含指定 key。 
+       * @param o 在此 set 中的存在已得到测试的元素。 
+       * @return 如果此 set 包含指定元素，则返回 true。 
+       */  
+      public boolean contains(Object o) {
+      return map.containsKey(o);  
+      }  
+      /** 
+       * 如果此 set 中尚未包含指定元素，则添加指定元素。 
+       * 更确切地讲，如果此 set 没有包含满足(e==null ? e2==null : e.equals(e2)) 
+       * 的元素 e2，则向此 set 添加指定的元素 e。 
+       * 如果此 set 已包含该元素，则该调用不更改 set 并返回 false。 
+       * 
+       * 底层实际将将该元素作为 key 放入 HashMap。 
+       * 由于 HashMap 的 put()方法添加 key-value 对时，当新放入 HashMap 的 Entry 中 key 
+       * 与集合中原有 Entry 的 key 相同（hashCode()返回值相等，通过 equals 比较也返回 t
+rue）， 
+       * 新添加的 Entry 的 value 会将覆盖原来 Entry 的 value，但 key 不会有任何改变， 
+       * 因此如果向 HashSet 中添加一个已经存在的元素时，新添加的集合元素将不会被放入 HashMap 中， 
+       * 原来的元素也不会有任何改变，这也就满足了 Set 中元素不重复的特性。 
+       * @param e 将添加到此 set 中的元素。 
+       * @return 如果此 set 尚未包含指定元素，则返回 true。 
+       */  
+      public boolean add(E e) {  
+      return map.put(e, PRESENT)==null;  
+      }  
+     /** 
+       * 如果指定元素存在于此 set 中，则将其移除。 
+       * 更确切地讲，如果此 set 包含一个满足(o==null ? e==null : o.equals(e))的元素
+e， 
+       * 则将其移除。如果此 set 已包含该元素，则返回 true 
+       *  （或者：如果此 set 因调用而发生更改，则返回 true）。（一旦调用返回，则此 set 不再
+包含该元素）。 
+       * 
+       * 底层实际调用 HashMap 的 remove 方法删除指定 Entry。 
+       * @param o 如果存在于此 set 中则需要将其移除的对象。 
+       * @return 如果 set 包含指定元素，则返回 true。 
+       */  
+      public boolean remove(Object o) {  
+      return map.remove(o)==PRESENT;  
+      }  
+      /** 
+       * 从此 set 中移除所有元素。此调用返回后，该 set 将为空。 
+       * 
+       * 底层实际调用 HashMap 的 clear 方法清空 Entry 中所有元素。
+       */  
+      public void clear() {  
+      map.clear();  
+      }  
+    
+      /** 
+       * 返回此 HashSet 实例的浅表副本：并没有复制这些元素本身。 
+       * 
+       * 底层实际调用 HashMap 的 clone()方法，获取 HashMap 的浅表副本，并设置到 HashSe
+t 中。 
+       */  
+      public Object clone() {  
+          try {  
+              HashSet<E> newSet = (HashSet<E>) super.clone();  
+              newSet.map = (HashMap<E, Object>) map.clone();  
+              return newSet;  
+          } catch (CloneNotSupportedException e) {  
+              throw new InternalError();  
+          }  
+      }  
+}
+3.  相关说明
+1) 相关 HashMap 的实现原理，请参考我的上一遍总结：深入 Java 集合学习系列：HashMap 的实现原理。
+2) 对于 HashSet 中保存的对象，请注意正确重写其 equals 和 hashCode 方法，以保证放入的对象的唯一性。
+
+
+
+
+
+java集合框架源码剖析系列的源码全部基于JDK1.8.0版本。本博客将从源码角度带领大家学习关于HashSet的知识。
+
+一HashSet的定义：
+
+public class HashSet<E>
+    extends AbstractSet<E>
+    implements Set<E>, Cloneable, java.io.Serializable
+可以看到HashSet继承自AbstractSet同时实现了Set，Cloneable，Serializable三个接口，其中Cloneable，Serializable这两个接口基本上是java集合框架中所有的集合类都要实现的接口。 
+二HashSet中的重要属性：
+
+<strong>  </strong>private transient HashMap<E,Object> map;
+  private static final Object PRESENT = new Object();
+可以看到HashSet中的属性非常少，其中第一个属性是HashMap对象，是HashSet中用来存储数据的，据此可知HashSet的底层是基于HashMap的，关于HashMap的详细讲解请参看我的博客： 【java集合框架源码剖析系列】java源码剖析之HashMap，而第二个属性表示的是HashSet中HashMap实例的value，因为HashSet虽然底层是基于HashMap实现的，但是HashSet只用来存储Key，其Value是无意义，Value的值全部用第二个属性代替。 
+
+三HashSet内部的实现原理：我们来看一下其构造器
+
+public HashSet() {
+        map = new HashMap<>();
+    }
+
+ public HashSet(Collection<? extends E> c) {
+        map = new HashMap<>(Math.max((int) (c.size()/.75f) + 1, 16));
+        addAll(c);
+    }
+
+public HashSet(int initialCapacity, float loadFactor) {
+        map = new HashMap<>(initialCapacity, loadFactor);
+    }
+
+ public HashSet(int initialCapacity) {
+        map = new HashMap<>(initialCapacity);
+    }
+
+ HashSet(int initialCapacity, float loadFactor, boolean dummy) {
+        map = new LinkedHashMap<>(initialCapacity, loadFactor);
+    }
+可以看到HashSet供5个构造器，其中前四个都是在其内部创建一个HashMap的实例，（从这里更清楚的看到HashSet的底层是基于HashMap的）而第5个则是创建一个LinkedHashMap的实例，而且第5个构造器前面无public修饰，表明该构造器对外不公开，事实上仅仅供LinkedHashSet使用的。第二个构造器表明当使用一个集合c作为参数来构造一个HashSet的时候会调用addAll(c)，我们来看一下其源码：
+public boolean addAll(Collection<? extends E> c) {
+        boolean modified = false;
+        for (E e : c)
+            if (add(e))
+                modified = true;
+        return modified;
+    }
+
+ public boolean add(E e) {
+        return map.put(e, PRESENT)==null;
+    }
+
+可以看到在addAll中调用了add()，而在add(E)方法中可以清楚看到使用HashMap的put方法时第二个参数传入的都是PRESENT,这就说明了HashSet中只保存Key而不保存Value。 
+四HashSet中的重要方法：
+
+public boolean add(E e) {
+        return map.put(e, PRESENT)==null;
+
+    }
+
+public boolean remove(Object o) {
+        return map.remove(o)==PRESENT;
+    }
+
+ public void clear() {
+        map.clear();
+    }
+可以看到HashSet中与HashMap中同名的方法全部都是调用的HashMap中的方法来实现的。 
+
+五总结：经过前面HashMap的源码剖析可以看到HashSet非常简单
+
+1HashSet底层是基于HashMap的，但是仅仅用来保存Key，而不保存Value，因为HashSet的add()方法在调用HashMap的put方法的时候第二个参数传入的都是PRESENT这个固定的Object对象。
+
+2可以看到HashSet中的add与remove等方法均无synchronized关键字修饰，即HashSet不是线程安全的，如果要使用同步的HashSet需要使用Collections集合类的静态方法，即Set s=Collections.synchronizedSet(new HashSet());
+
+3HashSet中的值允许为null，因为HashSet底层是基于HashMap的，而HashMap允许插入null。
+
+4HashSet中的元素不允许重复，因为HashSet底层是基于HashMap的，而HashMap不允许存在重复元素，因为在put时如果key相同则会替换之前的V值。
+
+
+
+
+
+
+

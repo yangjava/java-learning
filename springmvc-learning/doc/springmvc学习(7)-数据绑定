@@ -1,0 +1,981 @@
+4.16、数据类型转换和数据验证
+
+
+
+流程：
+
+1、首先创建数据绑定器，在此此会创建ServletRequestDataBinder类的对象，并设置messageCodesResolver（错误码解析器）；
+
+2、提供第一个扩展点，初始化数据绑定器，在此处我们可以覆盖该方法注册自定义的PropertyEditor（请求参数——>命令对象属性的转换）；
+
+3、进行数据绑定，即请求参数——>命令对象的绑定；
+
+4、提供第二个扩展点，数据绑定完成后的扩展点，此处可以实现一些自定义的绑定动作；
+
+5、验证器对象的验证，验证器通过validators注入，如果验证失败，需要把错误信息放入Errors（此处使用BindException实现）；
+
+6、提供第三个扩展点，此处可以实现自定义的绑定/验证逻辑；
+
+7、将errors传入功能处理方法进行处理，功能方法应该判断该错误对象是否有错误进行相应的处理。
+
+4.16.1、数据类型转换
+
+请求参数（String）——>命令对象属性（可能是任意类型）的类型转换，即数据绑定时的类型转换，使用PropertyEditor实现绑定时的类型转换。
+
+一、spring内建的PropertyEditor如下所示：
+
+类名	说明	默认是否注册
+ByteArrayPropertyEditor	String<——>byte[]	√
+ClassEditor	String<——>Class当类没有发现抛出IllegalArgumentException	√
+CustomBooleanEditor	String<——>Booleantrue/yes/on/1转换为true，false/no/off/0转换为false	√
+CustomCollectionEditor	数组/Collection——>Collection普通值——>Collection（只包含一个对象）如String——>Collection不允许Collection——>String（单方向转换）	√
+CustomNumberEditor	String<——>Number(Integer、Long、Double)	√
+FileEditor	String<——>File	√
+InputStreamEditor	String——>InputStream单向的，不能InputStream——>String	√
+LocaleEditor	String<——>Locale，（String的形式为[语言]_[国家]_[变量]，这与Local对象的toString()方法得到的结果相同）	√
+PatternEditor	String<——>Pattern	√
+PropertiesEditor	String<——>Java.lang.Properties	√
+URLEditor	String<——>URL	√
+StringTrimmerEditor	一个用于trim 的 String类型的属性编辑器如默认删除两边的空格，charsToDelete属性：可以设置为其他字符emptyAsNull属性：将一个空字符串转化为null值的选项。	×
+CustomDateEditor	String<——>java.util.Date	×
+二、Spring内建的PropertyEditor支持的属性（符合JavaBean规范）操作：
+
+表达式	设值/取值说明
+username	属性username设值方法setUsername()/取值方法getUsername() 或 isUsername()
+schooInfo.schoolType	属性schooInfo的嵌套属性schoolType设值方法getSchooInfo().setSchoolType()/取值方法getSchooInfo().getSchoolType()
+hobbyList[0]	属性hobbyList的第一个元素索引属性可能是一个数组、列表、其它天然有序的容器。
+map[key]	属性map（java.util.Map类型）map中key对应的值
+三、示例：
+
+接下来我们写自定义的属性编辑器进行数据绑定：
+
+（1、模型对象：
+
+java代码：
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+package cn.javass.chapter4.model;
+//省略import
+public class DataBinderTestModel {
+    private String username;
+    private boolean bool;//Boolean值测试
+    private SchoolInfoModel schooInfo;
+    private List hobbyList;//集合测试，此处可以改为数组/Set进行测试
+    private Map map;//Map测试
+    private PhoneNumberModel phoneNumber;//String->自定义对象的转换测试
+    private Date date;//日期类型测试
+    private UserState state;//String——>Enum类型转换测试
+    //省略getter/setter
+}
+ 
+package cn.javass.chapter4.model;
+//如格式010-12345678
+public class PhoneNumberModel {
+    private String areaCode;//区号
+    private String phoneNumber;//电话号码
+    //省略getter/setter
+}
+(2、PhoneNumber属性编辑器
+
+前台输入如010-12345678自动转换为PhoneNumberModel。
+
+java代码：
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+package cn.javass.chapter4.web.controller.support.editor;
+//省略import
+public class PhoneNumberEditor extends PropertyEditorSupport {
+    Pattern pattern = Pattern.compile("^(\\d{3,4})-(\\d{7,8})$");
+    @Override
+    public void setAsText(String text) throws IllegalArgumentException {
+        if(text == null || !StringUtils.hasLength(text)) {
+            setValue(null); //如果没值，设值为null
+        }
+        Matcher matcher = pattern.matcher(text);
+        if(matcher.matches()) {
+            PhoneNumberModel phoneNumber = new PhoneNumberModel();
+            phoneNumber.setAreaCode(matcher.group(1));
+            phoneNumber.setPhoneNumber(matcher.group(2));
+            setValue(phoneNumber);
+        } else {
+            throw new IllegalArgumentException(String.format("类型转换失败，需要格式[010-12345678]，但格式是[%s]", text));
+        }
+    }
+    @Override
+    public String getAsText() {
+        PhoneNumberModel phoneNumber = ((PhoneNumberModel)getValue());
+        return phoneNumber == null ? "" : phoneNumber.getAreaCode() + "-" + phoneNumber.getPhoneNumber();
+    }
+}
+PropertyEditorSupport：一个PropertyEditor的支持类；
+
+setAsText：表示将String——>PhoneNumberModel，根据正则表达式进行转换，如果转换失败抛出异常，则接下来的验证器会进行验证处理；
+
+getAsText：表示将PhoneNumberModel——>String。
+
+（3、控制器
+
+需要在控制器注册我们自定义的属性编辑器。
+
+此处我们使用AbstractCommandController，因为它继承了BaseCommandController，拥有绑定流程。
+
+java代码：
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+package cn.javass.chapter4.web.controller;
+//省略import
+public class DataBinderTestController extends AbstractCommandController {
+    public DataBinderTestController() {
+        setCommandClass(DataBinderTestModel.class); //设置命令对象
+        setCommandName("dataBinderTest");//设置命令对象的名字
+    }
+    @Override
+    protected ModelAndView handle(HttpServletRequest req, HttpServletResponse resp, Object command, BindException errors) throws Exception {
+        //输出command对象看看是否绑定正确
+        System.out.println(command);
+        return new ModelAndView("bindAndValidate/success").addObject("dataBinderTest", command);
+    }
+    @Override
+    protected void initBinder(HttpServletRequest request, ServletRequestDataBinder binder) throws Exception {
+        super.initBinder(request, binder);
+        //注册自定义的属性编辑器
+        //1、日期
+        DateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        CustomDateEditor dateEditor = new CustomDateEditor(df, true);
+        //表示如果命令对象有Date类型的属性，将使用该属性编辑器进行类型转换
+        binder.registerCustomEditor(Date.class, dateEditor);
+        //自定义的电话号码编辑器
+        binder.registerCustomEditor(PhoneNumberModel.class, new PhoneNumberEditor());
+    }
+}
+initBinder:第一个扩展点，初始化数据绑定器，在此处我们注册了两个属性编辑器；
+
+CustomDateEditor：自定义的日期编辑器，用于在String<——>日期之间转换；
+
+binder.registerCustomEditor(Date.class, dateEditor)：表示如果命令对象是Date类型，则使用dateEditor进行类型转换；
+
+PhoneNumberEditor：自定义的电话号码属性编辑器用于在String<——> PhoneNumberModel之间转换；
+
+binder.registerCustomEditor(PhoneNumberModel.class, newPhoneNumberEditor())：表示如果命令对象是PhoneNumberModel类型，则使用PhoneNumberEditor进行类型转换；
+
+（4、spring配置文件chapter4-servlet.xml
+
+java代码：
+1
+2
+<bean name="/dataBind"
+class="cn.javass.chapter4.web.controller.DataBinderTestController"/>
+（5、视图页面（WEB-INF/jsp/bindAndValidate/success.jsp）
+
+java代码：
+1
+2
+3
+EL phoneNumber:${dataBinderTest.phoneNumber}
+EL state:${dataBinderTest.state}
+EL date:${dataBinderTest.date}
+视图页面的数据没有预期被格式化，如何进行格式化显示呢？请参考【第七章  注解式控制器的数据验证、类型转换及格式化】。
+
+（6、测试：
+
+1、在浏览器地址栏输入请求的URL，如
+
+http://localhost:9080/springmvc-chapter4/dataBind?username=zhang&bool=yes&schooInfo.specialty=computer&hobbyList[0]=program&hobbyList[1]=music&map[key1]=value1&map[key2]=value2&phoneNumber=010-12345678&date=2012-3-18 16:48:48&state=blocked
+
+2、控制器输出的内容：
+
+DataBinderTestModel [username=zhang, bool=true, schooInfo=SchoolInfoModel [schoolType=null, schoolName=null, specialty=computer], hobbyList=[program, music], map={key1=value1, key2=value2}, phoneNumber=PhoneNumberModel [areaCode=010, phoneNumber=12345678], date=Sun Mar 18 16:48:48 CST 2012, state=锁定]
+
+类型转换如图所示：
+
+
+
+四、注册PropertyEditor
+
+1、使用WebDataBinder进行控制器级别注册PropertyEditor（控制器独享）
+
+如“【三、示例】”中所使用的方式，使用WebDataBinder注册控制器级别的PropertyEditor，这种方式注册的PropertyEditor只对当前控制器独享，即其他的控制器不会自动注册这个PropertyEditor，如果需要还需要再注册一下。
+
+2、使用WebBindingInitializer批量注册PropertyEditor
+
+如果想在多个控制器同时注册多个相同的PropertyEditor时，可以考虑使用WebBindingInitializer。
+
+示例：
+
+（1、实现WebBindingInitializer
+
+java代码：
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+package cn.javass.chapter4.web.controller.support.initializer;
+//省略import
+public class MyWebBindingInitializer implements WebBindingInitializer {
+    @Override
+    public void initBinder(WebDataBinder binder, WebRequest request) {
+        //注册自定义的属性编辑器
+        //1、日期
+        DateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        CustomDateEditor dateEditor = new CustomDateEditor(df, true);
+        //表示如果命令对象有Date类型的属性，将使用该属性编辑器进行类型转换
+        binder.registerCustomEditor(Date.class, dateEditor);
+        //自定义的电话号码编辑器
+        binder.registerCustomEditor(PhoneNumberModel.class, new PhoneNumberEditor());
+    }
+}
+通过实现WebBindingInitializer并通过binder注册多个PropertyEditor。
+
+（2、修改【三、示例】中的DataBinderTestController，注释掉initBinder方法；
+
+（3、修改chapter4-servlet.xml配置文件：
+
+java代码：
+1
+2
+3
+4
+5
+6
+<!-- 注册WebBindingInitializer实现 -->
+<bean id="myWebBindingInitializer" class="cn.javass.chapter4.web.controller.support.initializer.MyWebBindingInitializer"/>
+<bean name="/dataBind" class="cn.javass.chapter4.web.controller.DataBinderTestController">
+    <!-- 注入WebBindingInitializer实现 -->
+    <property name="webBindingInitializer" ref="myWebBindingInitializer"/>
+</bean>
+（4、尝试访问“【三、示例】”中的测试URL即可成功。
+
+使用WebBindingInitializer的好处是当你需要在多个控制器中需要同时使用多个相同的PropertyEditor可以在WebBindingInitializer实现中注册，这样只需要在控制器中注入WebBindingInitializer即可注入多个PropertyEditor。
+
+3、全局级别注册PropertyEditor（全局共享）
+
+只需要将我们自定义的PropertyEditor放在和你的模型类同包下即可，且你的Editor命名规则必须是“模型类名Editor”，这样Spring会自动使用标准JavaBean架构进行自动识别，如图所示：
+
+
+
+此时我们把“DataBinderTestController”的“binder.registerCustomEditor(PhoneNumberModel.class, new PhoneNumberEditor());”注释掉，再尝试访问“【三、示例】”中的测试URL即可成功。
+
+这种方式不仅仅在使用Spring时可用，在标准的JavaBean等环境都是可用的，可以认为是全局共享的（不仅仅是Spring环境）。
+
+PropertyEditor被限制为只能String<——>Object之间转换，不能Object<——>Object，Spring3提供了更强大的类型转换（TypeConversion）支持，它可以在任意对象之间进行类型转换，不仅仅是String<——>Object。
+
+如果我在地址栏输入错误的数据，即数据绑定失败，Spring Web MVC该如何处理呢？如果我输入的数据不合法呢？如用户名输入100个字符（超长了）那又该怎么处理呢？出错了需要错误消息，那错误消息应该是硬编码？还是可配置呢？
+
+接下来我们来学习一下数据验证器进行数据验证吧。
+
+
+
+4.16.2、数据验证
+
+1、数据绑定失败：比如需要数字却输入了字母；
+
+2、数据不合法：可以认为是业务错误，通过自定义验证器验证，如用户名长度必须在5-20之间，我们却输入了100个字符等；
+
+3、错误对象：当我们数据绑定失败或验证失败后，错误信息存放的对象，我们叫错误对象，在spring Web MVC中Errors是具体的代表者；线程不安全对象；
+
+4、错误消息：是硬编码，还是可配置？实际工作应该使用配置方式，我们只是把错误码（errorCode）放入错误对象，在展示时读取相应的错误消息配置文件来获取要显示的错误消息(errorMessage)；
+
+4.16.2.1、验证流程
+
+
+
+1、首先进行数据绑定验证，如果验证失败会通过MessageCodesResolver生成错误码放入Errors错误对象；
+
+2、数据不合法验证，通过自定义的验证器验证，如果失败需要手动将错误码放入Errors错误对象；
+
+4.16.2.2、错误对象和错误消息
+
+错误对象的代表者是Errors接口，并且提供了几个实现者，在Spring Web MVC中我们使用的是如下实现：
+
+
+
+相关的错误方法如下：
+
+Errors：存储和暴露关于数据绑定错误和验证错误相关信息的接口，提供了相关存储和获取错误消息的方法：
+
+java代码：
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+package org.springframework.validation;
+public interface Errors {
+  //=========================全局错误消息（验证/绑定对象全局的）=============================
+  //注册一个全局的错误码（）
+  void reject(String errorCode);
+  //注册一个全局的错误码，当根据errorCode没有找到相应错误消息时，使用defaultMessage作为错误消息
+  void reject(String errorCode, String defaultMessage);
+  //注册一个全局的错误码，当根据errorCode没有找到相应错误消息时（带错误参数的），使用defaultMessage作为错误消息
+  void reject(String errorCode, Object[] errorArgs, String defaultMessage);
+  //=========================全局错误消息（验证/绑定整个对象的）=============================
+  //=========================局部错误消息（验证/绑定对象字段的）=============================
+  //注册一个对象字段的错误码，field指定验证失败的字段名
+  void rejectValue(String field, String errorCode);
+  void rejectValue(String field, String errorCode, String defaultMessage);
+  void rejectValue(String field, String errorCode, Object[] errorArgs, String defaultMessage);
+  //=========================局部错误消息（验证/绑定对象字段的）=============================
+  boolean hasErrors();      ////是否有错误
+  boolean hasGlobalErrors(); //是否有全局错误
+  boolean hasFieldErrors();  //是否有字段错误
+  Object getFieldValue(String field); //返回当前验证通过的值，或验证失败时失败的值；
+}
+getFieldValue：可以得到验证失败的失败值，这是其他Web层框架很少支持的，这样就可以给用户展示出错时的值（而不是空或其他的默认值等）。
+
+BindingResult：代表数据绑定的结果，继承了Errors接口。
+
+BindException：代表数据绑定的异常，它继承Exception，并实现了BindingResult，这是内部使用的错误对象。
+
+示例：
+
+（1、控制器
+
+java代码：
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+package cn.javass.chapter4.web.controller;
+//省略import
+public class ErrorController extends AbstractCommandController {
+       public ErrorController() {
+              setCommandClass(DataBinderTestModel.class);
+              setCommandName("command");
+       }
+       @Override
+       protected ModelAndView handle(HttpServletRequest req, HttpServletResponse resp, Object command, BindException errors) throws Exception {   
+              //表示用户名不为空
+              errors.reject("username.not.empty");
+              //带有默认错误消息
+              errors.reject("username.not.empty1", "用户名不能为空1");
+              //带有参数和默认错误消息        
+              errors.reject("username.length.error", new Object[]{5, 10});
+ 
+              //得到错误相关的模型数据
+              Map model = errors.getModel();
+              return new ModelAndView("bindAndValidate/error", model);
+       }
+}
+errors.reject(“username.not.empty”)：注册全局错误码“username.not.empty”，我们必须提供messageSource来提供错误码“username.not.empty”对应的错误信息（如果没有会抛出NoSuchMessageException异常）；
+
+errors.reject(“username.not.empty1″, “用户名不能为空1″)：注册全局错误码“username.not.empty1”，如果从messageSource没没有找到错误码“username.not.empty1”对应的错误信息，则将显示默认消息“用户名不能为空1”；
+
+errors.reject(“username.length.error”, new Object[]{5, 10})：错误码为“username.length.error”，而且错误信息需要两个参数，如我们在我们的配置文件中定义“用户名长度不合法，长度必须在{0}到{1}之间”，则实际的错误消息为“用户名长度不合法，长度必须在5到10之间”
+
+errors.getModel()：当有错误信息时，一定将errors.getModel()放入我们要返回的ModelAndView中，以便使用里边的错误对象来显示错误信息。
+
+（2、spring配置文件chapter4-servlet.xml
+
+java代码：
+1
+2
+3
+4
+5
+6
+7
+8
+<bean id="messageSource"
+       class="org.springframework.context.support.ReloadableResourceBundleMessageSource">
+    <property name="basename" value="classpath:messages"/>
+    <property name="fileEncodings" value="utf-8"/>
+    <property name="cacheSeconds" value="120"/>
+</bean>
+ 
+<bean name="/error" class="cn.javass.chapter4.web.controller.ErrorController"/>
+messageSource：用于获取错误码对应的错误消息的，而且bean名字默认必须是messageSource。
+
+messages.properties（需要执行NativeToAscii）
+
+java代码：
+1
+2
+username.not.empty=用户名不能为空
+username.length.error=用户名长度不合法，长度必须在{0}到{1}之间
+（3、视图页面（WEB-INF/jsp/bindAndValidate/error.jsp）
+
+java代码：
+1
+2
+3
+4
+5
+<%@taglib prefix="form" uri="http://www.springframework.org/tags/form" %>
+<!-- 表单的默认命令对象名为command -->
+<form:form commandName="command">
+    <form:errors path="*"></form:errors>
+</form:form>
+form标签库：此处我们使用了spring的form标签库；
+
+<form:form commandName=”command”>:表示我们的表单标签，commandName表示绑定的命令对象名字，默认为command；
+
+<form:errors path=”*”></form:errors>：表示显示错误信息的标签，如果path为“*”表示显示所有错误信息。
+
+接下来我们来看一下 数据绑定失败和数据不合法时，如何处理。
+
+4.16.2.3、数据绑定失败
+
+如我们的DataBinderTestModel类：
+
+bool：boolean类型，此时如果我们前台传入非兼容的数据，则会数据绑定失败；
+
+date：Date类型，此时如果我们前台传入非兼容的数据，同样会数据绑定失败；
+
+phoneNumber：自定义的PhoneNumberModel类型，如果如果我们前台传入非兼容的数据，同样会数据绑定失败。
+
+示例：
+
+（1、控制器，DataBinderErrorTestController。
+
+java代码：
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+package cn.javass.chapter4.web.controller;
+//省略import
+public class DataBinderErrorTestController extends SimpleFormController {
+       public DataBinderErrorTestController() {
+              setCommandClass(DataBinderTestModel.class);
+              setCommandName("dataBinderTest");
+       }
+       @Override
+       protected ModelAndView showForm(HttpServletRequest request, HttpServletResponse response, BindException errors) throws Exception {
+              //如果表单提交有任何错误都会再回到表单展示页面
+              System.out.println(errors);
+              return super.showForm(request, response, errors);
+       }
+       @Override
+       protected void doSubmitAction(Object command) throws Exception {
+              System.out.println(command); //表单提交成功（数据绑定成功）进行功能处理
+    }
+       @Override
+       protected void initBinder(HttpServletRequest request, ServletRequestDataBinder binder) throws Exception {
+              super.initBinder(request, binder);
+              //注册自定义的属性编辑器
+              //1、日期
+              DateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+              CustomDateEditor dateEditor = new CustomDateEditor(df, true);
+              //表示如果命令对象有Date类型的属性，将使用该属性编辑器进行类型转换
+              binder.registerCustomEditor(Date.class, dateEditor);
+ 
+              //自定义的电话号码编辑器
+              binder.registerCustomEditor(PhoneNumberModel.class, new PhoneNumberEditor());
+       }
+}
+此处我们使用SimpleFormController；
+
+showForm：展示表单，当提交表单有任何数据绑定错误会再回到该方法进行表单输入（在此处我们打印错误对象）；
+
+doSubmitAction：表单提交成功，只要当表单的数据到命令对象绑定成功时，才会执行；
+
+（2、spring配置文件chapter4-servlet.xml
+
+java代码：
+1
+2
+3
+4
+5
+<bean name="/dataBindError"
+class="cn.javass.chapter4.web.controller.DataBinderErrorTestController">
+   <property name="formView" value="bindAndValidate/input"/>
+   <property name="successView" value="bindAndValidate/success"/>
+</bean>
+（3、视图页面（WEB-INF/jsp/bindAndValidate/ input.jsp）
+
+java代码：
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+<%@ page language="java" contentType="text/html; charset=UTF-8"   pageEncoding="UTF-8"%>
+<%@taglib prefix="form" uri="http://www.springframework.org/tags/form" %>
+<!-- 表单的命令对象名为dataBinderTest -->
+<form:form commandName="dataBinderTest">
+    <form:errors path="*" cssStyle="color:red"></form:errors>
+    bool:<form:input path="bool"/>
+    phoneNumber:<form:input path="phoneNumber"/>
+    date:<form:input path="date"/>
+    <input type="submit" value="提交"/>
+</form:form>
+此处一定要使用form标签库，借此我们可以看到它的强大支持（别的大部分Web框架所不具备的，展示用户验证失败的数据）。
+
+<form:form commandName=“dataBinderTest”>：指定命令对象为dataBinderTest，默认command；
+
+<form:errors path=“*” cssStyle=“color:red”></form:errors>：显示错误消息，当提交表单有错误时展示错误消息（数据绑定错误/数据不合法）；
+
+<form:input path=“bool”/>：等价于（<input type=’text’>），但会从命令对象中取出bool属性进行填充value属性，或如果表单提交有错误会从错误对象取出之前的错误数据（而非空或默认值）；
+
+<input type=“submit” value=“提交“/>：spring没有提供相应的提交按钮，因此需要使用html的。
+
+（4、测试
+
+在地址栏输入如下地址：http://localhost:9080/springmvc-chapter4/dataBindError
+
+
+
+全部是错误数据，即不能绑定到我们的命令对象；
+
+当提交表单后，我们又回到表单输入页面，而且输出了一堆错误信息
+
+
+
+1、错误消息不可读；
+
+2、表单元素可以显示之前的错误的数据，而不是默认值/空；
+
+（5、问题
+
+这里最大的问题是不可读的错误消息，如何让这些错误消息可读呢？
+
+首先我们看我们的showForm方法里输出的“errors”错误对象信息：
+
+java代码：
+1
+2
+3
+4
+5
+6
+7
+org.springframework.validation.BindException: org.springframework.validation.BeanPropertyBindingResult: 3 errors
+ 
+Field error in object 'dataBinderTest' on field 'bool': rejected value [www]; codes [typeMismatch.dataBinderTest.bool,typeMismatch.bool,typeMismatch.boolean,typeMismatch]; arguments [org.springframework.context.support.DefaultMessageSourceResolvable: codes [dataBinderTest.bool,bool]; arguments []; default message [bool]]; default message [Failed to convert property value of type 'java.lang.String' to required type 'boolean' for property 'bool'; nested exception is java.lang.IllegalArgumentException: Invalid boolean value [www]]
+ 
+Field error in object 'dataBinderTest' on field 'date': rejected value [123]; codes [typeMismatch.dataBinderTest.date,typeMismatch.date,typeMismatch.java.util.Date,typeMismatch]; arguments [org.springframework.context.support.DefaultMessageSourceResolvable: codes [dataBinderTest.date,date]; arguments []; default message [date]]; default message [Failed to convert property value of type 'java.lang.String' to required type 'java.util.Date' for property 'date'; nested exception is java.lang.IllegalArgumentException: Could not parse date: Unparseable date: "123"]
+ 
+Field error in object 'dataBinderTest' on field 'phoneNumber': rejected value [123]; codes [typeMismatch.dataBinderTest.phoneNumber,typeMismatch.phoneNumber,typeMismatch.cn.javass.chapter4.model.PhoneNumberModel,typeMismatch]; arguments [org.springframework.context.support.DefaultMessageSourceResolvable: codes [dataBinderTest.phoneNumber,phoneNumber]; arguments []; default message [phoneNumber]]; default message [Failed to convert property value of type 'java.lang.String' to required type 'cn.javass.chapter4.model.PhoneNumberModel' for property 'phoneNumber'; nested exception is java.lang.IllegalArgumentException: 类型转换失败，需要格式[010-12345678]，但格式是[123]]
+数据绑定失败（类型不匹配）会自动生成如下错误码（错误码对应的错误消息按照如下顺序依次查找）：
+
+1、typeMismatch.命令对象名.属性名
+
+2、typeMismatch.属性名
+
+3、typeMismatch.属性全限定类名（包名.类名）
+
+4、typeMismatch
+
+⊙内部使用MessageCodesResolver解析数据绑定错误到错误码，默认DefaultMessageCodesResolver，因此想要详细了解如何解析请看其javadoc；
+
+⊙建议使用第1个进行错误码的配置。
+
+因此修改我们的messages.properties添加如下错误消息（需要执行NativeToAscii）：
+
+java代码：
+1
+2
+3
+4
+typeMismatch.dataBinderTest.date=您输入的数据格式错误，请重新输入（格式：2012-03-19 22:17:17）
+#typeMismatch.date=2
+#typeMismatch.java.util.Date=3
+#typeMismatch=4
+再次提交表单我们会看到我们设置的错误消息：
+
+到此，数据绑定错误我们介绍完了，接下来我们再看一下数据不合法错误。
+
+4.16.2.4、数据不合法
+
+1、比如用户名长度必须在5-20之间，而且必须以字母开头，可包含字母、数字、下划线；
+
+2、比如注册用户时 用户名已经存在或邮箱已经存在等；
+
+3、比如去一些论坛经常会发现，您发的帖子中包含×××屏蔽关键字等。
+
+还有很多数据不合法的场景，在此就不罗列了，对于数据不合法，Spring Web MVC提供了两种验证方式：
+
+◆编程式验证器验证
+
+◆声明式验证
+
+先从编程式验证器开始吧。
+
+4.16.2.4.1、编程式验证器
+
+一、验证器接口
+
+java代码：
+1
+2
+3
+4
+5
+package org.springframework.validation;
+public interface Validator {
+boolean supports(Class<?> clazz);
+void validate(Object target, Errors errors);
+}
+Validator接口：验证器，编程实现数据验证的接口；
+
+supports方法：当前验证器是否支持指定的clazz验证，如果支持返回true即可；
+
+validate方法：验证的具体方法，target参数表示要验证的目标对象（如命令对象），errors表示验证出错后存放错误信息的错误对象。
+
+示例：
+
+（1、验证器实现
+
+java代码：
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+package cn.javass.chapter4.web.controller.support.validator;
+//省略import
+public class UserModelValidator implements Validator {
+    private static final Pattern USERNAME_PATTERN = Pattern.compile("[a-zA-Z]\\w{4,19}");
+    private static final Pattern PASSWORD_PATTERN = Pattern.compile("[a-zA-Z0-9]{5,20}");
+    private static final Set<String> FORBINDDDEN_WORD_SET = new HashSet<String>();
+    static {
+       FORBINDDDEN_WORD_SET.add("fuc k"); //删掉空格
+       FORBINDDDEN_WORD_SET.add("admin");
+    }  
+    @Override
+    public boolean supports(Class<?> clazz) {
+       return UserModel.class == clazz;//表示只对UserModel类型的目标对象实施验证
+    }
+    @Override
+    public void validate(Object target, Errors errors) {
+       //这个表示如果目标对象的username属性为空，则表示错误（简化我们手工判断是否为空）
+       ValidationUtils.rejectIfEmpty(errors, "username", "username.not.empty");
+ 
+       UserModel user = (UserModel) target;
+ 
+       if(!USERNAME_PATTERN.matcher(user.getUsername()).matches()) {
+           errors.rejectValue("username", "username.not.illegal");//如果用户名不合法
+       }
+ 
+       for(String forbiddenWord : FORBINDDDEN_WORD_SET) {
+           if(user.getUsername().contains(forbiddenWord)) {
+              errors.rejectValue("username", "username.forbidden", new Object[]{forbiddenWord}, "您的用户名包含非法关键词");//用户名包含屏蔽关键字
+              break;
+           }
+       }
+       if(!PASSWORD_PATTERN.matcher(user.getPassword()).matches()) {
+           errors.rejectValue("password","password.not.illegal", "密码不合法");//密码不合法
+       }  
+    }
+}
+supports方法：表示只对UserModel类型的对象验证；
+
+validate方法：数据验证的具体方法，有如下几个验证：
+
+1、用户名不合法（长度5-20，以字母开头，随后可以是字母、数字、下划线）
+
+USERNAME_PATTERN.matcher(user.getUsername()).matches() //使用正则表达式验证
+
+errors.rejectValue(“username”, “username.not.illegal”);//验证失败为username字段添加错误码
+
+2、屏蔽关键词：即用户名中含有不合法的数据（如admin）
+
+user.getUsername().contains(forbiddenWord) //用contains来判断我们的用户名中是否含有非法关键词
+
+errors.rejectValue(“username”, “username.forbidden”, new Object[]{forbiddenWord}, “您的用户名包含非法关键词”);//验证失败为username字段添加错误码（参数为当前屏蔽关键词）（默认消息为”您的用户名包含非法关键词”）
+
+3、密码不合法
+
+在此就不罗列代码了；
+
+4、ValidationUtils
+
+ValidationUtils.rejectIfEmpty(errors, “username”, “username.not.empty”);
+
+表示如果目标对象的username属性数据为空，则添加它的错误码；
+
+内部通过（value == null || !StringUtils.hasLength(value.toString())）实现判断value是否为空，从而简化代码。
+
+（2、spring配置文件chapter4-servlet.xml
+
+java代码：
+1
+2
+3
+4
+5
+6
+7
+8
+<bean id="userModelValidator"
+class="cn.javass.chapter4.web.controller.support.validator.UserModelValidator"/>
+<bean name="/validator"
+class="cn.javass.chapter4.web.controller.RegisterSimpleFormController">
+    <property name="formView" value="registerAndValidator"/>
+    <property name="successView" value="redirect:/success"/>
+    <property name="validator" ref="userModelValidator"/>
+</bean>
+此处使用了我们第4.9节创建的RegisterSimpleFormController。
+
+（3、错误码配置（messages.properties），需要执行NativeToAscii
+
+java代码：
+1
+2
+3
+4
+username.not.empty=用户名不能为空
+username.not.illegal=用户名错误，必须以字母开头，只能出现字母、数字、下划线，并且长度在5-20之间
+username.forbidden=用户名中包含非法关键词【{0}】
+password.not.illegal=密码长度必须在5-20之间
+（4、视图页面（/WEB-INF/jsp/registerAndValidator.jsp）
+
+java代码：
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+<%@ page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8"%>
+<%@taglib prefix="form" uri="http://www.springframework.org/tags/form" %>
+<form:form commandName="user">
+ 
+<form:errors path="*" cssStyle="color:red"></form:errors>
+ 
+username:<form:input path="username"/>
+<form:errors path="username" cssStyle="color:red"></form:errors>
+ 
+ 
+password:<form:password path="password"/>
+<form:errors path="password" cssStyle="color:red"></form:errors>
+ 
+<input type="submit" value="注册"/>
+</form:form>
+form:errors path=“username”：表示只显示username字段的错误信息；
+
+（5、测试
+
+地址：http://localhost:9080/springmvc-chapter4/validator
+
+
+
+当我们输入错误的数据后，会报错（form:errors path=“*”显示所有错误信息，而form:errors path=“username”只显示该字段相关的）。
+
+问题：
+
+如MultiActionController控制器相关方法没有提供给我们errors对象（Errors），我们应该怎么进行错误处理呢？
+
+此处给大家一个思路，errors本质就是一个Errors接口实现，而且在页面要读取相关的错误对象，该错误对象应该存放在模型对象里边，因此我们可以自己创建个errors对象并将其添加到模型对象中即可。
+
+此处我们复制4.15节的UserController类为UserAndValidatorController，并修改它的create（新增）方法添加如下代码片段：
+
+java代码：
+1
+2
+3
+4
+5
+6
+7
+8
+BindException errors = new BindException(user, getCommandName(user));
+//如果用户名为空
+if(!StringUtils.hasLength(user.getUsername())) {
+    errors.rejectValue("username", "username.not.empty");
+}
+if(errors.hasErrors()) {
+    return new ModelAndView(getCreateView()).addAllObjects(errors.getModel());
+}
+√ new BindException(user, getCommandName(user))：使用当前的命令对象，和命令对象的名字创建了一个BindException作为errors；
+
+√StringUtils.hasLength(user.getUsername())：如果用户名为空就是用errors.rejectValue(“username”, “username.not.empty”);注入错误码；
+
+√errors.hasErrors()：表示如果有错误就返回到新增页面并显示错误消息；
+
+√ModelAndView(getCreateView()).addAllObjects(errors.getModel())：此处一定把errors对象的模型数据放在当前的ModelAndView中，作为当前请求的模型数据返回。
+
+在浏览器地址栏输入：http://localhost:9080/springmvc-chapter4/userAndValidator/create 到新增页面
+
+
+
+用户名什么都不输入，提交后又返回到新增页面 而且显示了错误消息说明我们的想法是正确的。
+
+4.16.2.4.2、声明式验证器
+
+从Spring3开始支持JSR-303验证框架，支持XML风格和注解风格的验证，目前在@RequestMapping时才能使用，也就是说基于Controller接口的实现不能使用该方式（但可以使用编程式验证，有需要的可以参考hibernatevalidator实现），我们将在第七章详细介绍。
+
+到此Spring2风格的控制器我们就介绍完了，以上控制器从spring3.0开始已经不推荐使用了（但考虑到还有部分公司使用这些@Deprecated类，在此也介绍了一下），而是使用注解控制器实现（@Controller和@RequestMapping）。

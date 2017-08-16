@@ -1,0 +1,161 @@
+package redis.clients.jedis;
+
+import redis.clients.util.RedisInputStream;
+import redis.clients.util.RedisOutputStream;
+
+import java.io.*;
+import java.net.Socket;
+import java.net.SocketException;
+import java.net.UnknownHostException;
+import java.util.ArrayList;
+import java.util.List;
+
+public class Connection {
+    private String host;//ip
+    private int port = Protocol.DEFAULT_PORT;//端口
+    private Socket socket;//socket句柄
+    private Protocol protocol = new Protocol();//具体操作对象
+    private RedisOutputStream outputStream;//socket的输出流
+    private RedisInputStream inputStream;//socket的输入流
+    private int pipelinedCommands = 0;//管道命令计数器
+    private int timeout = 2000;//socket超时时间
+
+    public int getTimeout() {//获取socket超时时间
+	return timeout;
+    }
+
+    public void setTimeout(int timeout) {//设置socket超时时间
+	this.timeout = timeout;
+    }
+
+    public void setTimeoutInfinite() {//设置无穷大超时时间
+	try {
+	    socket.setSoTimeout(0);
+	} catch (SocketException ex) {
+	    throw new JedisException(ex);
+	}
+    }
+
+    public void rollbackTimeout() {//回滚超时时间设置
+	try {
+	    socket.setSoTimeout(timeout);
+	} catch (SocketException ex) {
+	    throw new JedisException(ex);
+	}
+    }
+
+    public Connection(String host) {//够早一个connection
+	super();
+	this.host = host;
+    }
+
+    protected Connection sendCommand(String name, String... args) {
+		try {
+			connect();//连接server
+		} catch (UnknownHostException e) {
+			throw new JedisException("Could not connect to redis-server", e);
+		} catch (IOException e) {
+			throw new JedisException("Could not connect to redis-server", e);
+		}
+	protocol.sendCommand(outputStream, name, args);//发送命令
+	pipelinedCommands++;//增加计数器
+	return this;
+    }
+
+    public Connection(String host, int port) {//构造connection
+	super();
+	this.host = host;
+	this.port = port;
+    }
+
+    public String getHost() {//获取IP
+	return host;
+    }
+
+    public void setHost(String host) {//设置IP
+	this.host = host;
+    }
+
+    public int getPort() {//获取端口
+	return port;
+    }
+
+    public void setPort(int port) {//设置端口
+	this.port = port;
+    }
+
+    public Connection() {//构造connection
+    }
+
+    public void connect() throws UnknownHostException, IOException {
+	if (!isConnected()) {//如果没有连接，才会连接对方并且给本地变量赋值
+	    socket = new Socket(host, port);
+	    socket.setSoTimeout(timeout);
+	    outputStream = new RedisOutputStream(socket.getOutputStream());
+	    inputStream = new RedisInputStream(socket.getInputStream());
+	}
+    }
+
+    public void disconnect() {//断开连接
+	if (isConnected()) {
+	    try {
+		inputStream.close();
+		outputStream.close();//关闭流
+		if (!socket.isClosed()) {
+		    socket.close();
+		}//关闭socket.
+	    } catch (IOException ex) {
+		throw new JedisException(ex);
+	    }
+	}
+    }
+
+    public boolean isConnected() {//判断是否连接上了
+	return socket != null && socket.isBound() && !socket.isClosed()
+		&& socket.isConnected() && !socket.isInputShutdown()
+		&& !socket.isOutputShutdown();
+    }
+
+    protected String getStatusCodeReply() {//获取响应
+	pipelinedCommands--;
+	return (String) protocol.read(inputStream);
+    }
+
+    public String getBulkReply() {//获取响应
+	pipelinedCommands--;
+	return (String) protocol.read(inputStream);
+    }
+
+    public int getIntegerReply() {//获取响应
+	pipelinedCommands--;
+	return ((Integer) protocol.read(inputStream)).intValue();
+    }
+
+    @SuppressWarnings("unchecked")
+    public List<String> getMultiBulkReply() {//获取响应
+	pipelinedCommands--;
+	return (List<String>) protocol.read(inputStream);
+    }
+
+    @SuppressWarnings("unchecked")
+    public List<Object> getObjectMultiBulkReply() {//获取响应
+	pipelinedCommands--;
+	return (List<Object>) protocol.read(inputStream);
+    }
+
+    public List<Object> getAll() {//批量获取响应
+	List<Object> all = new ArrayList<Object>();
+	while (pipelinedCommands > 0) {
+	    all.add(protocol.read(inputStream));
+	    pipelinedCommands--;
+	}
+	return all;
+    }
+}
+这个函数很有意思。
+
+public boolean isConnected() {//判断是否连接上了
+	return socket != null && socket.isBound() && !socket.isClosed()
+		&& socket.isConnected() && !socket.isInputShutdown()
+		&& !socket.isOutputShutdown();
+    }

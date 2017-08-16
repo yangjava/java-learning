@@ -1,0 +1,71 @@
+它的主要接口都在org.dom4j这个包里定义：
+Attribute
+Attribute定义了XML的属性
+
+Branch
+Branch为能够包含子节点的节点如XML元素(Element)和文档(Docuemnts)定义了一个公共的行为，
+
+CDATA
+CDATA 定义了XML CDATA 区域
+
+CharacterData
+CharacterData是一个标识借口，标识基于字符的节点。如CDATA，Comment, Text.
+
+Comment
+Comment 定义了XML注释的行为
+
+Document
+定义了XML文档
+
+DocumentType
+DocumentType 定义XML DOCTYPE声明
+
+Element
+Element定义XML 元素
+
+ElementHandler
+ElementHandler定义了 Element 对象的处理器
+
+ElementPath
+被 ElementHandler 使用，用于取得当前正在处理的路径层次信息
+
+Entity
+Entity定义 XML entity
+
+Node
+Node为所有的dom4j中XML节点定义了多态行为
+
+NodeFilter
+NodeFilter 定义了在dom4j节点中产生的一个滤镜或谓词的行为（predicate）
+
+ProcessingInstruction
+ProcessingInstruction 定义 XML 处理指令.
+
+Text
+Text 定义XML 文本节点.
+
+Visitor
+Visitor 用于实现Visitor模式.
+
+XPath
+XPath 在分析一个字符串后会提供一个XPath 表达式
+
+看名字大致就知道它们的涵义如何了。
+
+
+要想弄懂这套接口，关键的是要明白接口的继承关系：
+interface java.lang.Cloneable
+		interface org.dom4j.Node
+				interface org.dom4j.Attribute
+				interface org.dom4j.Branch
+							interface org.dom4j.Document
+							interface org.dom4j.Element
+				interface org.dom4j.CharacterData
+							interface org.dom4j.CDATA
+							interface org.dom4j.Comment
+							interface org.dom4j.Text
+				interface org.dom4j.DocumentType
+				interface org.dom4j.Entity
+				interface org.dom4j.ProcessingInstruction
+
+一目了然，很多事情都清楚了。大部分都是由Node继承来的。知道这些关系，将来写程序就不会出现ClassCastException了。	

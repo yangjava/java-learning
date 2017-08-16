@@ -1,0 +1,433 @@
+本文章结构：（一）操作数据操作语句优化认识；（二）INSERT语句；（三）DELETE语句；（四）UPDATE语句；（五）REPLACE语句；（六）库与表基本操作
+
+一、操作数据语句优化认识：
+
+通常情况下，当访问某张表的时候，读取者首先必须获取该表的锁，如果有写入操作到达，那么写入者一直等待读取者完成操作（查询开始之后就不能中断，因此允许读取者完成操作）。当读取者完成对表的操作的时候，锁就会被解除。如果写入者正在等待的时候，另一个读取操作到达了，该读取操作也会被阻塞（block），因为默认的调度策略是写入者优先于读取者。当第一个读取者完成操作并解放锁后，写入者开始操作，并且直到该写入者完成操作，第二个读取者才开始操作。
+
+通过LOCK TABLES和UNLOCK TABLES语句可以显式地获取或释放锁，但是在通常情况下，服务器的锁管理器会自动地在需要的时候获取锁，在不再需要的时候释放锁。获取的锁的类型依赖于客户端是写入还是读取操作。
+
+对某张表进行写入操作的客户端必须拥有独占的（排他的）访问权的锁。操作在进行的过程中，该数据表处于不一致的（inconsistent）状态，因为数据记录在删除、添加或修改的时候，数据表上的索引也可能需要更新以相互匹配。允许两个客户端同时写入一张数据表是不利的，因为这样的操作会很快使数据表中的信息成为一堆无用的垃圾。同时允许客户端读取变化之中的数据表也不正确，因为正在读取的位置中的数据可能正在变化（修改），读取的结果可能并不是真实的。因此对某张表执行读取操作的客户端也必须获取一个锁，防止在读取的过程中，其它的客户端写入或改变表。但是这个锁不需要独占的访问权。因为读取操作不会改变数据，因此没有理由让某个读取者阻止其它的读取者访问这张表。故读取锁可允许其它的客户端在同一时刻读取这张表。
+
+虽然通过锁机制，可以实现多线程同时对某个表进行操作，但当某个线程作更新操作时，首先要获得独占的访问权。在更新的过程中，所有其它想要访问这个表的线程必须要等到其更新完成为止。此时就会导致锁竞争的问题，从而导致用户等待时间的延长。
+
+因此：要提高MySQL的更新/插入效率，应首先考虑降低锁的竞争，减少写操作的等待时间。 （本系列在后面才讨论表设计的优化）
+
+使用前说明：偷点懒，用之前写出来的数据库-INNODB存储引擎。（请导入数据库文件）。数据库说明。数据库文件。
+
+CREATE TABLE `score` (
+    `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+    `change_type` VARCHAR(255) NULL DEFAULT NULL,
+    `create_time` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `score` INT(11) NULL DEFAULT NULL,
+    `user_id` BIGINT(20) NULL DEFAULT NULL,
+    PRIMARY KEY (`id`)
+)
+COLLATE='utf8_general_ci';
+//外键在以后再聊
+CREATE TABLE `gag` (
+    `id` BIGINT(20) NOT NULL AUTO_INCREMENT,
+    `create_time` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `gag_time` DATE NULL DEFAULT NULL,
+    `user_id` BIGINT(20) NULL DEFAULT NULL,
+    PRIMARY KEY (`id`)
+)
+COLLATE='utf8_general_ci';
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+二、INSERT语句：
+
+INSERT [INTO] 表名 [(字段列表)] VALUES (值列表)[, (值列表), …]
+
+注意：
+
+如果要插入的值列表包含所有字段并且顺序一致，则可以省略字段列表。
+
+可同时插入多条数据记录！
+
+REPLACE 与 INSERT 完全一样，可互换。
+
+例子：
+
+INSERT INTO score (change_type,score,user_id) VALUES ('吃饭',10,1);
+1
+1
+优化：
+
+（1）当我们需要批量插入数据的时候，这样的语句却会出现性能问题。例如说，如果有需要插入100000条数据，那么就需要有100000条insert语句，每一句都需要提交到关系引擎那里去解析，优化，然后才能够到达存储引擎做真的插入工作。上述所说的同时插入多条就是一种优化。（经测试，大概10条同时插入是最高效的）
+
+例子：
+
+INSERT INTO score (change_type,score,user_id) VALUES ('吃饭',10,1),('喝茶',10,1),('喝茶',10,1);   
+1
+1
+（2）将进程/线程数控制在2倍于CPU数目相对合适
+
+（3）采用顺序主键策略（例如自增主键，或者修改业务逻辑，让插入的记录尽可能顺序主键）
+
+（4）考虑使用replace 语句代替insert语句。（REPLACE语句请参考下文，有详细讲述）
+
+三、DELETE语句：
+
+DELETE FROM 表名[ 删除条件子句]
+
+没有条件子句，则会删除全部
+
+例子：
+
+DELETE FROM gag;      删除全部
+DELETE FROM gag WHERE id=1;
+1
+2
+1
+2
+补充：Mysql中truncate table和delete语句都可以删除表里面所有数据，但是在一些情况下有些不同！
+
+例子：
+
+truncate table gag;
+1
+1
+（1）truncate table速度要更快一些，但truncate删除后不记录mysql日志，不可以恢复数据。
+
+（2）如果没有外键关联，innodb执行truncate是先drop table(原始表),再创建一个跟原始表一样空表,速度要远远快于delete逐条删除行记录。
+
+（3）如果使用innodb_file_per_table参数，truncate table 能重新利用释放的硬盘空间,在InnoDB Plugin中，truncate table为自动回收，如果不是用InnoDB Plugin,那么需要使用optimize table来优化表，释放空间。
+
+truncate table删除表后，optimize table尤其重要，特别是大数据数据库，表空间可以得到释放！
+
+（4）表有外键关联，truncate table删除表数据为逐行删除，如果外键指定级联删除(delete cascade)，关联的子表也会会被删除所有表数据。如果外键未指定级联(cascde),truncate table逐行删除数据，如果是父行关联子表行数据，将会报错。
+
+（5）auto_increment计数器在truncate table后会重置为0.与是否有外键关联没有关系。
+
+注意：
+
+一个大的 DELETE 或 INSERT 操作，要非常小心，因为这两个操作是会锁表的，表一锁住，其他操作就进不来了。因此，我们要交给DBA去拆分，重整数据库策略，比如限制处理1000条。
+
+MySQL官方手 册得知删除数据的速度和创建的索引数量是成正比的。所以在超大型数据库中，删除时处理好索引关系非常重要。推荐的折中方法：在删除数据之前删除这那几个索引，然后删除其中无用 数据，删除完成后重新创建索引。
+
+四、UPDATE语句：
+
+UPDATE 表名 SET 字段名=新值[, 字段名=新值] [更新条件]
+
+例子：
+
+UPDATE score SET change_type='洗澡' WHERE id=2;
+1
+1
+优化：更新多条记录（往后会结合MyBatics写个实例）
+
+Update score  
+  SET change_type = CASE id  
+    WHEN 1 THEN 'value1'  
+    WHEN 2 THEN 'value2'  
+    WHEN 3 THEN 'value3'  
+  END  
+WHERE id IN (1,2,3)  
+1
+2
+3
+4
+5
+6
+7
+1
+2
+3
+4
+5
+6
+7
+更新多条记录的多个值
+
+Update score  
+  SET change_type = CASE id  
+    WHEN 1 THEN 'value1'  
+    WHEN 2 THEN 'value2'  
+    WHEN 3 THEN 'value3'  
+  END , 
+    score = CASE id
+     WHEN 1 THEN 1
+    WHEN 2 THEN 2
+    WHEN 3 THEN 3
+  END
+WHERE id IN (1,2,3)  
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+(1). 尽量不要修改主键字段。
+
+(2). 当修改VARCHAR型字段时，尽量使用相同长度内容的值代替。
+
+(3). 尽量最小化对于含有UPDATE触发器的表的UPDATE操作。
+
+(4). 避免UPDATE将要复制到其他数据库的列。
+
+(5). 避免UPDATE建有很多索引的列。
+
+(6). 避免UPDATE在WHERE子句条件中的列。
+
+五、REPLACE语句：
+
+根据应用情况可以使用replace 语句代替insert/update语句。例如：如果一个表在一个字段上建立了唯一索引，当向这个表中使用已经存在的键值插入一条记录，将会抛出一个主键冲突的错误。如果我们想用新记录的值来覆盖原来的记录值时，就可以使用REPLACE语句。
+
+使用REPLACE插入记录时，如果记录不重复（或往表里插新记录），REPLACE功能与INSERT一样，如果存在重复记录，REPLACE就使用新记录的值来替换原来的记录值。使用REPLACE的最大好处就是可以将DELETE和INSERT合二为一，形成一个原子操作。这样就可以不必考虑同时使用DELETE和INSERT时添加事务等复杂操作了。
+
+在使用REPLACE时，表中必须有唯一有一个PRIMARY KEY或UNIQUE索引，否则，使用一个REPLACE语句没有意义。
+
+用法：
+
+（1）同INSERT
+
+//含义一：与普通INSERT一样功能
+REPLACE INTO score (change_type,score,user_id) VALUES ('吃饭',10,1),('喝茶',10,1),('喝茶',10,1);  
+//含义二：找到第一条记录，用后面的值进行替换
+REPLACE INTO score (id,change_type,score,user_id) VALUES (1,'吃饭',10,1)
+1
+2
+3
+4
+1
+2
+3
+4
+此语句的作用是向表table中插入3条记录。如果主键id为1或2不存在就相当于插入语句：
+
+INSERTINTO score (change_type,score,user_id) VALUES (‘吃饭’,10,1),(‘喝茶’,10,1),(‘喝茶’,10,1);
+
+如果存在相同的值则不会插入数据。
+
+（2）replace(object, search, replace)，把object中出现search的全部替换为replace。
+
+//用法一：并不是修改数据，而只是单纯做局部替换数据返还而已。
+SELECT REPLACE('喝茶','茶','喝')
+//结果：  喝喝
+1
+2
+3
+1
+2
+3
+用法二：修改表数据啦，对应下面就是，根据change_type字段找到做任务的数据，用bb来替换
+
+UPDATE score SET change_type=REPLACE(change_type,'做任务','bb')
+1
+1
+在此，做下对比：UPDATE和REPLACE的区别：
+
+1）UPDATE在没有匹配记录时什么都不做，而REPLACE在有重复记录时更新，在没有重复记录时插入。
+
+2）UPDATE可以选择性地更新记录的一部分字段。而REPLACE在发现有重复记录时就将这条记录彻底删除，再插入新的记录。也就是说，将所有的字段都更新了。
+
+其实REPLACE更像INSERT与DELETE的结合。
+
+六、库与表基本操作：
+
+（一）库的基本操作：
+
+（1）查看所有数据库以及使用数据库：
+
+show databases;
+
+use table;
+1
+2
+3
+1
+2
+3
+（2）查看当前数据库
+
+ select database();
+1
+1
+（3）显示当前时间、用户名、数据库版本
+
+select now(), user(), version();
+1
+1
+（4）创建库
+
+create database[ if not exists] 数据库名 数据库选项
+    数据库选项：
+        CHARACTER SET charset_name
+        COLLATE collation_name
+1
+2
+3
+4
+1
+2
+3
+4
+（5）查看当前库信息
+
+show create database 数据库名
+1
+1
+（6）修改库的选项信息
+
+alter database 库名 选项信息
+1
+1
+（7）删除库
+
+drop database[ if exists] 数据库名
+        同时删除该数据库相关的目录及其目录内容
+1
+2
+1
+2
+（二）表的基本操作：
+
+（1）创建表：
+
+ create [temporary] table[ if not exists] [库名.]表名 ( 表的结构定义 )[ 表选项]
+        每个字段必须有数据类型
+        最后一个字段后不能有逗号
+        temporary 临时表，会话结束时表自动消失
+        对于字段的定义：
+            字段名 数据类型 [NOT NULL | NULL] [DEFAULT default_value] [AUTO_INCREMENT] [UNIQUE [KEY] | [PRIMARY] KEY] [COMMENT 'string']
+1
+2
+3
+4
+5
+6
+1
+2
+3
+4
+5
+6
+（2）表的选项：
+
+[1]删除列
+
+ALTER TABLE 【表名字】 DROP 【列名称】
+
+[2]增加列
+
+ALTER TABLE 【表名字】 ADD 【列名称】 INT NOT NULL COMMENT ‘注释说明’
+
+[3]修改列的类型信息
+
+ALTER TABLE 【表名字】 CHANGE 【列名称】【新列名称（这里可以用和原来列同名即可）】 BIGINT NOT NULL COMMENT ‘注释说明’
+
+[4]重命名列
+
+ALTER TABLE 【表名字】 CHANGE 【列名称】【新列名称】 BIGINT NOT NULL COMMENT ‘注释说明’
+
+[5]重命名表
+
+ALTER TABLE 【表名字】 RENAME 【表新名字】
+
+[6]删除表中主键
+
+Alter TABLE 【表名字】 drop primary key
+
+[7]添加主键
+
+ALTER TABLE sj_resource_charges ADD CONSTRAINT PK_SJ_RESOURCE_CHARGES PRIMARY KEY (resid,resfromid)
+
+[8]添加索引
+
+ALTER TABLE sj_resource_charges add index INDEX_NAME (name);
+
+[9]添加唯一限制条件索引
+
+ALTER TABLE sj_resource_charges add unique emp_name2(cardnumber);
+
+[10]删除索引
+
+Alter table tablename drop index emp_name;
+
+（3）查看所有表
+
+SHOW TABLES；
+1
+1
+（4）查看表机构：
+
+ SHOW CREATE TABLE 表名    （信息更详细）
+    DESC 表名 / DESCRIBE 表名 / EXPLAIN 表名 / SHOW COLUMNS FROM 表名 [LIKE 'PATTERN']
+    SHOW TABLE STATUS [FROM db_name] [LIKE 'pattern']
+1
+2
+3
+1
+2
+3
+（5）修改表：对表进行重命名
+
+         RENAME TABLE 原表名 TO 新表名
+        RENAME TABLE 原表名 TO 库名.表名    （可将表移动到另一个数据库）
+        -- RENAME可以交换两个表名
+
+（6）删除表
+
+DROP TABLE[ IF EXISTS] 表名
+
+（7）清空表数据
+
+TRUNCATE [TABLE] 表名
+
+（8）复制表结构
+
+CREATE TABLE 表名 [AS] SELECT * FROM 要复制的表名
+
+好了，MySQL优化系列（一）–库与表基本操作以及数据增删改讲完了，现在罗列给大家，这是积累的必经一步，我会继续出这个系列文章，分享经验给大家。欢迎在下面指出错误，共同学习！！你的点赞是对我最好的支持！！

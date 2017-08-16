@@ -1,0 +1,130 @@
+前言
+
+执行Java类的main方法，程序就能运行起来，main方法的背后，虚拟机究竟发生了什么？如果你对这个感兴趣，相信本文会给你一个答案，本文分析的openjdk版本为openjdk-7-fcs-src-b147-27
+
+class BootStrap {
+    public static void main(String[] args) {
+        for (String str : args) {
+            System.out.println(str);
+        }
+    }
+}
+
+java BootStrap -Xms6G -Xmx8G -Xmn3G -Xss512k 
+-XX:+UseConcMarkSweepGC -XX:+UseParNewGC
+虚拟机的启动入口位于share/tools/launcher/java.c的main方法，整个流程分为如下几个步骤：
+1、配置JVM装载环境
+2、解析虚拟机参数
+3、设置线程栈大小
+4、执行Java main方法
+
+1、配置JVM装载环境
+
+Java代码执行时需要一个JVM环境，JVM环境的创建包括两部分：JVM.dll文件的查找和装载。
+
+JVM.dll文件的查找
+
+通过CreateExecutionEnvironment方法实现，根据当前JRE环境的路径和系统版本寻找jvm.cfg文件，windows实现如下：
+
+
+大概实现逻辑：
+1、GetJREPath查找当前JRE环境的所在路径；
+2、ReadKnownVms读取JRE路径\lib\ARCH(CPU构架)\JVM.cfg文件，其中ARCH(CPU构架)通过GetArch方法获取，在window下有三种情况：amd64、ia64和i386；
+3、CheckJvmType确定当前JVM类型，先判断是否通过-J、-XXaltjvm=或-J-XXaltjvm=参数指定，如果没有，则读取JVM.cfg文件中配置的第一个类型；
+4、GetJVMPath根据上一步确定的JVM类型，找到对应的JVM.dll文件；
+
+JVM.dll文件的装载
+
+初始化虚拟机中的函数调用，即通过JVM中的方法调用JVM.dll文件中定义的函数，实现如下：
+
+
+1、LoadLibrary方法装载JVM.dll动态连接库；
+2、把JVM.dll文件中定义的函数JNI_CreateJavaVM和JNI_GetDefaultJavaVMInitArgs绑定到InvocationFunctions变量的CreateJavaVM和GetDefaultJavaVMInitArgs函数指针变量上；
+
+2、虚拟机参数解析
+
+装载完JVM环境之后，需要对启动参数进行解析，其实在装载JVM环境的过程中已经解析了部分参数，该过程通过ParseArguments方法实现，并调用AddOption方法将解析完成的参数保存到JavaVMOption中，JavaVMOption结构实现如下：
+
+
+AddOption方法实现如下：
+
+
+这里对-Xss参数进行特殊处理，并设置threadStackSize，因为参数格式比较特殊，其它是key/value键值对，它是-Xss512的格式。后续Arguments类会对JavaVMOption数据进行再次处理，并验证参数的合理性。
+
+参数处理
+
+Arguments::parse_each_vm_init_arg方法负责处理经过解析过的JavaVMOption数据，部分实现如下：
+
+
+这里只列出三个常用的参数：
+1、-Xmn：设置新生代的大小NewSize和MaxNewSize；
+2、-Xms：设置堆的初始值InitialHeapSize，也是堆的最小值；
+3、-Xmx：设置堆的最大值MaxHeapSize；
+
+参数验证
+
+Arguments::check_gc_consistency方法负责验证虚拟机启动参数中配置GC的合理性，实现如下：
+
+
+1、如果参数为-XX:+UseSerialGC -XX:+UseParallelGC，由于UseSerialGC和UseParallelGC不能兼容，JVM启动时会抛出错误信息；
+2、如果参数为-XX:+UseConcMarkSweepGC -XX:+UseParNewGC，其中UseConcMarkSweepGC和UseParNewGC可以兼容，JVM可以正常启动；
+
+3、设置线程栈大小
+
+
+如果启动参数未设置-Xss，即threadStackSize为0，则调用InvocationFunctions的GetDefaultJavaVMInitArgs方法获取JavaVM的初始化参数，即调用JVM.dll函数JNI_GetDefaultJavaVMInitArgs，定义在share\vm\prims\jni.cpp，实现如下：
+
+
+ThreadStackSize定义在globals.hpp中，根据当前系统类型，加载对应的配置文件，所以在不同的系统中，ThreadStackSize的默认值也不同。
+
+4、执行Java main方法
+
+
+线程栈大小确定后，通过ContinueInNewThread方法创建新线程，并执行JavaMain函数，JavaMain函数的大概流程如下：
+
+1、新建JVM实例
+
+InitializeJVM方法调用InvocationFunctions的CreateJavaVM方法，即调用JVM.dll函数JNI_CreateJavaVM，新建一个JVM实例，该过程比较复杂，会在后续文章进行分析；
+
+2、加载主类的class
+
+Java运行方式有两种：jar方式和class方式。
+
+jar方式
+
+
+1、调用GetMainClassName方法找到META-INF/MANIFEST.MF文件指定的Main-Class的主类名；
+2、调用LoadClass方法加载主类的class文件；
+
+class方式
+
+
+1、调用NewPlatformString方法创建类名的String对象；
+2、调用LoadClass方法加载主类的class文件；
+
+3、查找main方法
+
+通过GetStaticMethodID方法查找指定方法名的静态方法，实现如下：
+
+
+最终调用JVM.dll函数jni_GetStaticMethodID实现
+
+
+其中get_method_id方法根据类文件对应的instanceKlass对象查找指定方法。
+
+4、执行main方法
+
+
+1、重新创建参数数组；
+2、其中mainID是main方法的入口地址，CallStaticVoidMethod方法最终调用JVM.dll中的jni_CallStaticVoidMethodV函数，实现如下
+
+
+jni_invoke_static实现如下：
+
+
+最终通过JavaCalls::call执行main方法。
+
+作者：占小狼
+链接：http://www.jianshu.com/p/b91258bc08ac
+來源：简书
+著作权归作者所有。商业转载请联系作者获得授权，非商业转载请注明出处。

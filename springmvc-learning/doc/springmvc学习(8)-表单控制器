@@ -1,0 +1,485 @@
+概述
+　　大多数Web应用都会遇到需要填写表单的页面，当表单提交成功后，表单的数据被传送给Web服务器中处理。处理成功后导向到一个成功页面，如果操作失败则导向到一个错误报告页面。此外，在表单数据处理之前还会进行表单数据的验证，保证客户端提交的表单数据是合法有效的，如果数据不合法，请求返回到原表单页面中，以便用户根据错误信息进行修改。
+
+　　假设你想成为论坛的用户时，必须填写一张用户注册表单，这可能包括用户名、密码、Email等注册信息。用户提交表单后，服务器验证注册数据合法性，如果你填写的信息是合法的，系统将在数据库中创建一个新用户，用户注册就完成了。
+
+　　用户注册表单控制器
+
+　　通过扩展SimpleFormController可以按照标准的表单处理流程处理用户注册的请求，UserRegisterController用于负责处理用户注册的请求：
+
+　　代码清单 1 UserRegisterController
+
+package com.baobaotao.web.user;
+import org.springframework.web.servlet.mvc.SimpleFormController;
+import com.baobaotao.domain.User;
+import com.baobaotao.service.BbtForum;
+public class UserRegisterController extends SimpleFormController {
+private BbtForum bbtForum;
+public UserRegisterController(){
+setCommandClass(User.class); ①指定命令对象（这时也称表单对象）的类型
+}
+public void setBbtForum(BbtForum bbtForum) {
+this.bbtForum = bbtForum;
+}
+②通过该方法处理表单提交请求
+protected void doSubmitAction(Object command) throws Exception {
+User user = (User) command;
+bbtForum.registerUser(user);
+}
+}　　在①处指定表单对象的类型，以便控制器自动将表单数据绑定到表单对象中，你也可以直接在配置文件中通过commandClass属性进行设置：
+
+　　<property name="commandClass" value=" com.baobaotao.domain.User"/>
+
+　　在②处复写了doSubmitAction()方法，在该方法内部通过调用业务层的bbtForum保存表单对象，创建新用户。当你不需要返回模型对象给成功页面时，复写doSubmitAction()方法是最佳的选择，因为该方法没有返回值。如果需要返回模型对象给成功页面，那么就必须复写表单控制器的onSubmit ()方法。用户注册成功后，我们一般需要在成功页面中根据用户信息提供个性化的内容，这就要求控制器返回相应的User模型对象，此时需要在UserRegisterController中复写onSubmit ()方法：
+
+…
+protected ModelAndView onSubmit (Object command, BindException errors)
+throws Exception {
+User user = (User) command;
+bbtForum.registerUser(user);
+return new ModelAndView(getSuccessView(), "user", user);①user中包含注册用户的信息
+}
+…
+
+　　当你复写onSubmit ()方法后，doSubmitAction()方法就不会得到执行了， onSubmit ()方法比doSubmitAction()方法具有更高的调用优先级，所以你只要根据要求复写两者中的一个方法就可以了。在onSubmit ()中返回的ModelAndView的逻辑视图名应该是通过表单控制器的successView属性指定而不应该硬编码，所以在①处我们通过getSuccessView()获取这个配置值。
+
+　　表单控制器的工作流程从表单页面提交开始，处理成功后转向成功页面，这个流程涉及到两个视图：表单页面和成功页面，这需要在表单控制器中通过属性进行定义：
+
+<bean name="/registerUser.html" class="com.baobaotao.web.user.UserRegisterController">
+<property name="bbtForum" ref="bbtForum" />
+<property name="formView" value="register" /> ①表单录入页面（逻辑视图名，下同）
+<property name="successView" value="registerSuccess" /> ②成功页面
+</bean>
+
+　　通过formView属性指定表单录入页面对应的逻辑视图名，而successView属性表示成功页面的视图逻辑名。通过代码清单 2前后缀视图解析器的处理，它们将分别对应WEB-INF/jsp/register.jsp和WEB-INF/jsp/registerSuccess.jsp的JSP页面。
+
+　　代码清单 2 前后缀视图解析器
+
+…
+<bean class="org.springframework.web.servlet.view.InternalResourceViewResolver">
+<property name="prefix"> ①前缀
+<value>/WEB-INF/jsp/</value>
+</property>
+<property name="suffix"> ②后缀
+<value>.jsp</value>
+</property>
+</bean>
+
+　　一般情况下表单录入页面需要通过spring表单标签绑定表单对象，以便根据表单对象初始值生成表单页面，在校验失败后能够重现提交前的表单数据。让我们看看这个register.jsp用户注册页面的内容：
+
+　　代码清单 3 register.jsp：用户注册页面
+
+<%@ page language="Java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8"%>
+<%@ taglib prefix="form" uri="http://www.springframework.org/tags/form" %>
+<html>
+<head>
+<title>宝宝淘论坛用户注册</title>
+</head>
+<body>
+①Spring MVC表单标签，可以直接和/registerUser.html控制器
+绑定（fromView），无需通过action指定提交的目标地址。
+<form:form>
+用户名：<form:input path="userName" />
+<br>
+密 码：<form:password path="password" />
+<br>
+Email：<form:input path="email" />
+<br>
+<input type="submit" value="注册" />
+<input type="reset" value="重置" />
+</form:form>
+</body>
+</html>
+
+　　在①处，应用Spring的表单标签定义了一个能够和表单对象绑定的页面表单。和Struts不同的是作为表单标签的<form:form>元素无需设定提交地址（在Struts中必须指定表单标签的action属性），Spring MVC能够自动根据控制器的formView属性获知该表单页面的提交地址。使用过Struts Action开发表单提交功能的读者也许会知道开发Struts处理表单功能是比较麻烦，因为可能会为了开发一个表单设计多个Action：一个用户初始化表单，另一个用于提交表单。而Spring的SimpleFormController的高明之处在于，它已经将表单处理工作流程编制到控制器中，我们仅需要在子类中复写开放出方法就可以充分享受预定义工作流程的好处。我们应该如何有选择地覆盖父类方法，以便正确地影响表单工作流程呢？这回答这个问题需要对SimpleFormController的工作流程有一个详细的了解。
+
+　　表单控制器完整工作流程
+
+　　使用SimpleFormController时，你无需为初始化表单编写额外的控制器，当你通过GET请求访问表单控制器时，表单控制器自动将请求导向到表单录入页面。而当你通过POST请求访问表单控制器时，表单控制器执行表单提交的业务，根据处理成功与否，或导向到成功页面，或导向到表单录入页面（当发生异常时导向到错误页面）。
+
+　　SimpleFormController的工作流程比较复杂，我们通过下面的流程图对此进行描述：
+
+　　1．当表单控制器接收到GET请求时，它调用formBackingObject()方法，创建表单对象。该方法可以被子类覆盖，对于编辑操作的表单来说，你可以通过该方法从数据库中加载表单对象，当表单页面显示时，表单显示出待编辑的数据了；
+
+　　2．表单对象和页面表单数据之间需要通过属性编辑器实现双向转化，对于非基本数据类型或String类型的属性来说，你可能需要注册一些自定义编辑器。你可以通过覆盖initBinder()方法，通过调用binder.registerCustomEditor()的方法注册编辑器；
+
+　　3．表单对象通过bindOnNewForm属性（可以通过配置设置，默认为false）判断是否需要将GET请求参数绑定到formBackingObject()方法创建的表单对象中。如果bindOnNewForm为true，执行绑定操作，在绑定完成后，还将调用onBindOnNewForm()回调方法（子类可以提供具体实现）。否则到下一步。不过一般情况下，GET请求参数是用于加载等编辑表单对象的ID值，如topicId、forumId等，一般无需进行绑定；
+
+　　4．调用referenceData()方法（子类可提供具体实现）准备一些关联的数据，如性别下拉框数据，学历下拉框数据等。一般采用ModelMap创建视图业务中需要用到的请求属性数据，键为属性名，值为属性值，如ModelMap("param1", "paramValue1")；
+
+　　5．使用控制器formView定义的视图渲染表单对象；
+
+　　6．用户填写或更改表单后，提交表单，向表单控制器发起一个POST请求；
+
+　　7．接收到POST请求时，表单控制器知道这是一个表单数据提交的操作，所以启动表单提交处理流程；
+
+　　8．首先通过sessionForm属性判断表单控制器是否启用了Session。如果启用了Session，直接从Session中取出原表单对象，否则再次调用formBackingObject()方法构造出一个表单对象。sessionForm默认为false，可以通过配置进行调整，启用Session可能提高运行性能，但会占用一定的内存；
+
+　　9．将POST请求参数填充到表单对象中；
+
+　　10．调用onBind()方法，该方法允许你在表单填充完成后，合法性校验之前执行一些特定的操作；
+
+　　11．如果validateOnBinding属性设置为true，注册在控制器中的校验器开始工作，对表单对象的属性值执行合法性校验。如果有合法性错误，将被注册到Errors对象中（关于如何注册校验器，我们将稍后介绍）；
+
+　　12．调用onBindAndValidate()方法，该方法允许你在数据绑定及合法性校验后，执行一些额外的自定义操作，你也可以在这里，执行一些额外的合法性校验；
+
+　　13．调用processFormSubmission()方法处理提交任务，该方法内部又包含后续几步工作；
+
+　　14．判断方法入参传入errors是否包含错误，如果包含错误返回到formView对应的表单页面中，否则到下一步；
+
+　　15．通过isFormChangeRequest()方法（默认为false）判断请求是否为表单更改请求，如果为true，调用onFormChange()方法，然后返回到formView对应的表单页面，否则到下一步；
+
+　　16．如果子类覆盖了onSubmit()方法，执行之，否则执行子类的doSubmitAction()方法。通过这两者之一完成业务的处理，然后返回successView属性指定的成功页面。
+
+　　我们可以按照以上表单控制器的工作流程，根据业务需要有选择地覆盖一些父类的方法完成特定的操作。假设我们在开发一个编辑用户信息的功能，在展现表单前需要先从数据库中查询出用户信息并在更改表单中展现，这时，我们仅需覆盖formBackingObject()方法，执行查询操作就可以了，其代码形如下所示：
+
+　　…
+
+　　① 根据请求参数从数据库中查询出User对象，作为更新用户表单的初始值
+
+protected Object formBackingObject(HttpServletRequest request) throws Exception {
+int userId = ServletRequestUtils.getIntParameter(request, "userId",-1);
+User user = bbtForum.getUser(userId);
+user.setUserName("user1");
+return user;
+}
+…
+
+　　ServletRequestUtils是Spring 2.0新增的工具类，可以方便地按类型获取请求参数的值，它位于org.springframework.web.bind包中。
+
+　　表单数据校验
+
+　　当UserRegisterController调用BbtForum#registerUser()方法注册用户时，确保User对象数据的合法性是非常重要的，你不希望用户的Email地址是非法的，用户名不应和已经用户名相同。
+
+　　org.springframework.validation.Validator接口为Spring MVC提供了数据合法性校验功能，该接口有两个方法，说明如下： boolean supports(Class clazz)：判断校验器是否支持指定的目标对象，每一个校验器负责对一个表单类的对象进行检验；
+
+　　void validate(Object target, Errors errors)：对target对象进行合法性校验，通过Errors返回校验错误的结果。
+
+　　下面，我们编写一个负责对User对象进行数据合法性校验的校验器，请看以下的代码：
+
+　　代码清单 4 UserValidator：校验User对象值合法性
+
+package com.baobaotao.domain.UserValidator;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import org.springframework.validation.Errors;
+import org.springframework.validation.ValidationUtils;
+import org.springframework.validation.Validator;
+public class UserValidator implements Validator {
+private static final Pattern EMAIL_PATTERN = Pattern ①合法Email正则表达式
+.compile("(?:w[-._w]*w@w[-._w]*w.w{2,3}$)");
+public boolean supports(Class clazz) { ②该校验器支持的目标类
+return clazz.equals(User.class);
+}
+public void validate(Object target, Errors errors) { ③对目标类对象进行校验，错误记录在errors中
+User user = (User) target; ③-1 造型为User对象
+③-2 通过Spring提供的校验工具类进行简单的规则校验
+ValidationUtils.rejectIfEmptyOrWhitespace(errors, "userName",
+"required.username", "用户名必须填写");
+ValidationUtils.rejectIfEmptyOrWhitespace(errors, "password",
+"required.password", "密码不能为空");
+validateEmail(user.getEmail(), errors); ③-3 校验Email格式
+}
+private void validateEmail(String email, Errors errors) {④Email合法性校验
+ValidationUtils.rejectIfEmptyOrWhitespace(errors, "email",
+"required.email", "Email不能为空");
+Matcher m = EMAIL_PATTERN.matcher(email); ④-1 通过正则表达式校验Email格式
+if (!m.matches()) {
+errors.rejectValue("email", "invalid.email", "Email格式非法");
+}
+}
+}
+
+　　在②处，我们声明该校验器支持的表单对象为User类，如果错误地将UserValidator用于其它对象校验，Spring MVC就会根据supports()方法驳回操作。
+
+　　对于一般的空值校验来说，直接使用Spring提供的ValidationUtils校验工具类是最简单的办法（如③-2所示）。ValidationUtils的rejectIfEmptyOrWhitespace()、rejectIfEmpty()以及Errors的reject()、rejectValue()方法都拥有多个用于描述错误的入参，通过下图进行说明：
+
+　　1)对应字段：表示该错误是对应表单对象的哪一个字段，Spring MVC的错误标签可以通过path属性访问该字段错误消息；
+
+　　2)错误代码：表示该错误对应资源文件中的键名，Spring MVC的错误标签可以据此获取资源文件中的对应消息。如果希望实现错误消息的国际化，你就必须通过错误代码指定错误消息；
+
+　　3)默认消息：当资源文件没有对应的错误代码时，使用默认消息作为错误消息。
+
+　　我们“惊讶地”发现入参列表并没有包括需要校验的目标表单对象，那如何对目标表单对象实施校验呢？原来目标对象已经包含在errors对象中，在校验方法内部会从errors中取得目标方法并施加校验。
+
+　　在④处，我们通过正则表达式对Email格式进行校验。我们直接使用JDK 1.4 java.util.regex包中提供的正则表达式工具类完成校验的工作。由于Email模式是固定的，为了提高性能，我们在①处用final static的方式定义了一个Email合法模式的Pattern对象。
+
+　　编写好UserValidator，我们需要将其装配到UserRegisterController控制器中，其配置如下所示：
+
+<bean name="/registerUser.html" class="com.baobaotao.web.user.UserRegisterController">
+<property name="bbtForum" ref="bbtForum" />
+<property name="formView" value="register" />
+<property name="successView" value="registerSuccess" />
+<property name="validator"> ①装配校验器
+<bean class="com.baobaotao.domain.UserValidator" />
+</property>
+</bean>
+
+　　在①处我们通过validator指定了一个对User表单对象进行校验的校验器，如果你有多个校验器类（很少见），可以通过validators属性进行指定。
+
+　　我们通过UserValidator可以很好地完成User对象属性值的格式检查，可是仔细想想是否还存在遗漏呢？也许你已经指出：userName不能和数据库中已有用户名重复！你当然可以在UserValidator中通过注入业务对象完成userName重复性的校验，但对于这种需要通过业务对象完成的校验操作，一种更好的方法是通过覆盖控制器的onBindAndValidate()方法，直接在控制器中提供检验。这带来了一个好处，UserValidator无需和业务对象打交道，而UserRegisterController本身已经拥有了业务对象的引用，所以调用业务对象执行校验非常方便。下面的代码展示了UserRegisterController中onBindAndValidate()的内容：
+
+　　代码清单 5 UserRegisterController#onBindAndValidate()通过业务对象完成校验
+
+package com.baobaotao.web.user;
+…
+public class UserRegisterController extends SimpleFormController {
+…
+@Override
+protected void onBindAndValidate(HttpServletRequest request,
+Object command, BindException errors) throws Exception {
+User user = (User) command;
+if (bbtForum.isExsitUserName(user.getUserName())) {①通过业务对象完成检验
+errors.rejectValue("userName", "exists.userName", "用户名已经存在");
+}
+}
+}
+
+　　我们在UserRegisterController覆盖了父类的onBindAndValidate()方法，通过BbtForum业务对象的方法判断userName是否已经被占用，如果已经被占用，将相应错误添加到errors对象中。
+
+　　通过错误标签显示错误
+
+　　当存在合法性检查错误时，请求被导向到formView的表单页面中。但是如果register.jsp表单页面没有做任何配合操作，校验错误的信息就象空气和电磁波一样，虽然存在但却看不到，如果我们在register.jsp中相应地添加一些Spring错误标签这面魔法镜，错误信息就现形了。下面我们对register.jsp视图文件进行调整，加入显示校验错误的标签：
+
+　　代码清单 6 register.jsp：添加错误标签
+
+…
+<form:form>
+用户名：<form:input path="userName" />
+<font color="red"><form:errors path="userName" /></font>①userName的校验错误
+<br>
+密 码：<form:password path="password" />
+<font color="red"><form:errors path="password" /></font>②password的校验错误
+<br>
+Email：<form:input path="email" />
+<font color="red"><form:errors path="email" /></font> ③email的校验错误
+<br>
+<input type="submit" value="注册" />
+<input type="reset" value="重置" />
+</form:form>
+…
+
+　　由于我们在构造错误时，使用了错误代码，错误代码是引用国际化资源的凭借。为了让错误代码生效，我们就必须提供相应的国际化资源。假设我们将错误资源放在基名为errors的国际化资源文件中，提供诸如errors.properties和errors_zh_CN.properties的国际化资源文件，那么错误信息就可以做到国际化了。以下是errors.properties资源文件的内容（绿色部分为错误代码）：
+
+required.username=user name can't be empty.
+required.password=password can't be empty.
+required.email=email can't be empty.
+invalid.email=email is valid.
+exists.userName=user name already existed.
+
+　　将诸如errors.properties和errors_zh_CN.properties的整套资源文件都放到类路径下后，还需要在上下文中引用这些国际化资源。因为国际化资源信息仅需要在Web展现层使用，所以直接在DispatcherServlet上下文对应的baobaotao-servlet.xml配置文件中声明就可以了：
+
+　　代码清单 7 baobaotao-servlet.xml
+
+<bean id="messageSource" ① 注意一定要使用“messageSource”这个Bean名称
+class="org.springframework.context.support.ResourceBundleMessageSource">
+<property name="basenames">
+<list>
+<value>errors</value> ② 指定资源文件基名称
+</list>
+</property>
+</bean>
+…
+
+　　通过以上的配置后，故意填写一个错误的注册信息，在提交表单后你将看到如下形如以下的错误提示页面：
+
+　　小结
+
+　　虽然Spring MVC允许你使用不同类型的处理器，但绝大多数情况下我们使用控制器（Controller）处理请求。Spring MVC为不同需求提供了多种类型的控制器，控制器一般拥有一个特定用途的工作流程，如表单控制器编制了表单处理通用工作流程，你仅需要实现SimpleFormController特定方法，并配置使用Spring表单标签就可以轻松完成表单功能的开发了。
+
+
+
+
+
+
+
+
+
+
+
+使用Spring MVC 的表单控制器SimpleFormController
+
+以注册过程为例，我们可能会选择继承AbstractController来实现表单的显示,继承AbstractCommandController来实现表单的处理 ，这样是可行的，但必须要维护两个控制器
+
+在这种情况下，我们应该使用SimpleFormController,他接受GET请求时显示表单，接受POST请求时处理表单，如果发生错误，控制器会知道重新显示这个表单，这样用户就可以修改错误，重新提交。
+
+表单对应的POJO
+
+复制代码
+package com.dxz.validator.demo1.mode;
+
+public class Student {
+    private String name;
+    private String sex;
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getSex() {
+        return sex;
+    }
+
+    public void setSex(String sex) {
+        this.sex = sex;
+    }
+}
+复制代码
+控制器：
+
+这个base类中还有一个DoSubmitAction()方法，和onSubmit()方法的区别就是后者可以返回一个ModelAndView对象，完成向页面输出数据的功能，而前者不能向页面返回数据，这两个方法同时只有一个有效。
+
+复制代码
+package com.dxz.validator.demo1.action;
+
+import org.springframework.validation.BindException;
+import org.springframework.web.servlet.ModelAndView;
+import org.springframework.web.servlet.mvc.SimpleFormController;
+
+import com.dxz.validator.demo1.mode.Student;
+
+public class RegisterStudentController extends SimpleFormController {
+
+    public RegisterStudentController() {
+        this.setCommandClass(Student.class);
+    }
+
+    protected ModelAndView onSubmit(Object object, BindException arg1)
+            throws Exception {
+        Student stu = (Student) object;
+        return new ModelAndView(getSuccessView(), "student", stu);
+    }
+
+}
+复制代码
+web.xml
+
+复制代码
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app version="2.4" 
+    xmlns="http://java.sun.com/xml/ns/j2ee" 
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+    xsi:schemaLocation="http://java.sun.com/xml/ns/j2ee 
+    http://java.sun.com/xml/ns/j2ee/web-app_2_4.xsd">
+  <context-param>
+    <param-name>contextConfigLocation</param-name>
+    <param-value>/WEB-INF/train-service.xml,/WEB-INF/train-data.xml,/WEB-INF/train-servlet.xml</param-value>
+  </context-param>
+  <servlet>
+    <servlet-name>train</servlet-name>
+    <servlet-class>org.springframework.web.servlet.DispatcherServlet</servlet-class>
+    <load-on-startup>0</load-on-startup>
+  </servlet>
+  <servlet-mapping>
+     <servlet-name>train</servlet-name>
+     <url-pattern>*.mvc</url-pattern>
+  </servlet-mapping>
+  
+  <filter>
+    <filter-name>character</filter-name>
+    <filter-class>Action.CharacterFilter</filter-class>
+  </filter>
+  <filter-mapping>
+    <filter-name>character</filter-name>
+    <url-pattern>/*</url-pattern>
+  </filter-mapping>
+  <welcome-file-list>
+    <welcome-file>index.jsp</welcome-file>
+  </welcome-file-list>
+</web-app>
+复制代码
+train-servlet.xml
+
+formView定义为register对应我们的表单提交页面register.jsp
+successView定义为success对应提交成功的显示页面success.jsp
+
+复制代码
+<bean id="RegisterStudentController" class="Action.RegisterStudentController">
+  <property name="formView">
+    <value>register</value>
+  </property>
+  <property name="successView">
+    <value>success</value>
+  </property>
+</bean>
+<bean id="simpleUrlMapping" class="org.springframework.web.servlet.handler.SimpleUrlHandlerMapping">
+ <property name="mappings">
+   <props>
+     <prop key="/home.mvc">HomeController</prop>
+     <prop key="/register.mvc">RegisterStudentController</prop>
+   </props>
+ </property>
+</bean>
+复制代码
+register.jsp:
+
+复制代码
+<%@ page language="java" import="java.util.*" pageEncoding="GB18030"%>
+<%
+String path = request.getContextPath();
+String basePath = request.getScheme()+"://"+request.getServerName()+":"+request.getServerPort()+path+"/";
+%>
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+  <head>
+    <base href="<%=basePath%>">
+    
+    <title>My JSP 'index.jsp' starting page</title>
+    <meta http-equiv="pragma" content="no-cache">
+    <meta http-equiv="cache-control" content="no-cache">
+    <meta http-equiv="expires" content="0">    
+    <meta http-equiv="keywords" content="keyword1,keyword2,keyword3">
+    <meta http-equiv="description" content="This is my page">
+    <!--
+    <link rel="stylesheet" type="text/css" href="styles.css">
+    -->
+  </head>
+  
+  <body>
+   <form action="<%=request.getContextPath() %>/register.mvc" method="post">
+     name:<input type="text" name="name"/></br>
+     sex:<input type="text" name="sex"/></br>
+     <input type="submit" value="submit"/>
+     
+   </form>
+  </body>
+</html>
+复制代码
+success.jsp
+
+复制代码
+<%@ page language="java" import="java.util.*" pageEncoding="GB18030"%>
+<%
+String path = request.getContextPath();
+String basePath = request.getScheme()+"://"+request.getServerName()+":"+request.getServerPort()+path+"/";
+%>
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+  <head>
+    <base href="<%=basePath%>">
+    
+    <title>My JSP 'index.jsp' starting page</title>
+    <meta http-equiv="pragma" content="no-cache">
+    <meta http-equiv="cache-control" content="no-cache">
+    <meta http-equiv="expires" content="0">    
+    <meta http-equiv="keywords" content="keyword1,keyword2,keyword3">
+    <meta http-equiv="description" content="This is my page">
+    <!--
+    <link rel="stylesheet" type="text/css" href="styles.css">
+    -->
+  </head>
+  
+  <body>
+    ${student.name}-----${student.sex} <br>
+  </body>
+</html>
+复制代码
+测试运行，可以看到success.jsp上有我们提交的信息
+
+去-----1  （使用filter处理中文问题）

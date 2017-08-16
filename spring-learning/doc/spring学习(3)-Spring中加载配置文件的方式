@@ -1,0 +1,85 @@
+## spring加载配置文件的方式
+
+Spring去动态加载某一位置下的配置文件，
+所以就总结了下Spring中加载xml配置文件的方式,
+xml是最常见的spring 应用系统配置源。
+Spring中的几种容器都支持使用xml装配bean，包括： 
+
+XmlBeanFactory,ClassPathXmlApplicationContext,
+FileSystemXmlApplicationContext,XmlWebApplicationContext 
+
+
+一: XmlBeanFactory 引用资源 
+
+    @Test
+	public  void testXmlBeanFactory(){
+		BeanFactory beanFactory = new XmlBeanFactory(new ClassPathResource(
+				"bean1.xml"));
+		HelloWorldService hello = (HelloWorldService) beanFactory
+				.getBean("helloWorldService");
+		hello.sayHello();
+	}
+
+
+二: ClassPathXmlApplicationContext  编译路径 
+
+   @Test
+	public void testClassPathXmlApplicationContext() throws Exception{
+		// 工厂 + 反射 + 配置文件 ，实例化 IHelloService的对象
+//		ApplicationContext applicationContext = new ClassPathXmlApplicationContext(
+//				"bean1.xml");
+	   
+		ApplicationContext applicationContext = new ClassPathXmlApplicationContext(
+				"classpath:bean1.xml");
+		
+//		ApplicationContext applicationContext = new ClassPathXmlApplicationContext(
+//				"file:.....xml");
+		// 通过工厂 根据 配置名称 获得实例对象
+		HelloWorldService hello = (HelloWorldService) applicationContext
+				.getBean("helloWorldService");
+		hello.sayHello();
+
+		// 控制反转，对象的创建权 被反转到 Spring 框架
+	}
+
+三: 用文件系统的路径 
+
+   @Test
+	public void FileSystemXmlApplicationContext() throws Exception{
+	   //可以使用classpath:
+//	   ApplicationContext applicationContext = new FileSystemXmlApplicationContext(
+//				"src/main/resources/bean1.xml");
+	   ApplicationContext applicationContext = new FileSystemXmlApplicationContext(
+				"classpath:bean1.xml");
+	   HelloWorldService hello = (HelloWorldService) applicationContext
+				.getBean("helloWorldService");
+	   hello.sayHello();
+	}
+
+四: XmlWebApplicationContext是专为Web工程定制的。 
+
+ServletContext servletContext = request.getSession().getServletContext(); 
+ApplicationContext ctx = WebApplicationContextUtils.getWebApplicationContext(servletContext ); 
+
+五: 使用BeanFactory 
+
+BeanDefinitionRegistry reg = new DefaultListableBeanFactory(); 
+XmlBeanDefinitionReader reader = new XmlBeanDefinitionReader(reg); 
+reader.loadBeanDefinitions(new ClassPathResource("bean1.xml")); 
+reader.loadBeanDefinitions(new ClassPathResource("bean2.xml")); 
+BeanFactory bf=(BeanFactory)reg; 
+
+六：Web 应用启动时加载多个配置文件 
+通过ContextLoaderListener 也可加载多个配置文件，在web.xml文件中利用 
+<context-pararn>元素来指定多个配置文件位置，其配置如下: 
+
+<context-param>  
+    <!-- Context Configuration locations for Spring XML files -->  
+       <param-name>contextConfigLocation</param-name>  
+       <param-value>  
+       ./WEB-INF/**/Appserver-resources.xml,  
+       classpath:config/aer/aerContext.xml,  
+       classpath:org/codehaus/xfire/spring/xfire.xml,  
+       ./WEB-INF/**/*.spring.xml  
+       </param-value>  
+   </context-param>  

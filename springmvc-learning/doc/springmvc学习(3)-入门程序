@@ -1,0 +1,145 @@
+##  web.xml配置
+
+
+	<servlet>
+		<servlet-name>springmvc</servlet-name>
+		<servlet-class>org.springframework.web.servlet.DispatcherServlet</servlet-class>
+		<init-param>
+			<param-name>contextConfigLocation</param-name>
+			<param-value>classpath:springmvc-servlet.xml</param-value>
+		</init-param>
+		<load-on-startup>1</load-on-startup>
+	</servlet>
+	<servlet-mapping>
+		<servlet-name>springmvc</servlet-name>
+		<url-pattern>*.do</url-pattern>
+	</servlet-mapping>
+	
+## controller类
+
+public class HelloController implements Controller{
+
+	private Logger LOGGER=Logger.getLogger(this.getClass().getName());
+	
+	private String helloWorld;
+	
+	private String viewPage;
+	
+	public ModelAndView handleRequest(HttpServletRequest request,
+			HttpServletResponse response) throws Exception {
+		
+		LOGGER.info("spring-mvc Hello World");
+		Map<String, Object> map=new HashMap<String, Object>();
+		map.put("helloWorld", getHelloWorld());
+		return new ModelAndView(getViewPage(),map);
+	}
+
+	public String getHelloWorld() {
+		return helloWorld;
+	}
+
+	public void setHelloWorld(String helloWorld) {
+		this.helloWorld = helloWorld;
+	}
+
+	public String getViewPage() {
+		return viewPage;
+	}
+
+	public void setViewPage(String viewPage) {
+		this.viewPage = viewPage;
+	}
+}
+
+	
+## springmvc-servlet.xml
+
+
+	<bean id="urlMapping"
+		class="org.springframework.web.servlet.handler.SimpleUrlHandlerMapping">
+		<property name="mappings">
+			<props>
+				<prop key="helloController.do">helloController</prop>
+			</props>
+		</property>
+	</bean>
+	<bean id="viewResolver"
+		class="org.springframework.web.servlet.view.InternalResourceViewResolver">
+		<property name="viewClass">
+			<value>org.springframework.web.servlet.view.InternalResourceView
+			</value>
+		</property>
+	</bean>
+
+	<bean id="helloController" class="com.java.springmvc.HelloController">
+		<property name="helloWorld">
+			<value>Hello world</value>
+		</property>
+		<property name="viewPage">
+			<value>/WEB-INF/hello.jsp</value>
+		</property>
+	</bean>
+
+	
+hello.jsp
+
+<body>
+<h1>${helloWorld}</h1>
+</body>
+
+
+项目启动: http://localhost:8088/springmvc-learning/helloController.do
+
+修改 springmvc-servlet.xml配置文件
+
+
+<bean id="urlMapping"
+		class="org.springframework.web.servlet.handler.SimpleUrlHandlerMapping">
+		<property name="mappings">
+			<props>
+				<prop key="helloController.do">helloController</prop>
+			</props>
+		</property>
+	</bean>
+	<bean id="viewResolver"
+		class="org.springframework.web.servlet.view.InternalResourceViewResolver">
+		<property name="viewClass">
+			<value>org.springframework.web.servlet.view.JstlView 
+			</value>
+		</property>
+		<property name="prefix">
+		 <value>/WEB-INF/</value>
+		</property>
+		<property name="suffix">
+		 <value>.jsp</value>
+		</property>
+	</bean>
+  <!-- 使用前缀和后缀形式的路径 -->
+	<bean id="helloController" class="com.java.springmvc.HelloController">
+		<property name="helloWorld">
+			<value>Hello world</value>
+		</property>
+		<property name="viewPage">
+			<value>hello</value>
+		</property>
+	</bean>
+
+	
+	需要添加pom依赖
+	
+			<jstl.version>1.2</jstl.version>
+		<servlet.version>3.0.1</servlet.version>
+	
+				<!-- Servlet -->
+		<dependency>
+			<groupId>javax.servlet</groupId>
+			<artifactId>javax.servlet-api</artifactId>
+			<version>${servlet.version}</version>
+			<scope>provided</scope>
+		</dependency>
+		<dependency>
+			<groupId>javax.servlet</groupId>
+			<artifactId>jstl</artifactId>
+			<version>${jstl.version}</version>
+			<scope>runtime</scope>
+		</dependency>

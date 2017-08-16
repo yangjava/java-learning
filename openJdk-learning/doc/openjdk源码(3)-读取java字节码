@@ -1,0 +1,251 @@
+本篇详细地介绍了如何读取.class文件的大部分细节。
+
+1.构造文件 
+
+[java] view plain copy
+// 字节码文件User.class  
+ String userClass = "C:/User.class";  
+ File file = new File(userClass);  
+
+2.构造输入流
+
+[java] view plain copy
+FileInputStream fin = new FileInputStream(file);  
+  
+DataInputStream in= new DataInputStream(new BufferedInputStream(fin));  
+
+3.读取字节码文件(.class)的内容
+
+   3.1魔法数
+
+[java] view plain copy
+//无符号4个字节  
+ int   magic = in.readInt();  
+
+   3.2次版本号
+
+     //无符号2个字节
+     int   minor_version = in.readUnsignedShort();
+
+   3.3主版本号
+
+[java] view plain copy
+//无符号2个字节  
+     int  major_version = in.readUnsignedShort();  
+
+  3.4常量池的个数
+      //无符号2个字节
+       int count = cr.readUnsignedShort();
+
+  3.5常量池的内容
+
+[java] view plain copy
+//CPInfo是常量池中的常量的类型，不能简单地把常量池中的类型理解为String类型  
+  
+   CPInfo[]   pool = new CPInfo[count];  
+  for (int i = 1; i < count; i++) {  
+   // 常量池中常量的类型标记  
+   int tag = cr.readUnsignedByte();  
+   switch (tag) {  
+   // 类或接口的符号引用  
+   case CONSTANT_Class:  
+    pool[i] = new CONSTANT_Class_info(this, cr);  
+    break;  
+   // 双精度浮点型字面量  
+   case CONSTANT_Double:  
+    pool[i] = new CONSTANT_Double_info(cr);  
+    i++;  
+    break;  
+   // 字段的符号引用  
+   case CONSTANT_Fieldref:  
+    pool[i] = new CONSTANT_Fieldref_info(this, cr);  
+    break;  
+   // 浮点型字面量  
+   case CONSTANT_Float:  
+    pool[i] = new CONSTANT_Float_info(cr);  
+    break;  
+   // 整型字面量  
+   case CONSTANT_Integer:  
+    pool[i] = new CONSTANT_Integer_info(cr);  
+    break;  
+   // 接口方法的引用  
+   case CONSTANT_InterfaceMethodref:  
+    pool[i] = new CONSTANT_InterfaceMethodref_info(this, cr);  
+    break;  
+   // 动态调用指令  
+   case CONSTANT_InvokeDynamic:  
+    pool[i] = new CONSTANT_InvokeDynamic_info(this, cr);  
+    break;  
+   // 长整型字面量  
+   case CONSTANT_Long:  
+    pool[i] = new CONSTANT_Long_info(cr);  
+    i++;  
+    break;  
+   // 方法处理器  
+   case CONSTANT_MethodHandle:  
+    pool[i] = new CONSTANT_MethodHandle_info(this, cr);  
+    break;  
+   // 方法类型  
+   case CONSTANT_MethodType:  
+    pool[i] = new CONSTANT_MethodType_info(this, cr);  
+    break;  
+   // 方法引用  
+   case CONSTANT_Methodref:  
+    pool[i] = new CONSTANT_Methodref_info(this, cr);  
+    break;  
+   // 名字和类型  
+   case CONSTANT_NameAndType:  
+    pool[i] = new CONSTANT_NameAndType_info(this, cr);  
+    break;  
+   // 字符串  
+   case CONSTANT_String:  
+    pool[i] = new CONSTANT_String_info(this, cr);  
+    break;  
+   // Utf8编码的字符串  
+   case CONSTANT_Utf8:  
+    pool[i] = new CONSTANT_Utf8_info(cr);  
+    break;  
+   // 不合法的类型  
+   default:  
+    throw new InvalidEntry(i, tag);  
+   }  
+  }  
+
+   构造细节
+
+   举一个例子，比如构造Double类型的常量结构CONSTANT_Double_info，就是在这个结构中保存一个Double的值。
+
+   此外，还维护了一些其它信息，这个结构的字节长度、类型标记。
+
+  其它一些结构，类似。
+
+   3.6访问标识符
+
+[java] view plain copy
+//无符号2个字节  
+  
+   int access_flag= cr.readUnsignedShort()  
+
+3.7这个类在常量池中的下标
+
+[java] view plain copy
+//无符号2个字节  
+     int   this_class = in.readUnsignedShort();  
+
+3.8这个类的父类在常量池中的下标
+
+[java] view plain copy
+//无符号2个字节  
+   int   super_class = in.readUnsignedShort();  
+
+   3.9父接口的数量
+
+    //无符号2个字节
+
+     int   int interfaces_count = cr.readUnsignedShort();
+
+    3.10父接口的内容
+
+[java] view plain copy
+interfaces = new int[interfaces_count];  
+  
+     for (int i = 0; i < interfaces_count; i++){  
+  
+           //父接口的类型，无符号2个字节  
+            interfaces[i] = cr.readUnsignedShort();  
+  
+    }  
+
+   3.11字段的数量
+
+[java] view plain copy
+//无符号2个字节  
+  
+    int    int fields_count = cr.readUnsignedShort();  
+
+3.12字段的内容
+
+[java] view plain copy
+fields = new Field[fields_count];  
+   for (int i = 0; i < fields_count; i++){  
+            fields[i] = new Field(cr);  
+   }  
+  
+//一个字段Field有访问标识符、名字、描述符、属性  
+  
+      access_flags = cr.readUnsignedShort();  
+        name_index = cr.readUnsignedShort();  
+        descriptor = cr.readUnsignedShort()  
+  
+         attributes，封装了字段的更多详细信息  
+[java] view plain copy
+<strong> 3.13方法的数量，无符号2个字节</strong>  
+[java] view plain copy
+int methods_count = cr.readUnsignedShort();  
+ 
+
+      3.14方法的内容
+
+[java] view plain copy
+methods = new Method[methods_count];  
+  
+  for (int i = 0; i < methods_count; i++)  
+           methods[i] = new Method(cr);  
+  
+    //   一个方法Method有访问标识符、名字、描述符、属性  
+  
+       access_flags = cr.readUnsignedShort();  
+       name_index = cr.readUnsignedShort();  
+       descriptor = cr.readUnsignedShort()  
+  
+        attributes，封装了方法的更多详细信息  
+  
+   
+
+       3.15属性的数量
+
+[java] view plain copy
+//无符号2个字节  
+  
+       int attrs_count = cr.readUnsignedShort();  
+
+       3.16属性的内容
+
+        
+
+[java] view plain copy
+Attribute[]  attrs = new Attribute[attrs_count];  
+        for (int i = 0; i < attrs_count; i++) {  
+               attrs[i] =  readAttribute();  
+  
+         }  
+  
+/** 
+  * 读取一个属性Attribute 
+  */  
+ public Attribute readAttribute() throws IOException {  
+  //名字的索引  
+  int name_index = readUnsignedShort();  
+  //属性内容的长度  
+  int length = readInt();  
+  byte[] data = new byte[length];  
+  //读取length个长度的字节信息到data中  
+  readFully(data);  
+  
+  DataInputStream prev = in;  
+  in = new DataInputStream(new ByteArrayInputStream(data));  
+  try {  
+   //根据名字的索引、字节数组形式的内容构造一个Attribute对象  
+   return attributeFactory.createAttribute(this, name_index, data);  
+  } finally {  
+   in = prev;  
+  }  
+ }  
+
+4.总结
+
+一个字节码文件(.class)几乎含有一个类或接口的所有信息。
+
+这些信息虽然以二进制形式存在，但是它们的存储结构仍然是有规律的。
+
+按照存储格式来依次读取相应的字节数目，就可以完整地解析一个字节码文件。

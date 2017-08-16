@@ -1,0 +1,50 @@
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Map.Entry;
+/**
+ * Created by Kevin on 2014/11/20.
+ */
+public class Test {
+    public static void main(String[] args) {
+        Map<String,Integer> map = new HashMap<String, Integer>();
+        for (int i = 0; i < 10000000; i++) {
+            map.put("key"+i,i);
+        }
+
+        long beginTime = System.currentTimeMillis();
+        /*遍历HashMap所费时间测试*/
+        Iterator<String> iter = map.keySet().iterator();
+        while (iter.hasNext()) {
+            String key = iter.next();
+            Integer value = map.get(key);
+        }
+        System.out.println("采用keySet遍历HashMap中key和value所耗时间"+(System.currentTimeMillis()-beginTime));
+        /*=======================================================*/
+        beginTime = System.currentTimeMillis();
+        for (String s : map.keySet()) {
+            Integer value = map.get(s);
+        }
+        System.out.println("采用keySet遍历HashMap中的value所耗时间"+(System.currentTimeMillis()-beginTime));
+        /*=======================================================*/
+        beginTime = System.currentTimeMillis();
+        Iterator<Entry<String, Integer>> iterEntry = map.entrySet().iterator();
+        Entry<String, Integer> entry;
+        while (iterEntry.hasNext()) {
+            entry = iterEntry.next();
+            String key = entry.getKey();
+            Integer value = entry.getValue();
+        }
+        System.out.println("采用entrySet遍历HashMap中的key和value所耗时间"+(System.currentTimeMillis()-beginTime));
+    }
+}
+
+采用keySet遍历HashMap中key和value所耗时间603 
+采用keySet遍历HashMap中的value所耗时间457 
+采用entrySet遍历HashMap中的key和value所耗时间307
+
+
+测试的各种条件控制不算专业，但是在key为String类型，value为Intger类型的拥有很多的HashMap也好，还是LinkedHashMap
+
+测试结果都是采用entrySet遍历所耗时间要少点。当然我只是写的很简单的例子，测试结果不一定正确，有时间得看看底层源码再做分析。

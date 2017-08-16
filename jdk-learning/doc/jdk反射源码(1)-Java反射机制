@@ -1,0 +1,124 @@
+Class对象
+
+虚拟机在class文件的加载阶段，把类信息保存在方法区数据结构中，并在Java堆中生成一个Class对象，作为类信息的入口。
+
+
+声明两个类，Cat.java 和 Dog.java
+
+class Cat {
+    private String name;
+    private int age;
+    static {
+        System.out.println("Cat is load");
+    }
+}
+
+class Dog {
+    private String name;
+    private int age;
+    static {
+        System.out.println("Dog is load");
+    }
+}
+获取Class对象一般有三种方式：
+
+通过实例变量方式
+
+public class test {
+   public static void main(String[] args) {
+      Dog dog = new Dog();
+      Class clazz = dog.getClass();
+   }
+}
+通过类名方式
+
+public class test {
+   public static void main(String[] args) {
+        Class clazz = Dog.class;
+   }
+}
+通过这种方式时，只会加载Dog类，并不会触发其类构造器的初始化。
+
+通过Class.forName(String classname)方式
+public class ClassTest {
+   public static void main(String[] args) {
+     try {
+         Class clazz = Class.forName("zzzzzz.Dog");
+     } catch (ClassNotFoundException e) {}
+   }
+}
+在JDK源码实现中，forName方法会调用Native方法forName0()，它在JVM中调用findClassFromClassLoader()加载Dog类，其原理和ClassLoader一样，将会触发Dog类的类构造器初始化，forName0方法声明如下：
+private static native Class<?> forName0(String name, boolean initialize, ClassLoader loader, Class<?> caller)
+其中initialize参数，用来告诉虚拟机是否需要对加载的类进行初始化，如果initialize为false，则不会进行初始化Dog类。
+Class clazz = Class.forName("zzzzzz.Dog", false, Dog.class.getClassLoader());
+反射机制
+
+反射机制reflect可以在运行期间获取类的字段、方法、父类和接口等信息。
+1、获取类字段
+
+Class class_dog = Dog.class;
+Field[] fields = class_dog.getDeclaredFields();
+for (Field field : fields) {
+    System.out.println(field.getName());
+}
+2、获取类方法
+
+Class class_dog = Dog.class;
+Method[] methods = class_dog.getDeclaredMethods();
+for (Method method : methods) {
+    System.out.println(method);
+}
+通过method.invoke(obj, ...args)可以调用obj实例的method方法。
+
+3、获取对应的实例构造器，并生成类实例
+
+public class ClassTest {
+    public static void main(String[] args) throws NoSuchMethodException {
+        Class class_dog = Dog.class;
+        Constructor constructor = class_dog.getConstructor(String.class, int.class);
+        constructor.newInstance("Tom", 10);
+    }
+}
+
+class Dog {
+    private String name;
+    private int age;
+
+    public Dog(String name, int age) {
+        this.name = name;
+        this.age = age;
+    }
+}
+如果没有显示的声明默认构造器，class_dog.getConstructor()会抛出NoSuchMethodException异常。
+
+4、通过newInstance()方法生成类实例
+
+Class class_dog = Dog.class;
+Dog dog = class_dog.newInstance();
+5、设置私有变量
+
+Class class_dog = Dog.class;
+Field name = class_dog.getDeclaredField("name");
+name.setAccessible(true);
+Dog dog = (Dog) class_dog.newInstance();
+name.set(dog, "Tom");
+6、获取私有变量
+
+Field f = Unsafe.class.getDeclaredField("theUnsafe");
+f.setAccessible(true);
+return (Unsafe)f.get(null);
+这种方式在使用Unsafe类进行黑魔法时经常用到。
+
+反射的性能问题
+
+Stackoverflow上，很多人觉得使用反射reflect会影响系统性能，主要有以下几点看法：
+1、代码的验证防御逻辑过于复杂，本来这块验证时在链接阶段实现的，使用反射reflect时需要在运行时进行；
+2、产生过多的临时对象，影响GC的消耗；
+3、由于缺少上下文，导致不能进行更多的优化，如JIT；
+
+不过现代JVM已经运行的足够快，我们应该把主要重心放在复杂的代码逻辑上，而不是一开始就进行各种性能优化。
+
+作者：占小狼
+链接：http://www.jianshu.com/p/1a21a9cb5bea
+來源：简书
+著作权归作者所有。商业转载请联系作者获得授权，非商业转载请注明出处。

@@ -1,0 +1,343 @@
+java集合框架源码剖析系列的源码全部基于JDK1.8.0版本。本博客将从源码角度带领大家学习关于TreeMap的知识。
+
+一TreeMap的定义：
+
+public class TreeMap<K,V>
+    extends AbstractMap<K,V>
+    implements NavigableMap<K,V>, Cloneable, java.io.Serializable
+可以看到TreeMap是继承自AbstractMap同时实现了NavigableMap，Cloneable，Serializable三个接口，其中Cloneable，Serializable这两个接口基本上是java集合框架中所有的集合类都要实现的接口。 
+
+二TreeMap类中的一些重要属性：
+
+<strong> </strong>private final Comparator<? super K> comparator;
+ private transient Entry<K,V> root;
+ private transient int size = 0;
+ private transient int modCount = 0;
+第一个属性是Comparator<? super K> comparator比较器，从这里就可以知道TreeMap会运用比较器接口来对插入的元素进行排序。而第二个成员属性为Entry<K,V>即为红黑树，红黑树是一种数据结构，它和AVL树一样是一种自平衡二叉查找树，该数据结构具备非常高的插入，删除，查找的效率。Entry被定义为TreeMap的一个内部类，代码如下:
+static final class Entry<K,V> implements Map.Entry<K,V> {
+        K key;
+        V value;
+        Entry<K,V> left;
+        Entry<K,V> right;
+        Entry<K,V> parent;
+        boolean color = BLACK;
+
+        /**
+         * Make a new cell with given key, value, and parent, and with
+         * {@code null} child links, and BLACK color.
+         */
+        Entry(K key, V value, Entry<K,V> parent) {
+            this.key = key;
+            this.value = value;
+            this.parent = parent;
+        }
+
+        /**
+         * Returns the key.
+         *
+         * @return the key
+         */
+        public K getKey() {
+            return key;
+        }
+
+        /**
+         * Returns the value associated with the key.
+         *
+         * @return the value associated with the key
+         */
+        public V getValue() {
+            return value;
+        }
+
+        /**
+         * Replaces the value currently associated with the key with the given
+         * value.
+         *
+         * @return the value associated with the key before this method was
+         *         called
+         */
+        public V setValue(V value) {
+            V oldValue = this.value;
+            this.value = value;
+            return oldValue;
+        }
+
+        public boolean equals(Object o) {
+            if (!(o instanceof Map.Entry))
+                return false;
+            Map.Entry<?,?> e = (Map.Entry<?,?>)o;
+
+            return valEquals(key,e.getKey()) && valEquals(value,e.getValue());
+        }
+
+        public int hashCode() {
+            int keyHash = (key==null ? 0 : key.hashCode());
+            int valueHash = (value==null ? 0 : value.hashCode());
+            return keyHash ^ valueHash;
+        }
+
+        public String toString() {
+            return key + "=" + value;
+        }
+    }
+可以看到Entry红黑树的代码一点也不复杂，和普通的二叉树差不多，仅仅多了一个判断颜色的属性boolean color，该属性默认值为黑色，即BLACK,关于红黑树的具体知识，在此不做过多介绍，博主打算在数据结构与算法那块进行详细介绍。可以先点此 红黑树查看百度百科做初步了解。
+
+三TreeMap内部的实现原理：我们首先看一下其构造器
+
+public TreeMap() {// 构造方法一，默认的构造方法，comparator为空，即采用自然顺序维持TreeMap中节点的顺序
+        comparator = null;
+    }
+
+ public TreeMap(Comparator<? super K> comparator) {// 构造方法二，提供指定的比较器
+        this.comparator = comparator;
+    }
+
+public TreeMap(Map<? extends K, ? extends V> m) {// 构造方法三，采用自然序维持TreeMap中节点的顺序，同时将传入的Map中的内容添加到TreeMap中
+        comparator = null;
+        putAll(m);
+    }
+/** 
+*构造方法四，接收SortedMap参数，根据SortedMap的比较器维持TreeMap中的节点顺序， 同时通过buildFromSorted(int size, Iterator it, java.io.ObjectInputStream str, V defaultVal)方法将SortedMap中的内容添加到TreeMap中
+*/
+public TreeMap(SortedMap<K, ? extends V> m) {
+        comparator = m.comparator();
+        try {
+            buildFromSorted(m.size(), m.entrySet().iterator(), null, null);
+        } catch (java.io.IOException cannotHappen) {
+        } catch (ClassNotFoundException cannotHappen) {
+        }
+    }
+重点关注构造器二和三，即提供指定的比较器和将传入的Map参数采用自然序维持节点的顺序，因为很多情况下，不同对象的比较大小的方法是不一样的，所以很多时候我们需要自己指定比较器。另外可以看到在构造器三种调用了putAll方法，我们来看一下其源码：
+
+public void putAll(Map<? extends K, ? extends V> map) {
+        int mapSize = map.size();
+        if (size==0 && mapSize!=0 && map instanceof SortedMap) {
+            Comparator<?> c = ((SortedMap<?,?>)map).comparator();
+            if (c == comparator || (c != null && c.equals(comparator))) {
+                ++modCount;
+                try {
+                    buildFromSorted(mapSize, map.entrySet().iterator(),
+                                    null, null);
+                } catch (java.io.IOException cannotHappen) {
+                } catch (ClassNotFoundException cannotHappen) {
+                }
+                return;
+            }
+        }
+        super.putAll(map);
+    }
+
+ public void putAll(Map<? extends K, ? extends V> m) {
+        for (Map.Entry<? extends K, ? extends V> e : m.entrySet())
+            put(e.getKey(), e.getValue());
+    }
+我们可以看到在putAll方法中调用了buildFromSorted(int size, Iterator<?> it, java.io.ObjectInputStream str,V defaultVal)，该方法的作用即是在线性时间内对数据进行排序（Linear time tree building algorithm from sorted data），看到这里我们就明白TreeMap排序的原理了，即当使用一个Map集合作为参数构造一个TreeMap的时候，TreeMap会将Map中的元素先排序，然后排序后的元素put到TreeMap中。其中在TreeMap的putAll方法的最后会调用其父类AbstractMap的putAll方法，在其父类的putAll方法中才会调用put方法。
+四TreeMap中的重要函数：
+
+1put方法
+
+public V put(K key, V value) {
+        Entry<K,V> t = root;
+        if (t == null) {
+            compare(key, key); // type (and possibly null) check
+
+            root = new Entry<>(key, value, null);
+            size = 1;
+            modCount++;
+            return null;
+        }
+        int cmp;
+        Entry<K,V> parent;
+        // split comparator and comparable paths
+        Comparator<? super K> cpr = comparator;
+        if (cpr != null) {//如果比较器 cpr 不为 null，即表明采用自定义的排序
+            do {// do while作用是在以root为根节点的红黑树中根据传入的key值寻找待插入的位置
+                parent = t;
+                cmp = cpr.compare(key, t.key);//将待插入节点的值与当前节点比较
+                if (cmp < 0)//如果待插入的节点的值小于当前节点，则将当前结点的左孩子作为新的当前结点
+                    t = t.left;
+                else if (cmp > 0)
+                    t = t.right;
+                else
+                    return t.setValue(value);// 如果两个 key 相等，新的 value 覆盖原有的 value， 然后返回原 value
+            } while (t != null);
+        }
+        else {//没指定比较器时的处理
+
+            if (key == null)
+                throw new NullPointerException();
+            @SuppressWarnings("unchecked")
+                Comparable<? super K> k = (Comparable<? super K>) key;
+            do {
+                parent = t;
+                cmp = k.compareTo(t.key);
+                if (cmp < 0)
+                    t = t.left;
+                else if (cmp > 0)
+                    t = t.right;
+                else
+                    return t.setValue(value);
+            } while (t != null);
+        }
+       Entry<K,V> e = new Entry<>(key, value, parent);//当没找到key值相同的节点，则创建新的节点存储该key值
+        if (cmp < 0)
+            parent.left = e;// 如果新插入 key 小于 parent 的 key，则 e 作为 parent 的左子节点
+        else
+            parent.right = e;// 如果新插入 key 小于 parent 的 key，则 e 作为 parent 的右子节点
+        fixAfterInsertion(e);// 修复红黑树，当往TreeMap中插入新的节点之后可能破坏了红黑树的性质，所以得调用该函数将其调整为红黑树
+        size++;
+        modCount++;
+        return null;
+    }
+
+从上面的代码可以看到put方法的本质就是构造排序二叉树的过程，即当往TreeMap中添加一个节点元素时，首先会寻找待插入的位置，如果在寻找的过程中在TreeMap中找到了与待插入节点的key值相同的节点，则替换然后返回该原来的vlaue，如果没找到，则创建一个新的节点，在恰当的位置处插入该结点，插入完之后会调用fixAfterInsertion(e);来重新修复TreeMap，使其始终满足红黑树的性质。因此可以看到对于相同的key只存在唯一的value值与之对应，因为原来的会被新的替换。 
+
+2get方法
+
+public V get(Object key) {
+        Entry<K,V> p = getEntry(key);
+        return (p==null ? null : p.value);
+    }
+
+ final Entry<K,V> getEntry(Object key) {
+        // Offload comparator-based version for sake of performance
+        if (comparator != null)// 如果比较器不为空，返回getEntryUsingComparator(Object key)的结果
+            return getEntryUsingComparator(key);
+        if (key == null)
+            throw new NullPointerException();
+        @SuppressWarnings("unchecked")
+            Comparable<? super K> k = (Comparable<? super K>) key;
+        Entry<K,V> p = root;
+        while (p != null) {
+            int cmp = k.compareTo(p.key);
+            if (cmp < 0)
+                p = p.left;
+            else if (cmp > 0)
+                p = p.right;
+            else
+                return p;
+        }
+        return null;
+    }
+可以看到在get方法中会调用getEntry()方法，getEntry()方法会根据传入的key值寻找相应的value然后返回，get的过程也包含两种情况即依据比较器是否为空分别进行get操作，get寻找的过程事实上与构造二叉排序树的过程非常相似，代码也很简单，在此不做赘述。 
+
+3remove方法
+
+public V remove(Object key) {
+        Entry<K,V> p = getEntry(key);
+        if (p == null)
+            return null;
+
+        V oldValue = p.value;
+        deleteEntry(p);
+        return oldValue;
+    }
+
+  private void deleteEntry(Entry<K,V> p) {
+        modCount++;
+        size--;
+
+        // If strictly internal, copy successor's element to p and then make p
+        // point to successor.
+        if (p.left != null && p.right != null) {
+            Entry<K,V> s = successor(p);
+            p.key = s.key;
+            p.value = s.value;
+            p = s;
+        } // p has 2 children
+
+        // Start fixup at replacement node, if it exists.
+        Entry<K,V> replacement = (p.left != null ? p.left : p.right);
+
+        if (replacement != null) {
+            // Link replacement to parent
+            replacement.parent = p.parent;
+            if (p.parent == null)
+                root = replacement;
+            else if (p == p.parent.left)
+                p.parent.left  = replacement;
+            else
+                p.parent.right = replacement;
+
+            // Null out links so they are OK to use by fixAfterDeletion.
+            p.left = p.right = p.parent = null;
+
+            // Fix replacement
+            if (p.color == BLACK)
+                fixAfterDeletion(replacement);
+        } else if (p.parent == null) { // return if we are the only node.
+            root = null;
+        } else { //  No children. Use self as phantom replacement and unlink.
+            if (p.color == BLACK)
+                fixAfterDeletion(p);
+
+            if (p.parent != null) {
+                if (p == p.parent.left)
+                    p.parent.left = null;
+                else if (p == p.parent.right)
+                    p.parent.right = null;
+                p.parent = null;
+            }
+        }
+    }
+可以看到在remove方法中调用了deleteEntry方法，即用来从红黑树中删除某一个节点，在这个过程中同样会调用fixAfterDeletion(p);方法，即涉及到树的调整过程。 
+
+4clear()方法
+
+public void clear() {
+        modCount++;
+        size = 0;
+        root = null;
+    }
+代码非常简洁，主要就是将size置为0，同时将根节点root置为null，这样就不能通过root访问其它的节点，这样GC就会回收该TreeMap的内存空间。
+5containsKey(Object key)/containsValue(Object value)
+
+public boolean containsKey(Object key) {
+        return getEntry(key) != null;
+    }
+
+public boolean containsValue(Object value) {
+        for (Entry<K,V> e = getFirstEntry(); e != null; e = successor(e))
+            if (valEquals(value, e.value))
+                return true;
+        return false;
+    }
+其中containsKey非常简单，不做赘述，在containsValue(Object value)中可以看到调用了getFirstEntry()方法和successor(e)方法，我们来看一下其源码：
+final Entry<K,V> getFirstEntry() {
+        Entry<K,V> p = root;
+        if (p != null)
+            while (p.left != null)
+                p = p.left;
+        return p;
+    }
+
+ static <K,V> TreeMap.Entry<K,V> successor(Entry<K,V> t) {
+        if (t == null)
+            return null;
+        else if (t.right != null) {
+            Entry<K,V> p = t.right;
+            while (p.left != null)
+                p = p.left;
+            return p;
+        } else {
+            Entry<K,V> p = t.parent;
+            Entry<K,V> ch = t;
+            while (p != null && ch == p.right) {
+                ch = p;
+                p = p.parent;
+            }
+            return p;
+        }
+    }
+其中getFirstEntry()方法是用来取整个红黑树中的第一个节点，实际是获取的整棵树中“最左”的节点，因为红黑树是排序的树，所以“最左”的节点也是值最小的节点。而successor(e)方法是返回节点e的继承者，如果e的左孩子非空则返回其左孩子，因此在for循环中配合使用getFirstEntry()方法和successor(Entry<K,V> e)及e!=null是遍历树的一种方法。 
+
+五总结：
+
+1TreeMap中的元素是排序的，其内部是通过Comparator接口来实现的，可以通过Comparator接口自定义排序规则。
+
+2TreeMap内部是采用红黑树Entry来实现的，当使用一个Map集合作为参数构造一个TreeMap的时候，TreeMap会将Map中的元素先排序，然后排序后的元素put到TreeMap中，put的过程本质上是构造二叉排序树的过程，插入完之后会调用fixAfterInsertion(e);来重新修复TreeMap，使其始终满足红黑树的性质。
+
+3TreeMap中的元素的key值是唯一的且对于相同的key只存在唯一的value值与之对应，因为在put的过程中原来的会被新的替换。
+
+4TreeMap不是线程同步的，因为TreeMap中的方法都未使用synchronized关键字修饰，即TreeMap是非同步的。

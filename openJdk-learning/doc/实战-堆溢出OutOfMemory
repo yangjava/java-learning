@@ -1,0 +1,76 @@
+编写Java堆溢出Demo
+
+Java堆用于存储几乎所有的对象实例，当创建的对象的数量达到最大堆的容量限制后就会产生内存溢出异常.
+栗子(采用普通文本编辑器编写)：
+
+import java.util.ArrayList;
+import java.util.List;
+public class HeapOOM {
+    static class OOMObject {}
+
+    public static void main(String[] args) {
+        List<OOMObject> list = new ArrayList<OOMObject>();
+
+        while (true) {
+            list.add(new OOMObject());
+        }
+    }
+}
+编译和运行：
+
+//打开你的命令行窗口:
+//编译
+javac HeapOOM.java
+//运行并设置JVM参数，限制Java堆大小为20MB,并不可扩展
+java -Xms20m -Xmx20m -XX:+HeapDumpOnOutOfMemoryError HeapOOM
+// -Xms:设置堆的最小值
+// -Xmx:设置堆的最大值
+// -XX:+HeapDumpOnOutOfMemoryError:出现异常时，Dump当前的内存堆转储快照以便事后进行分析
+我的运行截图：
+
+
+run.jpg
+执行完上述命令后，发生异常OutOfMemeryError(Java heap space)，并(Dump)生成java_pid3208.hprof。我们可以通过分析这个"快照"来查看是导致堆溢出的原因。
+
+JDK的命令行工具:jhat
+
+jhat来分析虚拟机堆转储快照分析工具。jhat内置一个微型的HTTP/HTML服务器，生成dump文件的分析结果后，可以在浏览器中查看。
+《深入理解Java虚拟机》中不推荐使用jhat的两条原因：
+
+在实际工作中，除非笔者手上真的没有别的工具可用，否则一般不会去直接使用jhat命令来分析dump文件。---《深入理解Java虚拟机》
+两条主要的原因：
+
+一般不在部署应用的服务器上分析，而是其他服务器，分析是一个耗时而且消耗硬件资源的过程
+jhat的分析功能相对于一些工具来说有些简陋
+对于像我这样低水平的来说，能不用工具，就不用工具，反正学习嘛！写Java的估计都安装个IDE，有一天你脱离了IDE就写不出程序了吗？对于初学者来说脱离IDE，是一个不错的学习方式，可以熟悉Java类及方法，又可以进一步理解“Java代码是怎么跑起来的”。
+
+使用jhat分析刚才生成的java_pid3208.hprof:
+
+//打开命令行窗口
+jhat java_pid3208.hprof
+运行结果图：
+
+
+jhat_dump.jpg
+当出现Server is ready时，这里可以在浏览器中输入http://localhost:7000查看分析结果了。
+
+效果图：
+
+
+http.jpg
+话说这个界面是简陋了点哈。分析结果默认是以包为单位的进行分组显示的，每个类都是一个超链接，点击去查看内存占用情况。
+
+
+oo.jpg
+
+可以发现class HeapOOM$OOMObject[0xff7d9190] 中存在大量的对象，导致内存溢出的。
+
+小结
+
+JVM参数的设置
+JDK的命令行工具:jhat
+
+作者：x_zhaohu
+链接：http://www.jianshu.com/p/af58b09dbb40
+來源：简书
+著作权归作者所有。商业转载请联系作者获得授权，非商业转载请注明出处。

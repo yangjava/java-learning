@@ -1,0 +1,78 @@
+换了新工作，确实比以前忙多了，从而也搁置了自己兴趣，不过还是想方设法的挤出一点时间把YGC的一些细节实现重新看了几遍，HotSpot里的不少代码写的太纠结，山路十八弯，要理清楚确实需要费点时间。
+
+YGC是JVM GC当前最为频繁的一种GC，一个高并发的服务在运行期间，会进行大量的YGC，发生YGC时，会进行STW，一般时间都很短，除非碰到YGC时，存在大量的存活对象需要进行拷贝。
+
+一次YGC过程主要分成两个步骤：
+1、查找GC Roots，拷贝所引用的对象到 to 区；
+2、递归遍历步骤1中对象，并拷贝其所引用的对象到 to 区，当然可能会存在自然晋升，或者因为 to 区空间不足引起的提前晋升的情况；
+
+下面进行分析的是Serial GC，ParNew GC可以理解成并发的Serial GC，实现原理都差不多，看源码的话建议看Serial GC 的实现类DefNewGeneration，毕竟单线程实现的复杂性会低一点，在DefNewGeneration中，会看到一些以 *-Closure 方式命名的类，这些都是封装起来的回调函数，是为了让GC的具体逻辑与对象内部的字段遍历逻辑能够松耦合，比如ScanClosure 与 FastScanClosure 作为回调函数传入到各个方法中，实现GC实现的对象遍历，正因为这种实现方式，大大增加了阅读源码的难度。
+
+查找GC Roots
+
+YGC的第一步根据GC Roots找出第一批活跃的对象，Hotspot中通过gch->gen_process_strong_roots方法实现
+
+
+在黄色框的实现中，SharedHeap::process_strong_roots()扫描了所有一定是GC Roots的内存区域，有兴趣的可以查看process_strong_roots的实现，主要包括了以下东西：
+
+Universe类中所引用的一些必须存活的对象 Universe::oops_do(roots)
+所有JNI Handles JNIHandles::oops_do(roots)
+所有线程的栈 Threads::oops_do(roots, code_roots)
+所有被Synchronize锁持有的对象  ObjectSynchronizer::oops_do(roots)
+VM内实现的MBean所持有的对象 Management::oops_do(roots)
+JVMTI所持有的对象 JvmtiExport::oops_do(roots)
+（可选）所有已加载的类 或 所有已加载的系统类 SystemDictionary::oops_do(roots)
+（可选）所有驻留字符串（StringTable） StringTable::oops_do(roots)
+（可选）代码缓存（CodeCache） CodeCache::scavenge_root_nmethods_do(code_roots)
+（可选）PermGen的remember set所记录的存在跨代引用的区域  rem_set()->younger_refs_iterate(perm_gen(), perm_blk)
+YGC在执行时只收集young generation，不收集old generation和perm generation，并不会做类的卸载行为，所以上述可选部分都作为Strong root，但是在FGC时就不会当作Strong root了。
+
+红色框中的实现逻辑对于YGC来说是没有意义的，因为level=0，Hotspot中唯一用到这个地方的只有CMS GC实现，默认只收集old generation，所以需要扫描young generation作为它的Strong root。
+
+讲到这里，似乎有一部分被忽略了，如果一个old generation的对象引用了young generation，那么这个old generation的对象肯定也属于Strong root的一部分，这部分逻辑并没有在process_strong_roots中实现，而是在绿色框中实现了，其中rem_set中保存了old generation中dirty card的对应区域，每次对象的拷贝移动都会检查一下是否产生了新的跨代引用，比如有对象晋升到了old generation，而该对象还引用了young generation的对象，这种情况下会把相应的card置为dirty，下次YGC的时候只会扫描dirty card所指内存的对象，避免扫描所有的old generation对象。
+
+遍历活跃对象
+
+在查找GC Roots的步骤中，已经找出了第一批存活的对象，这些存活对象可能在 to-space，也有可能直接晋升到了 old generation，这些区域都是需要进行遍历的，保证所有的活跃对象都能存活下来。
+
+遍历过程的实现由FastEvacuateFollowersClosure类的do_void方法完成，这又是一个*-Closure 方式命名的类，实现如下
+
+
+每个内存区域都有两个指针变量，分别是 _saved_mark_word 和 _top，其中_saved_mark_word 指向当前遍历对象的位置，_top指向当前内存区域可分配的位置，其中_saved_mark_word 到 _top之间的对象是已拷贝，但未扫描的对象。
+
+
+GC Roots引用的对象拷贝完成后，to-space的_saved_mark_word和_top的状态如上图所示，假设期间没有对象晋升到old generation。每次扫描一个对象，_saved_mark_word会往前移动，期间也有新的对象会被拷贝到to-space，_top也会往前移动，直到_saved_mark_word追上_top，说明to-space的对象都已经遍历完成。
+
+其中while循环条件 while (!_gch->no_allocs_since_save_marks(_level)，就是在判断各个内存代中的_saved_mark_word是否已经追到_top，如果还没有追上，就执行_gch->oop_since_save_marks_iterate进行遍历，实现如下：
+
+
+从代码实现可以看出对新生代、老年代和永久代都会进行遍历，其中新生代的遍历实现如下：
+
+
+这里会对eden、from和to分别进行遍历，第一次看这块逻辑的时候很纳闷，为什么要对eden和from-space进行遍历，from倒没什么问题，_saved_mark_word和_top一般都是相同的，但是eden区的_saved_mark_word明显不会等于_top，一直没有找到在eden区分配对象时，改变_top的同时也改变_saved_mark_word的逻辑，后来发现GenCollectedHeap::do_collection方法中，在调用各个代的collect之前，会调用save_marks()方法，将_saved_mark_word设置为_top，这样在发生YGC时，eden区的对象其实是不会被遍历的，被这个疑惑困扰了好久，结果是个遗留代码。
+
+to-space对象的遍历实现：
+
+
+这里的blk变量是传递过来的FastScanClosure回调函数，oop_iterate方法会遍历该对象的所有引用，并调用回调函数的do_oop_work方法处理这里引用所指向的对象。
+
+do_oop_work的实现
+
+
+在FastScanClosure回调函数的do_oop_work方法实现中，红框的是重要的部分，因为可能存在多个对象共同引用一个对象，所以在遍历过程中，可能会遇到已经处理过的对象，如果遇到这样的对象，就不会再次进行复制了，如果该对象没有被拷贝过，则调用 copy_to_survivor_space 方法拷贝对象到to-space或者晋升到old generation，这里提一下ParNew的实现，因为是并发执行的，所以可能存在多个线程拷贝了同一个对象到to-space，不过通过原子操作，保证了只有一个对象是有效的。
+
+copy_to_survivor_space 的实现：
+
+
+拷贝对象的目标空间不一定是to-space，也有可能是old generation，如果一个对象经历了很多次YGC，会从young generation直接晋升到old generation，为了记录对象经历的YGC次数，在对象头的mark word 数据结构中有一个位置记录着对象的YGC次数，也叫对象的年龄，如果扫描到的对象，其年龄小于某个阈值（tenuring threshold），该对象会被拷贝到to-space，并增加该对象的年龄，同时to-space的_top指针也会往后移动，这个新对象等待着被扫描。
+
+
+个人公众号
+
+
+如果该对象的年龄大于某个阈值，会晋升到old generation，或者在拷贝到to-space时空间不足，也会提前晋升到old generation，晋升过程通过老年代_next_gen的promote方法实现，如果old generation也没有足够的空间容纳该对象，则会触发晋升失败。
+
+作者：占小狼
+链接：http://www.jianshu.com/p/9af1a63a33c3
+來源：简书
+著作权归作者所有。商业转载请联系作者获得授权，非商业转载请注明出处。
