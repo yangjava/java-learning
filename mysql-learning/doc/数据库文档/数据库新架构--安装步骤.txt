@@ -1,0 +1,303 @@
+﻿一、IP规划
+Master1         120.26.137.247     10.51.23.196
+Master2         120.26.71.71       10.252.124.43
+Slave1          121.40.111.182     10.168.106.17
+slave2(数据仓库）120.26.44.153	   10.175.204.158
+Atlas/MHA 主    120.26.127.218     10.252.82.111
+Atlas/MHA 从    121.40.17.62       10.251.233.151
+
+------------------------------------------------------------------
+
+二、系统部署(所有安装包放在/mydata/software 下，所有脚本放在/mydata/scripts下)
+
+scp 10.168.47.57:/mydata/software/scripts/install_sys_prepare.sh /root/
+source /root/install_sys_prepare.sh
+
+----------------------------------------------------------------------------------------
+
+三、前期准备（57的密码：E4rF4t9M11lV2Sh ）
+  
+---Master1/Master2/Slave1/Slave2---
+scp 10.168.47.57:/mydata/software/mysql_software/* /mydata/software/
+
+mv /mydata/software/*.sh /mydata/scripts/
+
+
+---Atlas/MHA主从---
+scp 10.168.47.57:/mydata/software/atlas_software/* /mydata/software/
+mv /mydata/software/*.sh /mydata/scripts/
+
+
+---sendEmail
+ cp /mydata/software/sendEmail  /usr/local/bin/sendEmail
+ 
+
+---测试sendmail  注:可以把huchenglong@rongcapital.cn换成自己的邮箱
+
+
+sendEmail -f rkylin2015@yeah.net -s smtp.yeah.net -u "test" -xu rkylin2015@yeah.net -xp 'othnzrexmapxtbdl' -t huchenglong@rongcapital.cn -m "it is a test"
+
+
+-----------------------------------------------------------------------------------
+
+四、MYSQL部署
+
+--Master1,Master2,Slave1，Slave2--
+
+  运行 source /mydata/scripts/install_mysql_5.6.sh
+ 
+  检测是否开启  /mydata/mysql/install/bin/mysqladmin version  
+ 
+  去掉无用安装 /mydata/mysql/install/bin/mysql_secure_installation
+
+             Enter current password for root (enter for none):<直接回车
+             Set root password? [Y/n] <– n
+             Remove anonymous users? [Y/n] <– 回车
+             Disallow root login remotely? [Y/n] <回车
+             Remove test database and access to it? [Y/n] <回车
+             Reload privilege tables now? [Y/n] <回车
+
+  改变默认管理员账号
+            mysql> use mysql;
+                   update user set user="rkylinadmin" where user="root"; 
+                   update user set password=password('Rkylin_web!1') where user='rkylinadmin';
+                   GRANT ALL PRIVILEGES ON *.* TO 'rkylinadmin'@'%' IDENTIFIED BY 'Rkylin_web!1' WITH GRANT OPTION;
+                   FLUSH PRIVILEGES;
+
+ 
+主从配置
+
+--Master1
+
+mysql>grant replication slave on *.* to `slaveadmin`@`10.252.124.43` identified by 'Slaveadmin!1';
+      grant replication slave on *.* to `slaveadmin`@`10.168.106.17` identified by 'Slaveadmin!1';
+      grant replication slave on *.* to `slaveadmin`@`10.175.204.158` identified by 'Slaveadmin!1';
+      flush privileges;
+      show master status;
+      install plugin rpl_semi_sync_master soname 'semisync_master.so'; 
+      set global rpl_semi_sync_master_enabled = 1; 
+      set global rpl_semi_sync_master_timeout = 10000;
+      show global status like 'rpl_semi%';
+   
+
+--Master2
+    vim /etc/my.cnf
+    server_id = 2
+    
+
+mysql>grant replication slave on *.* to `slaveadmin`@`10.51.23.196` identified by 'Slaveadmin!1';
+      grant replication slave on *.* to `slaveadmin`@`10.168.106.17` identified by 'Slaveadmin!1';
+      grant replication slave on *.* to `slaveadmin`@`10.175.204.158` identified by 'Slaveadmin!1';
+      flush privileges;
+      change master to MASTER_HOST='10.51.23.196',MASTER_USER='slaveadmin',MASTER_PASSWORD='Slaveadmin!1',MASTER_PORT=3316,MASTER_LOG_FILE='binlog.000001',MASTER_LOG_POS= 120;
+      start slave;
+      show slave status\G;
+      install plugin rpl_semi_sync_slave soname 'semisync_slave.so';
+      set global rpl_semi_sync_slave_enabled = 1; 
+      stop slave io_thread;start slave io_thread;
+      show global status like 'rpl_semi%';
+	  
+
+--Slave1
+    vim /etc/my.cnf
+     server_id = 3
+     innodb_flush_log_at_trx_commit = 0
+     sync_binlog=0
+
+  mysql>grant replication slave on *.* to `slaveadmin`@`10.51.23.196` identified by 'Slaveadmin!1';
+      grant replication slave on *.* to `slaveadmin`@`10.252.124.43` identified by 'Slaveadmin!1';
+      grant replication slave on *.* to `slaveadmin`@`10.175.204.158` identified by 'Slaveadmin!1';
+      flush privileges;
+     change master to MASTER_HOST='10.51.23.196',MASTER_USER='slaveadmin',MASTER_PASSWORD='Slaveadmin!1',MASTER_PORT=3316,MASTER_LOG_FILE='binlog.000001',MASTER_LOG_POS= 120;
+      start slave;
+      show slave status\G;
+
+
+--Slave2
+      vim /etc/my.cnf
+      server_id = 4
+      innodb_flush_log_at_trx_commit = 0
+      sync_binlog=0
+
+mysql>grant replication slave on *.* to `slaveadmin`@`10.51.23.196` identified by 'Slaveadmin!1';
+      grant replication slave on *.* to `slaveadmin`@`10.252.124.43` identified by 'Slaveadmin!1';
+      grant replication slave on *.* to `slaveadmin`@`10.168.106.17` identified by 'Slaveadmin!1';
+      flush privileges;
+      CHANGE MASTER TO  MASTER_HOST='10.51.23.196',MASTER_USER='slaveadmin',MASTER_PASSWORD='Slaveadmin!1',MASTER_PORT=3316,MASTER_LOG_FILE='binlog.000001',MASTER_LOG_POS= 120;
+      start slave;
+      show slave status\G;
+
+注：Slave_IO_Running: Yes
+    Slave_SQL_Running: Yes
+    以上这两个参数的值为Yes，即说明配置成功！
+	
+	
+--用户授权
+Master1/Master2/Slave1
+grant select,update,insert,delete,execute,show view on `account`.* to `account`@`10.252.82.111` identified by'Account_web!1';
+grant select,update,insert,delete,execute,show view on `account`.* to `account`@`10.251.233.151` identified by'Account_web!1';
+grant select on mysql.proc to `account`@`10.252.82.111`; 
+grant select on mysql.proc to `account`@`10.251.233.151`;
+
+grant select,update,insert,delete,execute,show view on `order`.* to `order`@`10.252.82.111` identified by'Order_web!1';
+grant select,update,insert,delete,execute,show view on `order`.* to `order`@`10.251.233.151` identified by'Order_web!1';
+grant select on mysql.proc to `order`@`10.252.82.111`; 
+grant select on mysql.proc to `order`@`10.251.233.151`;
+
+grant select,update,insert,delete,execute,show view on `checkstand`.* to `checkstand`@`10.252.82.111` identified by'Checkstand_web!1';
+grant select,update,insert,delete,execute,show view on `checkstand`.* to `checkstand`@`10.251.233.151` identified by'Checkstand_web!1';
+grant select on mysql.proc to `checkstand`@`10.252.82.111`; 
+grant select on mysql.proc to `checkstand`@`10.251.233.151`;
+
+grant select,update,insert,delete,execute,show view on `payment`.* to `payment`@`10.252.82.111` identified by'Payment_web!1';
+grant select,update,insert,delete,execute,show view on `payment`.* to `payment`@`10.251.233.151` identified by'Payment_web!1';
+grant select on mysql.proc to `payment`@`10.252.82.111`; 
+grant select on mysql.proc to `payment`@`10.251.233.151`;
+
+grant select,update,insert,delete,execute,show view on `multi_gate`.* to `multi_gate`@`10.252.82.111` identified by'Multi_gate_web!1';
+grant select,update,insert,delete,execute,show view on `multi_gate`.* to `multi_gate`@`10.251.233.151` identified by'Multi_gate_web!1';
+grant select on mysql.proc to `multi_gate`@`10.252.82.111`; 
+grant select on mysql.proc to `multi_gate`@`10.251.233.151`;
+
+grant select,update,insert,delete,execute,show view on `settle`.* to `settle`@`10.252.82.111` identified by'Settle_web!1';
+grant select,update,insert,delete,execute,show view on `settle`.* to `settle`@`10.251.233.151` identified by'Settle_web!1';
+grant select on mysql.proc to `settle`@`10.252.82.111`; 
+grant select on mysql.proc to `settle`@`10.251.233.151`;
+
+grant select,update,insert,delete,execute,show view on `user`.* to `user`@`10.252.82.111` identified by'User_web!1';
+grant select,update,insert,delete,execute,show view on `user`.* to `user`@`10.251.233.151` identified by'User_web!1';
+grant select on mysql.proc to `user`@`10.252.82.111`; 
+grant select on mysql.proc to `user`@`10.251.233.151`;
+
+grant select,update,insert,delete,execute,show view on `operate`.* to `operate`@`10.252.82.111` identified by'Operate_web!1';
+grant select,update,insert,delete,execute,show view on `operate`.* to `operate`@`10.251.233.151` identified by'Operate_web!1';
+grant select on mysql.proc to `operate`@`10.252.82.111`; 
+grant select on mysql.proc to `operate`@`10.251.233.151`;
+
+grant select,update,insert,delete,execute,show view on `logsystem`.* to `logsystem`@`10.252.82.111` identified by'Logsystem_web!1';
+grant select,update,insert,delete,execute,show view on `logsystem`.* to `logsystem`@`10.251.233.151` identified by'Logsystem_web!1';
+grant select on mysql.proc to `logsystem`@`10.252.82.111`; 
+grant select on mysql.proc to `logsystem`@`10.251.233.151`;
+
+GRANT SELECT,show view ON *.* TO 'queryuser'@'%' identified by'Query!1';
+
+GRANT usage,super,replication slave on *.* to zabbix@localhost identified by 'Zabbix!1';
+
+
+
+定时清除中继日志
+crontab -e	
+0 23 * * 1 /mydata/scripts/purge_relay_log.sh >/mydata/scripts/purge_relay_log.log 2>&1
+
+
+五、MHA安装
+
+--主从之间免密码ssh （Master1/Master2/Slave1 密码 xGTlnc8E0PksMv4
+                      atlas主/从 密码 xGTlnc8E0PksMv3
+                      Slave2 密码 3W7VOt06K5Cdp9f） 
+
+--Master1
+ssh-keygen -t rsa  三次回车
+ssh-copy-id 10.252.124.43
+ssh-copy-id 10.168.106.17
+ssh-copy-id 10.175.204.158
+ssh-copy-id 10.252.82.111
+ssh-copy-id 10.251.233.151
+
+--Master2
+ssh-keygen -t rsa  三次回车
+ssh-copy-id 10.51.23.196
+ssh-copy-id 10.168.106.17
+ssh-copy-id 10.175.204.158
+ssh-copy-id 10.252.82.111
+ssh-copy-id 10.251.233.151
+
+--Slave1
+ssh-keygen -t rsa  三次回车
+ssh-copy-id 10.51.23.196
+ssh-copy-id 10.252.124.43
+ssh-copy-id 10.175.204.158
+ssh-copy-id 10.252.82.111
+ssh-copy-id 10.251.233.151
+
+--Slave2
+ssh-keygen -t rsa  三次回车
+ssh-copy-id 10.51.23.196
+ssh-copy-id 10.252.124.43
+ssh-copy-id 10.168.106.17
+ssh-copy-id 10.252.82.111
+ssh-copy-id 10.251.233.151
+
+--atlas主
+ssh-keygen -t rsa  三次回车
+ssh-copy-id 10.51.23.196
+ssh-copy-id 10.252.124.43
+ssh-copy-id 10.168.106.17
+ssh-copy-id 10.175.204.158
+ssh-copy-id 10.251.233.151
+
+
+--atlas从
+ssh-keygen -t rsa  三次回车
+ssh-copy-id 10.51.23.196
+ssh-copy-id 10.252.124.43
+ssh-copy-id 10.168.6.6
+ssh-copy-id 10.175.204.158
+ssh-copy-id 10.252.82.111
+
+
+
+Master1/Master2/Slave1/Slave2 安装mha节点
+运行 /mydata/scripts/install_mha_node.sh
+
+
+MHA主/从
+运行 /mydata/scripts/install_mha_manage+node.sh
+
+运行mha /etc/init.d/masterha_manager_start
+查看进程 ps -ef|grep ma
+
+
+六、Atlas 安装
+
+atlas主/从
+cd /mydata/software/
+rpm -ivh atlas-2.2.1.el6.x86_64.rpm
+cp /mydata/software/test.cnf /etc/
+cp /usr/local/mysql-proxy/bin/mysql-proxyd /etc/init.d/mysql-proxyd
+vim /etc/init.d/mysql-proxyd
+第8行改为 confile="/etc/$1.cnf"
+
+启动  /etc/init.d/mysql-proxyd test start
+查看进程  ps -ef|grep mysql-proxy
+
+
+七、zabbix_agent 安装
+cd /mydata/scripts
+./install_zabbix_agent.sh
+
+
+八、pt-toolkit安装
+   cd /mydata/software
+   yum install -y perl-IO-Socket-SSL perl-DBD-mysql 
+   yum install -y perl-CPAN perl-Time-HiRes
+   rpm -ivh perl-TermReadKey-2.30-1.el5.rf.x86_64.rpm
+   rpm -ivh percona-toolkit-2.2.15-1.noarch.rpm
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
