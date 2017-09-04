@@ -1,0 +1,818 @@
+一、配置服务
+配置服务是分布式应用所需要的基本服务之一，它使集群中的机器可以共享配置信息中那些公共的部分。简单地说，ZooKeeper可以作为一个具有高可用性的配置存储器，允许分布式应用的参与者检索和更新配置文件。使用ZooKeeper中的观察机制，可以建立一个活跃的配置服务，使那些感兴趣的客户端能够获得配置信息修改的通知。
+
+下面来编写一个这样的服务。我们通过两个假设来简化所需实现的服务（稍加修改就可以取消这两个假设）。
+
+第一，我们唯一需要存储的配置数据是字符串，关键字是znode的路径，因此我们在每个znode上存储了一个键／值对。
+第二，在任何时候只有一个客户端会执行更新操作。
+
+除此之外，这个模型看起来就像是有一个主人(类似于HDFS中的namenode)在更新信息，而他的工人则需要遵循这些信息。
+
+在名为ActiveKeyValueStore的类中编写了如下代码：
+
+复制代码
+package org.zk;
+
+import java.nio.charset.Charset;
+
+import org.apache.zookeeper.CreateMode;
+import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.Watcher;
+import org.apache.zookeeper.ZooDefs.Ids;
+import org.apache.zookeeper.data.Stat;
+
+public class ActiveKeyValueStore extends ConnectionWatcher {
+    private static final Charset CHARSET=Charset.forName("UTF-8");
+    public void write(String path,String value) throws KeeperException, InterruptedException {
+        Stat stat = zk.exists(path, false);
+        if(stat==null){
+            zk.create(path, value.getBytes(CHARSET),Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+        }else{
+            zk.setData(path, value.getBytes(CHARSET),-1);
+        }
+    }
+    public String read(String path,Watcher watch) throws KeeperException, InterruptedException{
+        byte[] data = zk.getData(path, watch, null);
+        return new String(data,CHARSET);
+        
+    }
+    
+}
+复制代码
+write()方法的任务是将一个关键字及其值写到ZooKeeper。它隐藏了创建一个新的znode和用一个新值更新现有znode之间的区 别，而是使用exists操作来检测znode是否存在，然后再执行相应的操作。其他值得一提的细节是需要将字符串值转换为字节数组，因为我们只用了 UTF-8编码的getBytes()方法。☆☆☆
+
+read()方法的任务是读取一个节点的配置属性。ZooKeeper的getData()方法有三个参数：
+
+（1）路径
+（2）一个观察对象
+（3）一个Stat对象
+
+Stat对象由getData()方法返回的值填充，用来将信息回传给调用者。通过这个方法，调用者可以获得一个znode的数据和元数据，但在这个例子中，由于我们对元数据不感兴趣，因此将Stat参数设为null。
+
+为了说明ActiveKeyValueStore的用法，我们编写了一个用来更新配置属性值的类ConfigUpdater，如代码1.1所示。
+
+代码1.1 用于随机更新ZooKeeper中的属性
+
+复制代码
+package org.zk;
+
+import java.io.IOException;
+import java.util.Random;
+import java.util.concurrent.TimeUnit;
+
+import org.apache.zookeeper.KeeperException;
+
+public class ConfigUpdater {
+    
+    public static final String  PATH="/config";
+    
+    private ActiveKeyValueStore store;
+    private Random random=new Random();
+    
+    public ConfigUpdater(String hosts) throws IOException, InterruptedException {
+        store = new ActiveKeyValueStore();
+        store.connect(hosts);
+    }
+    public void run() throws InterruptedException, KeeperException{
+        while(true){
+            String value=random.nextInt(100)+"";
+            store.write(PATH, value);
+            System.out.printf("Set %s to %s\n",PATH,value);
+            TimeUnit.SECONDS.sleep(random.nextInt(100));
+            
+        }
+    }
+    public static void main(String[] args) throws IOException, InterruptedException, KeeperException {
+        ConfigUpdater configUpdater = new ConfigUpdater(args[0]);
+        configUpdater.run();
+    }
+}
+复制代码
+这个程序很简单，ConfigUpdater中定义了一个ActiveKeyValueStore，它在ConfigUpdater的构造函数中连接到ZooKeeper。run()方法永远在循环，在随机时间以随机值更新/config znode。
+
+　　作为配置服务的用户，ConfigWatcher创建了一个ActiveKeyValueStore对象store，并且在启动之后通过 displayConfig()调用了store的read()方法，显示它所读到的配置信息的初始值，并将自身作为观察传递给store。当节点状态发 生变化时，再次通过displayConfig()显示配置信息，并再次将自身作为观察传递给store，参见代码1.2：
+
+例1.2 该用应观察ZooKeeper中属性的更新情况，并将其打印到控制台
+
+复制代码
+package org.zk;
+
+import java.io.IOException;
+
+import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.Watcher;
+import org.apache.zookeeper.Watcher.Event.EventType;
+
+public class ConfigWatcher implements Watcher{
+    private ActiveKeyValueStore store;
+
+    @Override
+    public void process(WatchedEvent event) {
+        if(event.getType()==EventType.NodeDataChanged){
+            try{
+                dispalyConfig();
+            }catch(InterruptedException e){
+                System.err.println("Interrupted. exiting. ");
+                Thread.currentThread().interrupt();
+            }catch(KeeperException e){
+                System.out.printf("KeeperException锛?s. Exiting.\n", e);
+            }
+            
+        }
+        
+    }
+    public ConfigWatcher(String hosts) throws IOException, InterruptedException {
+        store=new ActiveKeyValueStore();
+        store.connect(hosts);
+    }
+    public void dispalyConfig() throws KeeperException, InterruptedException{
+        String value=store.read(ConfigUpdater.PATH, this);
+        System.out.printf("Read %s as %s\n",ConfigUpdater.PATH,value);
+    }
+
+    public static void main(String[] args) throws IOException, InterruptedException, KeeperException {
+        ConfigWatcher configWatcher = new ConfigWatcher(args[0]);
+        configWatcher.dispalyConfig();
+        //stay alive until process is killed or Thread is interrupted
+        Thread.sleep(Long.MAX_VALUE);
+    }
+}
+复制代码
+当ConfigUpdater更新znode时，ZooKeeper产生一个类型为EventType.NodeDataChanged的 事件，从而触发观察。ConfigWatcher在它的process()方法中对这个事件做出反应，读取并显示配置的最新版本。由于观察仅发送单次信 号，因此每次我们调用ActiveKeyValueStore的read()方法时，都将一个新的观察告知ZooKeeper来确保我们可以看到将来的更 新。但是，我们还是不能保证接收到每一个更新，因为在收到观察事件通知与下一次读之间，znode可能已经被更新过，而且可能是很多次，由于客户端在这段 时间没有注册任何观察，因此不会收到通知。对于示例中的配置服务，这不是问题，因为客户端只关心属性的最新值，最新值优先于之前的值。但是，一般情况下， 这个潜在的问题是不容忽视的。
+
+让我们看看如何使用这个程序。在一个终端窗口中运行ConfigUpdater，然后在另一个客户端运行ConfigWatcher，我们可以预先 分别在两个客户端输入命令，先不按回车，等两个客户端的命令输入好后，先在运行ConfigUpdater的客户端按回车，再在另一个客户端按回车，运行 结果如下：
+
+
+
+二、可恢复的ZooKeeper应用
+关于分布式计算的第一个误区是“网络是可靠的”。按照他们的观点，程序总是有一个可靠的网络，因此当程序运行在真正的网络中时，往往会出现各种备样的故障。让我们看看各种可能的故障模式，以及能够解决故障的措施，使我们的程序在面对故障时能够及时复原。
+
+2.1 ZooKeeper异常
+在Java API中的每一个ZooKeeper操作都在其throws子句中声明了两种类型的异常，分别是InterruptedException和KeeperException。
+
+（一）InterruptedException异常
+
+如果操作被中断，则会有一个InterruptedException异常被抛出。在Java语言中有一个取消阻塞方法的标准机制，即针对存在阻塞方法的线程调用interrupt()。一个成功的取消操作将产生一个InterruptedException异常。
+
+ZooKeeper也遵循这一机制，因此你可以使用这种方法来取消一个ZooKeeper操作。使用了ZooKeeper的类或库通常会传播 InterruptedException异常，使客户端能够取消它们的操作。InterruptedException异常并不意味着有故障，而是表明相应的操作已经被取消，所以在配置服务的示例中，可以通过传播异常来中止应用程序的运行。
+
+（二）KeeperException异常
+
+(1) 如果ZooKeeper服务器发出一个错误信号或与服务器存在通信问题，抛出的则是KeeperException异常。
+
+①针对不同的错误情况，KeeperException异常存在不同的子类。
+
+例如:　KeeperException.NoNodeException是KeeperException的一个子类，如果你试图针对一个不存在的znode执行操作，抛出的则是该异常。
+
+②每一个KeeperException异常的子类都对应一个关于错误类型信息的代码。
+
+例如:　KeeperException.NoNodeException异常的代码是KeeperException.Code.NONODE
+
+(2) 有两种方法被用来处理KeeperException异常：
+
+①捕捉KeeperException异常，并且通过检测它的代码来决定采取何种补救措施；
+
+②另一种是捕捉等价的KeeperException子类，并且在每段捕捉代码中执行相应的操作。
+
+(3) KeeperException异常分为三大类
+
+① 状态异常 
+
+当一个操作因不能被应用于znode树而导致失败时，就会出现状态异常。状态异常产生的原因通常是在同一时间有另外一个进程正在修改znode。例如，如果一个znode先被另外一个进程更新了，根据版本号执行setData操作的进程就会失败，并收到一个KeeperException.BadVersionException异常，这是因为版本号不匹配。程序员通常都知道这种冲突总是存在的，也都会编写代码来进行处理。
+
+一些状态异常会指出程序中的错误，例如KeeperException.NoChildrenForEphemeralsException异常，试图在短暂znode下创建子节点时就会抛出该异常。
+
+② 可恢复异常
+
+可恢复的异常是指那些应用程序能够在同一个ZooKeeper会话中恢复的异常。一个可恢复的异常是通过KeeperException.ConnectionLossException来表示的，它意味着已经丢失了与ZooKeeper的连接。ZooKeeper会尝试重新连接，并且在大多数情况下重新连接会成功，并确保会话是完整的。
+
+但是ZooKeeper不能判断与KeeperException.ConnectionLossException异常相关的操作是否成功执行。这种情况就是部分失败的一个例子。这时程序员有责任来解决这种不确定性，并且根据应用的情况来采取适当的操作。在这一点上，就需要对“幂等”(idempotent)操作和“非幂等”(Nonidempotent)操作进行区分。幂等操作是指那些一次或多次执行都会产生相同结果的操作，例如读请求或无条件执行的setData操作。对于幂等操作，只需要简单地进行重试即可。对于非幂等操作，就不能盲目地进行重试，因为它们多次执行的结果与一次执行是完全不同的。程序可以通过在znode的路径和它的数据中编码信息来检测是否非幂等操怍的更新已经完成。
+
+③不可恢复的异常 
+
+在某些情况下，ZooKeeper会话会失效——也许因为超时或因为会话被关闭，两种情况下都会收到KeeperException.SessionExpiredException异常，或因为身份验证失败，KeeperException.AuthFailedException异常。无论上述哪种情况，所有与会话相关联的短暂znode都将丢失，因此应用程序需要在重新连接到ZooKeeper之前重建它的状态。
+
+2.2 可靠地服务配置
+首先我们先回顾一下ActivityKeyValueStore的write（）的方法，他由一个exists操作紧跟着一个create操作或setData操作组成：
+
+复制代码
+public class ActiveKeyValueStore extends ConnectionWatcher {
+    private static final Charset CHARSET=Charset.forName("UTF-8");
+    public void write(String path,String value) throws KeeperException, InterruptedException {
+        Stat stat = zk.exists(path, false);
+        if(stat==null){
+            zk.create(path, value.getBytes(CHARSET),Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+        }else{
+            zk.setData(path, value.getBytes(CHARSET),-1);
+        }
+    }
+    public String read(String path,Watcher watch) throws KeeperException, InterruptedException{
+        byte[] data = zk.getData(path, watch, null);
+        return new String(data,CHARSET);
+        
+    }
+    
+}
+复制代码
+作为一个整体，write()方法是一个“幂等”操作，所以我们可以对他进行无条件重试。我们新建一个类ChangedActiveKeyValueStore，代码如下：
+
+复制代码
+package org.zk;
+
+import java.nio.charset.Charset;
+import java.util.concurrent.TimeUnit;
+
+import org.apache.zookeeper.CreateMode;
+import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.Watcher;
+import org.apache.zookeeper.ZooDefs.Ids;
+import org.apache.zookeeper.data.Stat;
+
+public class ChangedActiveKeyValueStore extends ConnectionWatcher{
+    private static final Charset CHARSET=Charset.forName("UTF-8");
+    private static final int MAX_RETRIES = 5; 
+    private static final long RETRY_PERIOD_SECONDS = 5;
+    
+    public void write(String path,String value) throws InterruptedException, KeeperException{
+        int retries=0;
+        while(true){
+            try {
+                Stat stat = zk.exists(path, false);
+                if(stat==null){
+                    zk.create(path, value.getBytes(CHARSET),Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+                }else{
+                    zk.setData(path, value.getBytes(CHARSET),stat.getVersion());
+                }
+            } catch (KeeperException.SessionExpiredException e) {
+                throw e;
+            } catch (KeeperException e) {
+                if(retries++==MAX_RETRIES){
+                    throw e;
+                }
+                //sleep then retry
+                TimeUnit.SECONDS.sleep(RETRY_PERIOD_SECONDS);
+            }
+        }
+    }
+    public String read(String path,Watcher watch) throws KeeperException, InterruptedException{
+        byte[] data = zk.getData(path, watch, null);
+        return new String(data,CHARSET);
+    }
+}
+复制代码
+在该类中，对前面的write()进行了修改,该版本的wirte()能够循环执行重试。其中设置了重试的最大次数MAX_RETRIES和两次重试之间的间隔RETRY_PERIOD_SECONDS.
+
+我们再新建一个类ResilientConfigUpdater，该类对前面的ConfigUpdater进行了修改，代码如下：
+
+复制代码
+package org.zk;
+
+import java.io.IOException;
+import java.nio.charset.Charset;
+import java.util.Random;
+import java.util.concurrent.TimeUnit;
+
+import org.apache.zookeeper.CreateMode;
+import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.KeeperException.SessionExpiredException;
+import org.apache.zookeeper.ZooDefs.Ids;
+import org.apache.zookeeper.data.Stat;
+
+public class ResilientConfigUpdater extends ConnectionWatcher{
+    public static final String PATH="/config";
+    private ChangedActiveKeyValueStore store;
+    private Random random=new Random();
+    
+    public ResilientConfigUpdater(String hosts) throws IOException, InterruptedException {
+        store=new ChangedActiveKeyValueStore();
+        store.connect(hosts);
+    }
+    public void run() throws InterruptedException, KeeperException{
+        while(true){
+            String value=random.nextInt(100)+"";
+            store.write(PATH,value);
+            System.out.printf("Set %s to %s\n",PATH,value);
+            TimeUnit.SECONDS.sleep(random.nextInt(10));
+        }
+    }
+
+    public static void main(String[] args) throws Exception {
+        while(true){
+            try {
+                ResilientConfigUpdater configUpdater = new ResilientConfigUpdater(args[0]);
+                configUpdater.run();
+            }catch (KeeperException.SessionExpiredException e) {
+                // start a new session
+            }catch (KeeperException e) {
+                // already retried ,so exit
+                e.printStackTrace();
+                break;
+            }
+        }
+    }
+}
+复制代码
+在这段代码中没有对KeepException.SeeionExpiredException异常进行重试，因为一个会话过期 时，ZooKeeper对象会进入CLOSED状态，此状态下它不能进行重试连接。我们只能将这个异常简单抛出并让拥有着创建一个新实例，以重试整个 write()方法。一个简单的创建新实例的方法是创建一个新的ResilientConfigUpdater用于恢复过期会话。
+
+处理会话过期的另一种方法是在观察中（在这个例子中应该是ConnectionWatcher）寻找类型为ExpiredKeepState，然后 再找到的时候创建一个新连接。即使我们收到KeeperException.SessionExpiredEception异常，这种方法还是可以让我们 在write（）方法内不断重试，因为连接最终是能够重新建立的。不管我们采用何种机制从过期会话中恢复，重要的是，这种不同于连接丢失的故障类型，需要 进行不同的处理。
+
+注意：实际上,这里忽略了另一种故障模式。当ZooKeeper对象被创建时，他会尝试连接另一个ZooKeeper服务器。如果连接失败或超时， 那么他会尝试连接集合体中的另一台服务器。如果在尝试集合体中的所有服务器之后仍然无法建立连接，它会抛出一个IOException异常。由于所有的 ZooKeeper服务器都不可用的可能性很小，所以某些应用程序选择循环重试操作，直到ZooKeeper服务为止。
+
+这仅仅是一种重试处理策略，还有许多其他处理策略，例如使用“指数返回”，每次将重试的间隔乘以一个常数。Hadoop内核中 org.apache.hadoop.io.retry包是一组工具，用于可以重用的方式将重试逻辑加入代码，因此他对于构建ZooKeeper应用非常 有用。
+
+三、锁服务
+3.1分布式锁概述
+分布式锁在一组进程之间提供了一种互斥机制。在任何时刻，在任何时刻只有一个进程可以持有锁。分布式锁可以在大型分布式系统中实现领导者选举，在任何时间点，持有锁的那个进程就是系统的领导者。
+
+注意：不要将ZooKeeper自己的领导者选举和使用了ZooKeeper基本操作实现的一般领导者选混为一谈。ZooKeeper自己的领导者选举机制是对外不公开的，我们这里所描述的一般领导者选举服务则不同，他是对那些需要与主进程保持一致的分布式系统所设计的。
+
+(1) 为了使用ZooKeeper来实现分布式锁服务，我们使用顺序znode来为那些竞争锁的进程强制排序。
+
+思路很简单：
+
+① 首先指定一个作为锁的znode，通常用它来描述被锁定的实体，称为/leader；
+② 然后希望获得锁的客户端创建一些短暂顺序znode，作为锁znode的子节点。
+③ 在任何时间点，顺序号最小的客户端将持有锁。 
+
+例如，有两个客户端差不多同时创建znode，分别为/leader/lock-1和/leader/lock-2，那么创建/leader/lock-1的客户端将会持有锁，因为它的znode顺序号最小。ZooKeeper服务是顺序的仲裁者，因为它负责分配顺序号。
+
+④ 通过删除znode /leader/lock-l即可简单地将锁释放；
+⑤ 另外，如果客户端进程死亡，对应的短暂znode也会被删除。
+⑥ 接下来，创建/leader/lock-2的客户端将持有锁，因为它顺序号紧跟前一个。
+⑦ 通过创建一个关于znode删除的观察，可以使客户端在获得锁时得到通知。
+
+(2) 如下是申请获取锁的伪代码。
+
+①在锁znode下创建一个名为lock-的短暂顺序znode，并且记住它的实际路径名(create操作的返回值)。
+②查询锁znode的子节点并且设置一个观察。
+③如果步骤l中所创建的znode在步骤2中所返回的所有子节点中具有最小的顺序号，则获取到锁。退出。
+④等待步骤2中所设观察的通知并且转到步骤2。
+
+3.2 当前问题与方案
+3.2.1 羊群效应
+
+(1) 问题
+
+虽然这个算法是正确的，但还是存在一些问题。第一个问题是这种实现会受到“羊群效应”(herd effect)的影响。考虑有成百上千客户端的情况，所有的客户端都在尝试获得锁，每个客户端都会在锁znode上设置一个观察，用于捕捉子节点的变化。 每次锁被释放或另外一个进程开始申请获取锁的时候，观察都会被触发并且每个客户端都会收到一个通知。  “羊群效应“就是指大量客户端收到同一事件的通知，但实际上只有很少一部分需要处理这一事件。在这种情况下，只有一个客户端会成功地获取锁，但是维护过程及向所有客户端发送观察事件会产生峰值流量，这会对ZooKeeper服务器造成压力。
+
+(2) 方案解决方案
+
+为了避免出现羊群效应，我们需要优化通知的条件。关键在于只有在前一个顺序号的子节点消失时才需要通知下一个客户端，而不是删除（或创建）任何子节点时都需要通知。在我们的例子中，如果客户端创建了znode /leader/lock-1、/leader/lock-2和／leader/lock-3，那么只有当/leader/lock-2消失时才需要通知／leader/lock-3对照的客户端；/leader/lock-1消失或有新的znode /leader/lock-4加入时，不需要通知该客户端。
+
+3.2.2 可恢复的异常
+
+(1) 问题
+
+这个申请锁的算法目前还存在另一个问题，就是不能处理因连接丢失而导致的create操作失败。如前所述，在这种情况下，我们不知道操作是成功还是失败。由于创建一个顺序znode是非幂等操作，所以我们不能简单地重试，因为如果第一次创建已经成功，重试会使我们多出一个永远删不掉的孤儿zriode(至少到客户端会话结束前）。不幸的结果是将会出现死锁。
+
+(2) 解决方案
+
+问题在于，在重新连接之后客户端不能够判断它是否已经创建过子节点。解决方案是在znode的名称中嵌入一个ID，如果客户端出现连接丢失的情况， 重新连接之后它便可以对锁节点的所有于节点进行检查，看看是否有子节点的名称中包含其ID。如果有一个子节点的名称包含其ID，它便知道创建操作已经成 功，不需要再创建子节点。如果没有子节点的名称中包含其ID，则客户端可以安全地创建一个新的顺序子节点。
+客户端会话的ID是一个长整数，并且在ZooKeeper服务中是唯一的，因此非常适合在连接丢失后用于识别客户端。可以通过调用Java ZooKeeper类的getSessionld()方法来获得会话的ID。
+
+在创建短暂顺序znode时应当采用lock-<sessionld>-这样的命名方式，ZooKeeper在其尾部添加顺序号之后，znode的名称会形如lock-<sessionld>-<sequenceNumber>。由于顺序号对于父节点来说是唯一的，但对于子节点名并不唯一，因此采用这样的命名方式可以诖子节点在保持创建顺序的同时能够确定自己的创建者。
+
+3.2.3 不可恢复的异常
+
+如果一个客户端的ZooKeeper会话过期，那么它所创建的短暂znode将会被删除，已持有的锁会被释放，或是放弃了申请锁的位置。使用锁的应 用程序应当意识到它已经不再持有锁，应当清理它的状态，然后通过创建并尝试申请一个新的锁对象来重新启动。注意，这个过程是由应用程序控制的，而不是锁， 因为锁是不能预知应用程序需要如何清理自己的状态。
+
+四、ZooKeeper实现共享锁
+实现正确地实现一个分布式锁是一件棘手的事，因为很难对所有类型的故障都进行正确的解释处理。ZooKeeper带有一个 JavaWriteLock，客户端可以很方便地使用它。更多分布式数据结构和协议例如“屏障”(bafrier)、队列和两阶段提交协议。有趣的是它们 都是同步协议，即使我们使用异步ZooKeeper基本操作（如通知）来实现它们。使用ZooKeeper可以实现很多不同的分布式数据结构和协 议，ZooKeeper网站(http://hadoop.apache.org/zookeeper/)提供了一些用于实现分布式数据结构和协议的伪代码。ZooKeeper本身也带有一些棕准方法的实现，放在安装位置下的recipes目录中。
+
+4.1 场景描述
+大家也许都很熟悉了多个线程或者多个进程间的共享锁的实现方式了，但是在分布式场景中我们会面临多个Server之间的锁的问题。
+
+假设有这样一个场景：两台server ：serverA，serverB需要在C机器上的/usr/local/a.txt文 件上进行写操作，如果两台机器同时写该文件，那么该文件的最终结果可能会产生乱序等问题。最先能想到的是serverA在写文件前告诉ServerB “我要开始写文件了，你先别写”，等待收到ServerB的确认回复后ServerA开始写文件，写完文件后再通知ServerB“我已经写完了”。假设 在我们场景中有100台机器呢，中间任意一台机器通信中断了又该如何处理？容错和性能问题呢？要能健壮，稳定，高可用并保持高性能，系统实现的复杂度比较 高，从头开发这样的系统代价也很大。幸运的是，我们有了基于googlechubby原理开发的开源的ZooKeeper系统。接下来本文将介绍两种 ZooKeeper实现分布式共享锁的方法。
+
+4.2 利用节点名称的唯一性来实现共享锁
+ZooKeeper表面上的节点结构是一个和unix文件系统类似的小型的树状的目录结构，ZooKeeper机制规定：同一个目录下只能有一个唯一的文件名。
+
+例如：我们在Zookeeper目录/test目录下创建，两个客户端创建一个名为lock节点，只有一个能够成功。
+
+(1) 算法思路：利用名称唯一性，加锁操作时，只需要所有客户端一起创建/Leader/lock节点，只有一个创建成功，成功者获得锁。解锁时，只需删除/test/Lock节点，其余客户端再次进入竞争创建节点，直到所有客户端都获得锁。
+
+基于以上机制，利用节点名称唯一性机制的共享锁算法流程如图所示：
+
+
+
+4.3 利用顺序节点实现共享锁
+首先介绍一下，Zookeeper中有一种节点叫做顺序节点，故名思议，假如我们在/lock/目录下创建节3个点，ZooKeeper集群会按照提起创建的顺序来创建节点，节点分别为/lock/0000000001、/lock/0000000002、/lock/0000000003。
+
+ZooKeeper中还有一种名为临时节点的节点，临时节点由某个客户端创建，当客户端与ZooKeeper集群断开连接，。则该节点自动被删除。
+
+算法思路：对于加锁操作，可以让所有客户端都去/lock目录下创建临时、顺序节点，如果创建的客户端发现自身创建节点序列号是/lock/目录下最小的节点，则获得锁。否则，监视比自己创建节点的序列号小的节点（当前序列在自己前面一个的节点），进入等待。解锁操作，只需要将自身创建的节点删除即可。具体算法流程如下图所示:
+
+
+
+4.4 ZooKeeper提供的一个写锁实现
+ 按照ZooKeeper提供的分布式锁的伪代码，实现了一个分布式锁的简单测试代码如下：
+
+（1）分布式锁，实现了Lock接口 DistributedLock.java
+
+复制代码
+package com.concurrent;
+ 
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.Lock;
+ 
+import org.apache.zookeeper.CreateMode;
+import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.Watcher;
+import org.apache.zookeeper.ZooDefs;
+import org.apache.zookeeper.ZooKeeper;
+import org.apache.zookeeper.data.Stat;
+ 
+/**
+    DistributedLock lock = null;
+    try {
+        lock = new DistributedLock("127.0.0.1:2182","test");
+        lock.lock();
+        //do something...
+    } catch (Exception e) {
+        e.printStackTrace();
+    }
+    finally {
+        if(lock != null)
+            lock.unlock();
+    }
+ * @author xueliang
+ *
+ */
+public class DistributedLock implements Lock, Watcher{
+    private ZooKeeper zk;
+    private String root = "/locks";//根
+    private String lockName;//竞争资源的标志
+    private String waitNode;//等待前一个锁
+    private String myZnode;//当前锁
+    private CountDownLatch latch;//计数器
+    private int sessionTimeout = 30000;
+    private List<Exception> exception = new ArrayList<Exception>();
+     
+    /**
+     * 创建分布式锁,使用前请确认config配置的zookeeper服务可用
+     * @param config 127.0.0.1:2181
+     * @param lockName 竞争资源标志,lockName中不能包含单词lock
+     */
+    public DistributedLock(String config, String lockName){
+        this.lockName = lockName;
+        // 创建一个与服务器的连接
+         try {
+            zk = new ZooKeeper(config, sessionTimeout, this);
+            Stat stat = zk.exists(root, false);
+            if(stat == null){
+                // 创建根节点
+                zk.create(root, new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE,CreateMode.PERSISTENT);
+            }
+        } catch (IOException e) {
+            exception.add(e);
+        } catch (KeeperException e) {
+            exception.add(e);
+        } catch (InterruptedException e) {
+            exception.add(e);
+        }
+    }
+ 
+    /**
+     * zookeeper节点的监视器
+     */
+    public void process(WatchedEvent event) {
+        if(this.latch != null) { 
+            this.latch.countDown(); 
+        }
+    }
+     
+    public void lock() {
+        if(exception.size() > 0){
+            throw new LockException(exception.get(0));
+        }
+        try {
+            if(this.tryLock()){
+                System.out.println("Thread " + Thread.currentThread().getId() + " " +myZnode + " get lock true");
+                return;
+            }
+            else{
+                waitForLock(waitNode, sessionTimeout);//等待锁
+            }
+        } catch (KeeperException e) {
+            throw new LockException(e);
+        } catch (InterruptedException e) {
+            throw new LockException(e);
+        }
+    }
+ 
+    public boolean tryLock() {
+        try {
+            String splitStr = "_lock_";
+            if(lockName.contains(splitStr))
+                throw new LockException("lockName can not contains \\u000B");
+            //创建临时子节点
+            myZnode = zk.create(root + "/" + lockName + splitStr, new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE,CreateMode.EPHEMERAL_SEQUENTIAL);
+            System.out.println(myZnode + " is created ");
+            //取出所有子节点
+            List<String> subNodes = zk.getChildren(root, false);
+            //取出所有lockName的锁
+            List<String> lockObjNodes = new ArrayList<String>();
+            for (String node : subNodes) {
+                String _node = node.split(splitStr)[0];
+                if(_node.equals(lockName)){
+                    lockObjNodes.add(node);
+                }
+            }
+            Collections.sort(lockObjNodes);
+            System.out.println(myZnode + "==" + lockObjNodes.get(0));
+            if(myZnode.equals(root+"/"+lockObjNodes.get(0))){
+                //如果是最小的节点,则表示取得锁
+                return true;
+            }
+            //如果不是最小的节点，找到比自己小1的节点
+            String subMyZnode = myZnode.substring(myZnode.lastIndexOf("/") + 1);
+            waitNode = lockObjNodes.get(Collections.binarySearch(lockObjNodes, subMyZnode) - 1);
+        } catch (KeeperException e) {
+            throw new LockException(e);
+        } catch (InterruptedException e) {
+            throw new LockException(e);
+        }
+        return false;
+    }
+ 
+    public boolean tryLock(long time, TimeUnit unit) {
+        try {
+            if(this.tryLock()){
+                return true;
+            }
+            return waitForLock(waitNode,time);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return false;
+    }
+ 
+    private boolean waitForLock(String lower, long waitTime) throws InterruptedException, KeeperException {
+        Stat stat = zk.exists(root + "/" + lower,true);
+        //判断比自己小一个数的节点是否存在,如果不存在则无需等待锁,同时注册监听
+        if(stat != null){
+            System.out.println("Thread " + Thread.currentThread().getId() + " waiting for " + root + "/" + lower);
+            this.latch = new CountDownLatch(1);
+            this.latch.await(waitTime, TimeUnit.MILLISECONDS);
+            this.latch = null;
+        }
+        return true;
+    }
+ 
+    public void unlock() {
+        try {
+            System.out.println("unlock " + myZnode);
+            zk.delete(myZnode,-1);
+            myZnode = null;
+            zk.close();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        } catch (KeeperException e) {
+            e.printStackTrace();
+        }
+    }
+ 
+    public void lockInterruptibly() throws InterruptedException {
+        this.lock();
+    }
+ 
+    public Condition newCondition() {
+        return null;
+    }
+     
+    public class LockException extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+        public LockException(String e){
+            super(e);
+        }
+        public LockException(Exception e){
+            super(e);
+        }
+    }
+ 
+}
+复制代码
+（2）并发测试工具 ConcurrentTest.java
+
+复制代码
+package com.concurrent;
+ 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicInteger;
+ 
+/**
+  ConcurrentTask[] task = new ConcurrentTask[5];
+  for(int i=0;i<task.length;i++){
+       task[i] = new ConcurrentTask(){
+            public void run() {
+                System.out.println("==============");
+                 
+            }};
+  }
+  new ConcurrentTest(task);
+ * @author xueliang
+ *
+ */
+public class ConcurrentTest {
+    private CountDownLatch startSignal = new CountDownLatch(1);//开始阀门
+    private CountDownLatch doneSignal = null;//结束阀门
+    private CopyOnWriteArrayList<Long> list = new CopyOnWriteArrayList<Long>();
+    private AtomicInteger err = new AtomicInteger();//原子递增
+    private ConcurrentTask[] task = null;
+     
+    public ConcurrentTest(ConcurrentTask... task){
+        this.task = task;
+        if(task == null){
+            System.out.println("task can not null");
+            System.exit(1);
+        }
+        doneSignal = new CountDownLatch(task.length);
+        start();
+    }
+    /**
+     * @param args
+     * @throws ClassNotFoundException
+     */
+    private void start(){
+        //创建线程，并将所有线程等待在阀门处
+        createThread();
+        //打开阀门
+        startSignal.countDown();//递减锁存器的计数，如果计数到达零，则释放所有等待的线程
+        try {
+            doneSignal.await();//等待所有线程都执行完毕
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        //计算执行时间
+        getExeTime();
+    }
+    /**
+     * 初始化所有线程，并在阀门处等待
+     */
+    private void createThread() {
+        long len = doneSignal.getCount();
+        for (int i = 0; i < len; i++) {
+            final int j = i;
+            new Thread(new Runnable(){
+                public void run() {
+                    try {
+                        startSignal.await();//使当前线程在锁存器倒计数至零之前一直等待
+                        long start = System.currentTimeMillis();
+                        task[j].run();
+                        long end = (System.currentTimeMillis() - start);
+                        list.add(end);
+                    } catch (Exception e) {
+                        err.getAndIncrement();//相当于err++
+                    }
+                    doneSignal.countDown();
+                }
+            }).start();
+        }
+    }
+    /**
+     * 计算平均响应时间
+     */
+    private void getExeTime() {
+        int size = list.size();
+        List<Long> _list = new ArrayList<Long>(size);
+        _list.addAll(list);
+        Collections.sort(_list);
+        long min = _list.get(0);
+        long max = _list.get(size-1);
+        long sum = 0L;
+        for (Long t : _list) {
+            sum += t;
+        }
+        long avg = sum/size;
+        System.out.println("min: " + min);
+        System.out.println("max: " + max);
+        System.out.println("avg: " + avg);
+        System.out.println("err: " + err.get());
+    }
+     
+    public interface ConcurrentTask {
+        void run();
+    }
+ 
+}
+复制代码
+（3）测试  ZkTest.java
+
+复制代码
+package com.concurrent;
+
+import com.concurrent.ConcurrentTest.ConcurrentTask;
+ 
+public class ZkTest {
+    public static void main(String[] args) {
+        Runnable task1 = new Runnable(){
+            public void run() {
+                DistributedLock lock = null;
+                try {
+                    lock = new DistributedLock("127.0.0.1:2182","test1");
+                    //lock = new DistributedLock("127.0.0.1:2182","test2");
+                    lock.lock();
+                    Thread.sleep(3000);
+                    System.out.println("===Thread " + Thread.currentThread().getId() + " running");
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+                finally {
+                    if(lock != null)
+                        lock.unlock();
+                }
+                 
+            }
+             
+        };
+        new Thread(task1).start();
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException e1) {
+            e1.printStackTrace();
+        }
+        ConcurrentTask[] tasks = new ConcurrentTask[60];
+        for(int i=0;i<tasks.length;i++){
+            ConcurrentTask task3 = new ConcurrentTask(){
+                public void run() {
+                    DistributedLock lock = null;
+                    try {
+                        lock = new DistributedLock("127.0.0.1:2183","test2");
+                        lock.lock();
+                        System.out.println("Thread " + Thread.currentThread().getId() + " running");
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                    finally {
+                        lock.unlock();
+                    }
+                     
+                }
+            };
+            tasks[i] = task3;
+        }
+        new ConcurrentTest(tasks);
+    }
+}
+复制代码
+4.5 更多分布式数据结构和协议
+使用ZooKeeper可以实现很多不同的分布式数据结构和协议，例如“屏障”(bafrier)、队列和两阶段提交协议。有趣的是它们都是同步协议，即使我们使用异步ZooKeeper基本操作（如通知）来实现它们。
+ZooKeeper网站(http://hadoop.apache.org/zookeeper)提供了一些用于实现分布式数据结构和协议的伪代码。ZooKeeper本身也带有一些棕准方法的实现，放在安装位置下的recipes目录中。
+五、BooKeeper
+5.1 BooKeeper概述
+BooKeeper具有副本功能，目的是提供可靠的日志记录。在BooKeeper中，服务器被称为账本（Bookies），在账本之中有不同的账户（Ledgers），每一个账户由一条条记录（Entry）组成。如果使用普通的磁盘存储日志数据，那么日志数据可能遭到破坏，当磁盘发生故障的时候，日志也可能被丢失。BooKeeper为每一份日志提供了分布式的存储，并采用了大多数（quorum，相对于全体）的概念。也就是说，只要集群中的大多数机器可用，那么该日志一直有效。
+
+BooKeeper通过客户端进行操作，客户端可以对BooKeeper进行添加账户、打开账户、添加账户记录、读取账户记录等操作。另外，BooKeeper的服务依赖于ZooKeeper，可以说BooKeeper依赖于ZooKeeper的一致性及其分布式特点，在其之上提供另外一种可靠性服务。BooKeeper的架构如下图所示：☆
+
+　
+
+5.2 BooKeeper角色
+从上图中可以看出，BooKeeper中总共包含四类角色：
+
+① 账本：Bookies
+② 账户：Ledger
+③ 客户端：Client
+④ 元数据及存储服务：Metadata Storage Service
+
+下面简单介绍这四类角色的功能:
+
+(1) 账本 BooKies
+
+账本是BooKeeper的存储服务器，他存储的是一个个的账本，可以将账本理解为一个个节点。在一个BooKeeper系统中存在多个账本（节点），每个账户被不同的账本所存储。若要写一条记录到指定的账户中，该记录将被写到维护该账户所有帐本节点中。为了提高系统的性能，这条记录并不是真正的被写入到所有的节点中，而是选择集群的一个大多数集进行存储。该系统独有的特性，使得BooKeeper系统有良好的扩展性。即，我们可以通过简单的添加机器节点的方法提高系统容量。☆☆
+
+(2) 账户 Ledger
+
+账户中存储的是一系列记录，每一条记录包含一定的字段。记录通过写操作一次性写入，只能进行附加操作不能进行修改。每条记录包含如下字段：
+
+
+当满足下列两个条件时，某条记录才被认为是存储成功：
+
+① 之前所记录的数据被账本节点的大多数集所存储。
+② 该记录被账本节点的大多数集所存储。
+
+(3) 客户端 BooKeeper Client
+
+客户端通常与BooKeeper应用程序进行交互，它允许应用程序在系统上进行操作，包括创建账户，写账户等。
+
+(4) 元数据存储服务 Metadata Storage Service
+
+元数据信息存储在ZooKeeper集群当中，它存储关于账户和账本的信息。例如，账本由集群中的哪些节点进行维护，账户由哪个账本进行维护。应用 程序在使用账本的时候，首先要创建一个账户。在创建账户时，系统首先将该账本的Metadata信息写入到ZooKeeper中。每一个账户在某一时刻只 能有一个写实例（分布式锁）。在其他实例进行读操作之前首先需要将写实例关闭。如果写操作实例由于故障未能正常关闭，那么下一个尝试打开账户的实例将需要 首先对其进行恢复，并正确关闭写操作。在进行写操作的同时需要将最后一次的写记录存储到ZooKeeper中，因此恢复程序仅需要在ZooKeeper中查看该账户所对应的最后一条写记录，然后将其正确的写入到账户中，再在正确关闭写操作。在BooKeeper中该恢复程序有系统自动执行不需要用户参与。
+
+如果，您认为阅读这篇博客让您有些收获，不妨点击一下右下角的【推荐】。
+
+如果，您希望更容易地发现我的新博客，不妨点击一下左下角的【关注我】。
+如果，您对我的博客所讲述的内容有兴趣，请继续关注我的后续博客，我是【Sunddenly】。
+
+本文版权归作者和博客园共有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文连接，否则保留追究法律责任的权利。

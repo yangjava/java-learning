@@ -1,0 +1,586 @@
+一、Zookeeper的四字命令
+Zookeeper支持某些特定的四字命令字母与其的交互。他们大多数是查询命令，用来获取Zookeeper服务的当前状态及相关信息。用户在客户端可以通过telnet或nc向Zookeeper提交相应的命令。Zookeeper常用的四字命令见下图所示。
+
+
+
+上图，是Zookeeper四字命令的一个简单用例。
+
+复制代码
+[root@hadoop ~]# echo ruok|nc localhost 2181
+[root@hadoop ~]# zkServer.sh start zoo1.cfg
+JMX enabled by default
+Using config: /usr/local/zk/bin/../conf/zoo1.cfg
+Starting zookeeper ... STARTED
+[root@hadoop ~]#  zkServer.sh start zoo2.cfg
+JMX enabled by default
+Using config: /usr/local/zk/bin/../conf/zoo2.cfg
+Starting zookeeper ... STARTED
+[root@hadoop ~]#  zkServer.sh start zoo3.cfg
+JMX enabled by default
+Using config: /usr/local/zk/bin/../conf/zoo3.cfg
+Starting zookeeper ... STARTED
+[root@hadoop ~]# echo ruok|nc localhost 2181
+imok[root@hadoop ~]# echo ruok|nc localhost 2182
+imok[root@hadoop ~]# echo ruok|nc localhost 2183
+imok[root@hadoop ~]# echo conf|nc localhost 2181
+clientPort=2181
+dataDir=/usr/local/zk/data_1/version-2
+dataLogDir=/usr/local/zk/logs_1/version-2
+tickTime=2000
+maxClientCnxns=60
+minSessionTimeout=4000
+maxSessionTimeout=40000
+serverId=0
+initLimit=10
+syncLimit=5
+electionAlg=3
+electionPort=3387
+quorumPort=2287
+peerType=0
+[root@hadoop ~]#
+复制代码
+二、Zookeeper的简单操作
+2.1  Zookeeper的shell操作
+2.1.1 Zookeeper命令工具
+
+再启动Zookeeper服务之后，输入以下命令，连接到Zookeeper服务：
+
+　　　　zkCli.sh -server localhost:2181
+
+执行结果如下所示：
+
+复制代码
+[root@hadoop ~]# zkCli.sh -server localhost:2181
+Connecting to localhost:2181
+2014-10-17 03:35:51,051 [myid:] - INFO  [main:Environment@100] - Client environment:zookeeper.version=3.4.5-1392090, built on 09/30/2012 17:52 GMT
+2014-10-17 03:35:51,055 [myid:] - INFO  [main:Environment@100] - Client environment:host.name=hadoop
+2014-10-17 03:35:51,057 [myid:] - INFO  [main:Environment@100] - Client environment:java.version=1.6.0_24
+2014-10-17 03:35:51,057 [myid:] - INFO  [main:Environment@100] - Client environment:java.vendor=Sun Microsystems Inc.
+2014-10-17 03:35:51,066 [myid:] - INFO  [main:Environment@100] - Client environment:java.home=/usr/local/jdk/jre
+2014-10-17 03:35:51,079 [myid:] - INFO  [main:Environment@100] - Client environment:java.class.path=/usr/local/zk/bin/../build/classes:/usr/local/zk/bin/../build/lib/*.jar:/usr/local/zk/bin/../lib/slf4j-log4j12-1.6.1.jar:/usr/local/zk/bin/../lib/slf4j-api-1.6.1.jar:/usr/local/zk/bin/../lib/netty-3.2.2.Final.jar:/usr/local/zk/bin/../lib/log4j-1.2.15.jar:/usr/local/zk/bin/../lib/jline-0.9.94.jar:/usr/local/zk/bin/../zookeeper-3.4.5.jar:/usr/local/zk/bin/../src/java/lib/*.jar:/usr/local/zk/bin/../conf:
+2014-10-17 03:35:51,083 [myid:] - INFO  [main:Environment@100] - Client environment:java.library.path=/usr/local/jdk/jre/lib/i386/client:/usr/local/jdk/jre/lib/i386:/usr/local/jdk/jre/../lib/i386:/usr/java/packages/lib/i386:/lib:/usr/lib
+2014-10-17 03:35:51,084 [myid:] - INFO  [main:Environment@100] - Client environment:java.io.tmpdir=/tmp
+2014-10-17 03:35:51,086 [myid:] - INFO  [main:Environment@100] - Client environment:java.compiler=<NA>
+2014-10-17 03:35:51,099 [myid:] - INFO  [main:Environment@100] - Client environment:os.name=Linux
+2014-10-17 03:35:51,100 [myid:] - INFO  [main:Environment@100] - Client environment:os.arch=i386
+2014-10-17 03:35:51,101 [myid:] - INFO  [main:Environment@100] - Client environment:os.version=2.6.32-358.el6.i686
+2014-10-17 03:35:51,101 [myid:] - INFO  [main:Environment@100] - Client environment:user.name=root
+2014-10-17 03:35:51,102 [myid:] - INFO  [main:Environment@100] - Client environment:user.home=/root
+2014-10-17 03:35:51,106 [myid:] - INFO  [main:Environment@100] - Client environment:user.dir=/root
+2014-10-17 03:35:51,120 [myid:] - INFO  [main:ZooKeeper@438] - Initiating client connection, connectString=localhost:2181 sessionTimeout=30000 watcher=org.apache.zookeeper.ZooKeeperMain$MyWatcher@b02e7a
+Welcome to ZooKeeper!
+JLine support is enabled
+2014-10-17 03:35:51,233 [myid:] - INFO  [main-SendThread(localhost:2181):ClientCnxn$SendThread@966] - Opening socket connection to server localhost/127.0.0.1:2181. Will not attempt to authenticate using SASL (Unable to locate a login configuration)
+2014-10-17 03:35:51,247 [myid:] - INFO  [main-SendThread(localhost:2181):ClientCnxn$SendThread@849] - Socket connection established to localhost/127.0.0.1:2181, initiating session
+[zk: localhost:2181(CONNECTING) 0] 2014-10-17 03:35:51,290 [myid:] - INFO  [main-SendThread(localhost:2181):ClientCnxn$SendThread@1207] - Session establishment complete on server localhost/127.0.0.1:2181, sessionid = 0x491da0e20b0000, negotiated timeout = 30000
+
+WATCHER::
+
+WatchedEvent state:SyncConnected type:None path:null
+
+[zk: localhost:2181(CONNECTED) 0]
+复制代码
+连接成功之后，系统会输出Zookeeper的相关环境及配置信息，并在屏幕输出“welcome to Zookeeper！”等信息。输入help之后，屏幕会输出可用的Zookeeper命令，如下图所示
+
+
+
+2.1.2 使用Zookeeper命令的简单操作步骤
+
+(1) 使用ls命令查看当前Zookeeper中所包含的内容：ls /
+
+[zk: localhost:2181(CONNECTED) 1] ls /
+[zookeeper]
+[zk: localhost:2181(CONNECTED) 2]
+(2) 创建一个新的Znode节点"zk"，以及和它相关字符，执行命令：create /zk myData
+
+[zk: localhost:2181(CONNECTED) 2] create /zk myData
+Created /zk
+(3) 再次使用ls命令来查看现在Zookeeper的中所包含的内容：ls /
+
+[zk: localhost:2181(CONNECTED) 3] ls /
+[zk, zookeeper]
+此时看到，zk节点已经被创建。　　
+
+(4) 使用get命令来确认第二步中所创建的Znode是否包含我们创建的字符串，执行命令：get /zk
+
+复制代码
+[zk: localhost:2181(CONNECTED) 4] get /zk
+myData
+cZxid = 0x500000006
+ctime = Fri Oct 17 03:54:20 PDT 2014
+mZxid = 0x500000006
+mtime = Fri Oct 17 03:54:20 PDT 2014
+pZxid = 0x500000006
+cversion = 0
+dataVersion = 0
+aclVersion = 0
+ephemeralOwner = 0x0
+dataLength = 6
+numChildren = 0
+复制代码
+(5) 接下来通过set命令来对zk所关联的字符串进行设置，执行命令：set /zk jiang1234
+
+复制代码
+[zk: localhost:2181(CONNECTED) 5] set /zk jiang2014
+cZxid = 0x500000006
+ctime = Fri Oct 17 03:54:20 PDT 2014
+mZxid = 0x500000007
+mtime = Fri Oct 17 03:55:50 PDT 2014
+pZxid = 0x500000006
+cversion = 0
+dataVersion = 1
+aclVersion = 0
+ephemeralOwner = 0x0
+dataLength = 9
+numChildren = 0
+复制代码
+(6) 再次使用get命令来查看，上次修改的内容，执行命令：get /zk
+
+复制代码
+[zk: localhost:2181(CONNECTED) 6] get /zk
+jiang2014
+cZxid = 0x500000006
+ctime = Fri Oct 17 03:54:20 PDT 2014
+mZxid = 0x500000007
+mtime = Fri Oct 17 03:55:50 PDT 2014
+pZxid = 0x500000006
+cversion = 0
+dataVersion = 1
+aclVersion = 0
+ephemeralOwner = 0x0
+dataLength = 9
+numChildren = 0
+复制代码
+(7) 下面我们将刚才创建的Znode删除，执行命令：delete /zk
+
+[zk: localhost:2181(CONNECTED) 7] delete /zk
+(8) 最后再次使用ls命令查看Zookeeper中的内容，执行命令：ls /
+
+[zk: localhost:2181(CONNECTED) 8] ls /
+[zookeeper]
+ 
+
+经过验证，zk节点已经删除。
+
+2.2 Zookeeper的api的简单使用
+2.2.1 ZookeeperAPI简介
+
+Zookeeper API共包含五个包，分别为：
+
+　　（1）org.apache.zookeeper
+　　（2）org.apache.zookeeper.data
+　　（3）org.apache.zookeeper.server
+　　（4）org.apache.zookeeper.server.quorum
+　　（5）org.apache.zookeeper.server.upgrade
+
+其中org.apache.zookeeper，包含Zookeeper类，他是我们编程时 最常用的类文件。这个类是Zookeeper客户端的主要类文件。如果要使用Zookeeper服务，应用程序首先必须创建一个Zookeeper实例， 这时就需要使用此类。一旦客户端和Zookeeper服务建立起了连接，Zookeeper系统将会给次连接会话分配一个ID值，并且客户端将会周期性的 向服务器端发送心跳来维持会话连接。只要连接有效，客户端就可以使用Zookeeper API来做相应处理了。
+
+Zookeeper类提供了如下图所示的几类主要方法
+
+ 
+
+2.2.2 Zookeeper API的使用
+
+这里通过一个例子来简单介绍如何使用Zookeeper API 编写自己的应用程序，代码如下：
+
+复制代码
+package org.zk;
+
+import java.io.IOException;
+import java.util.List;
+
+import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.ZooKeeper;
+
+public class ListGroup extends ConnectionWatcher {
+    public void list(String groupNmae) throws KeeperException, InterruptedException{
+        String path ="/"+groupNmae;
+        try {
+            List<String> children = zk.getChildren(path, false);
+            if(children.isEmpty()){
+                System.out.printf("No memebers in group %s\n",groupNmae);
+                System.exit(1);
+            }
+            for(String child:children){
+                System.out.println(child);
+            }
+        } catch (KeeperException.NoNodeException e) {
+            System.out.printf("Group %s does not exist \n", groupNmae);
+            System.exit(1);
+        } 
+    }
+    public static void main(String[] args) throws IOException, InterruptedException, KeeperException {
+        ListGroup listGroup = new ListGroup();
+        listGroup.connect(args[0]);
+        listGroup.list(args[1]);
+        listGroup.close();
+    }
+}
+复制代码
+此类包含两个主要的 ZooKeeper 函数，分别为 createZKInstance ()和 ZKOperations()。其中：
+
+(1) createZKInstance()函数负责对 ZooKeeper 实例 zk 进行初始化。
+
+ZooKeeper 类有两个构造函数，我们这里使用“ ZooKeeper (String connectString, int sessionTimeout ,Watcher watcher )”对其进行初始化。因此，我们需要提供初始化所需的，连接字符串信息，会话超时时间，以及一个 watcher 实例。 19行到 25行代码，是程序所构造的一个watcher 实例，它能够输出所发生的事件。
+
+(2) ZKOperations ()函数是我们所定义的对节点的一系列操作。
+
+它包括：创建 ZooKeeper 节点（ 35行到 36行代码）、查看节点（ 38 行到 39 行代码）、修改节点数据（ 41 行到 42 行代码）、查看修改后节点数据（ 44 行到 45行代码）、删除节点（ 47行到 48行代码）、查看节点是否存在（ 50 行到 51 行代码）。
+
+代码的运行结果如下：
+
+复制代码
+1. 创建ZooKeeper节点（Znode：/znode;数据：myData2;权限：OPEN_ACL_UNSAFE;节点类型：Persistent）
+ None
+2. 查看节点是否创建成功：
+ /znode myData2
+3. 修改节点数据：
+4. 查看是否修改成功：
+ jiang1234
+5. 删除节点：
+6. 查看/znode节点状态：
+ 节点间状态：[null]
+复制代码
+三、ZooKeeper示例
+假设一组服务器，用于为客户端提供一些服务。我们希望每个客户端都能够能够找到其中一台服务器，使其能够使用这些服务，挑战之一就是维护这组服务器 列表。这组服务器的成员列表明显不能存在网络中的单个节点上，因为如果那个节点发生故障，就意味着是整个系统的故障（我们希望这个列表有很高的可用性）。 假设我们有了一个可靠的方法解决了这个成员列表的存储问题。如果其中一台服务器出现故障，我们仍然需要解决如何从服务器成员列表中将它删除的问题。某个进 程需要负责删除故障服务器，但注意不能由故障服务器自己来完成，因为故障服务器已经不再运行。
+
+我们所描述的不是一个被动的分布式数据结构，而是一个主动的、能够在某个外部事件发生时修改数据项状态的数据结构。ZooKeeper提供这种服务，所以让我们看看如何使用它来实现这种众所周知的组成员管理应用。
+
+ZooKeeper中的组成员关系
+
+理解ZooKeeper的一种方法就是将其看作一个具有高可用性的文件系统。但这个文件系统中没有文件和目录，而是统一使用“节点”(node)的概念，称为znode。znode既可以作为保存数据的容器（如同文件），也可以作为保存其他znode的容器（如同目录）。所有的znode构成一个层次化的命名空间。一种自然的建立组成员列表的方式就是利用这种层次结构，创建一个以组名为节点名的znode作为父节点，然后以组成员名（服务器名）为节点名来创建作为子节点的znode。如下图给出了一组具有层次结构的znode。
+
+ 
+
+在这个示例中，我们没有在任何znode中存储数据，但在一个真实的应用中，你可以将“关于成员的数据”存储在它们的znode中，例如主机名。
+
+3.1 创建组
+3.1.1 代码示例
+
+让我们通过编写一段程序的方式来再次详细介绍ZooKeeper的Java API，这段示例程序用于为组名为/zoo的组创建一个znode。代码参见如下
+
+代码 该程序在ZooKeeper中新建表示组的Znode
+
+复制代码
+package org.zk;
+
+import java.io.IOException;
+import java.util.concurrent.CountDownLatch;
+
+import org.apache.zookeeper.CreateMode;
+import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.Watcher;
+import org.apache.zookeeper.Watcher.Event.KeeperState;
+import org.apache.zookeeper.ZooDefs.Ids;
+import org.apache.zookeeper.ZooKeeper;
+
+public class CreateGroup implements Watcher{
+    private static final int SESSION_TIMEOUT=5000;
+    
+    private ZooKeeper zk;
+    private CountDownLatch connectedSignal=new CountDownLatch(1);
+    @Override
+    public void process(WatchedEvent event) {
+        if(event.getState()==KeeperState.SyncConnected){
+            connectedSignal.countDown();
+        }
+    }
+    
+    public static void main(String[] args) throws IOException, InterruptedException, KeeperException {
+        CreateGroup createGroup = new CreateGroup();
+        createGroup.connect(args[0]);
+        createGroup.create(args[1]);
+        createGroup.close();
+    }
+
+    private void close() throws InterruptedException {
+        zk.close();
+    }
+
+    private void create(String groupName) throws KeeperException, InterruptedException {
+        String path="/"+groupName;
+        if(zk.exists(path, false)== null){
+            zk.create(path, null/*data*/, Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+        }
+        System.out.println("Created:"+path);
+    } 
+
+    private void connect(String hosts) throws IOException, InterruptedException {
+        zk = new ZooKeeper(hosts, SESSION_TIMEOUT, this);
+        connectedSignal.await();
+    }
+}
+复制代码
+运行该程序需要配置classpath环境变量或者在执行java命令时添加-classpath选项，具体运行方式参见：http://www.cnblogs.com/sunddenly/p/4050812.html
+
+运行后的结果为：
+
+复制代码
+[root@hadoop code]# ls
+build  classes  CreateGroup.java  HelloWorld.java  jar.jar  PackageTest.java  zookeeper.out
+[root@hadoop code]# javac -d ./classes CreateGroup.java
+[root@hadoop code]# java org.zk.CreateGroup localhost:2181 zoo
+2014-10-28 18:00:26,154 [myid:] - INFO  [main:Environment@100] - Client environment:zookeeper.version=3.4.5-1392090, built on
+2014-10-28 18:00:26,157 [myid:] - INFO  [main:Environment@100] - Client environment:host.name=hadoop
+2014-10-28 18:00:26,157 [myid:] - INFO  [main:Environment@100] - Client environment:java.version=1.6.0_24
+2014-10-28 18:00:26,157 [myid:] - INFO  [main:Environment@100] - Client environment:java.vendor=Sun Microsystems Inc.
+2014-10-28 18:00:26,158 [myid:] - INFO  [main:Environment@100] - Client environment:java.home=/usr/local/jdk/jre
+2014-10-28 18:00:26,158 [myid:] - INFO  [main:Environment@100] - Client environment:java.class.path=……
+……
+Created:/zoo
+2014-10-28 18:00:26,236 [myid:] - INFO  [main:ZooKeeper@684] - Session: 0x4956f7f1d70005 closed
+2014-10-28 18:00:26,237 [myid:] - INFO  [main-EventThread:ClientCnxn$EventThread@509] - EventThread shut down
+[root@hadoop code]#
+复制代码
+ 3.1.2 代码分析
+
+在上面代码中，main()方法执行时，创建了一个CreateGroup的实例并且调用了这个实例的connect()方法。connect方法实例化了一个新的ZooKeeper类的对象，这个类是客户端API中的主要类，并且负责维护客户端和ZooKeeper服务之间的连接。ZooKeeper类的构造函数有三个参数：
+　　第一个是：ZooKeeper服务的主机地址，可指定端口，默认端口是2181。
+　　第二个是：以毫秒为单位的会话超时参数，这里我们设成5秒。
+　　第三个是：参数是一个Watcher对象的实例。
+Watcher对象接收来自于ZooKeeper的回调，以获得各种事件的通知。在这个例子中，CreateGroup是一个Watcher对象，因此我们将它传递给ZooKeeper的构造函数。
+当一个ZooKeeper的实例被创建时，会启动一个线程连接到ZooKeeper服务。由于对构造函数的调用是立即返回的，因此在使用新建的ZooKeeper对象之前一定要等待其与ZooKeeper服务之间的连接建立成功。我们使用Java的CountDownLatch类来阻止使用新建的ZooKeeper对象，直到这个ZooKeeper对象已经准备就绪。这就是Watcher类的
+用途，在它的接口中只有一个方法：
+　　　　public void process(WatcherEvent event);
+客 户端已经与ZooKeeper建立连接后，Watcher的process()方法会被调用，参数是一个表示该连接的事件。在接收到一个连接事件（由 Watcher.Event.KeeperState的枚举型值SyncConnected来表示）时，我们通过调用CountDownLatch的countDown()方法来递减它的计数器。锁存器(latch)被创建时带有一个值为1的计数器，用于表示在它释放所有等待线程之前需要发生的事件数。在调用一欢countDown()方法之后，计数器的值变为0，则await()方法返回。
+现在connect()方法已经返回，下一个执行的是CreateGroup的create()方法。在这个方法中，我们使用ZooKeeper实例中的create()方法来创建一个新的ZooKeeper的znode。所需的参数包括：
+　　　　路径：用字符串表示。
+　　　　znode的内容：字节数组，本例中使用空值。
+　　　　访问控制列表：简称ACL，本例中使用了完全开放的ACL，允许任何客户端对znode进行读写。
+　　　　创建znode的类型：有两种类型的znode：短暂的和持久的。
+
+创建znode的客户端断开连接时，无论客户端是明确断开还是因为任何原因而终止，短暂znode都会被ZooKeeper服务删除。与之相反，当 客户端断开连接时，持久znode不会被删除。我们希望代表一个组的znode存活的时间应当比创建程序的生命周期要长，因此在本例中我们创建了一个持久 的znode。
+
+create()方法的返回值是ZooKeeper所创建的路径，我们用这个返回值来打印一条表示路径成功创建的消息。当我们查看“顺序znode”(sequential znode)时．会发现create()方法返回的路径与传递给该方法的路径不同。
+
+3.2 加入组
+下面的这一段程序用于注册组的成员。每个组成员将作为一个程序运行，并且加入到组中。当程序退出时，这个组成员应当从组中被删除。为了实现这一点，我们在ZooKeeper的命名空间中使用短暂znode来代表一个组成员。
+
+在基类ConnectionWatcher中，对创建和连接ZooKeeper实例的程序逻辑进行了重构，参见代码如下
+
+代码 用于将成员加入组的程序
+
+复制代码
+package org.zk;
+
+import java.io.IOException;
+
+import org.apache.zookeeper.CreateMode;
+import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.ZooDefs.Ids;
+
+public class JoinGroup extends ConnectionWatcher{
+    public void join(String groupName,String memberName) throws KeeperException, InterruptedException{
+        String path="/"+groupName+"/"+memberName;
+        String createdPath=zk.create(path, null, Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL);
+        System.out.println("Created:"+createdPath);
+    }
+    public static void main(String[] args) throws InterruptedException, IOException, KeeperException {
+        JoinGroup joinGroup = new JoinGroup();
+        joinGroup.connect(args[0]);
+        joinGroup.join(args[1], args[2]);
+        
+        //stay alive until process is killed or thread is interrupted
+        Thread.sleep(Long.MAX_VALUE);
+    }
+}
+复制代码
+代码 3.3 用于等待建立与ZooKeeper连接的辅助类
+
+复制代码
+package org.zk;
+
+import java.io.IOException;
+import java.util.concurrent.CountDownLatch;
+
+import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.Watcher;
+import org.apache.zookeeper.Watcher.Event.KeeperState;
+import org.apache.zookeeper.ZooKeeper;
+
+public class ConnectionWatcher implements Watcher{
+    private static final int SESSION_TIMEOUT=5000;
+    
+    protected ZooKeeper zk;
+    CountDownLatch connectedSignal=new CountDownLatch(1);
+    public void connect(String host) throws IOException, InterruptedException{
+        zk=new ZooKeeper(host, SESSION_TIMEOUT, this);
+        connectedSignal.await();
+    }
+    @Override
+    public void process(WatchedEvent event) {
+        if(event.getState()==KeeperState.SyncConnected){
+            connectedSignal.countDown();
+        }
+    }
+    public void close() throws InterruptedException{
+        zk.close();
+    }
+
+}
+复制代码
+JoinGroup的代码与CreateGroup非常相似，在它的join()方法中，创建短暂znode，作为组znode的子节点，然后通过 休眠来模拟正在做某种工作，直到该进程被强行终止。接着，你会看到随着进程终止，这个短暂znode被ZooKeeper删除。
+
+3.3 列出组成员
+现在，我们需要一段程序来查看组成员，参见代码如下：
+
+代码 用于列出组成员的程序
+
+复制代码
+package org.zk;
+
+import java.io.IOException;
+import java.util.List;
+
+import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.ZooKeeper;
+
+public class ListGroup extends ConnectionWatcher {
+    public void list(String groupNmae) throws KeeperException, InterruptedException{
+        String path ="/"+groupNmae;
+        try {
+            List<String> children = zk.getChildren(path, false);
+            if(children.isEmpty()){
+                System.out.printf("No memebers in group %s\n",groupNmae);
+                System.exit(1);
+            }
+            for(String child:children){
+                System.out.println(child);
+            }
+        } catch (KeeperException.NoNodeException e) {
+            System.out.printf("Group %s does not exist \n", groupNmae);
+            System.exit(1);
+        } 
+    }
+    public static void main(String[] args) throws IOException, InterruptedException, KeeperException {
+        ListGroup listGroup = new ListGroup();
+        listGroup.connect(args[0]);
+        listGroup.list(args[1]);
+        listGroup.close();
+    }
+}
+复制代码
+在list()方法中，我们调用了getChildren()方法来检索并打印输出一个znode的子节点列表，调用参数为：该znode的路径和 设为false的观察标志。如果在一znode上设置了观察标志，那么一旦该znode的状态改变，关联的观察(Watcher)会被触发。虽然在这里我 们可以不使用观察，但在查看一个znode的子节点时，也可以设置观察，让应用程序接收到组成员加入、退出和组被删除的有关通知。
+
+在这段程序中，我们捕捉了KeeperException.NoNodeException异常，代表组的znode不存在时，这个异常就会被抛 出。下面看一下ListGroup程序的工作过程：虽然搭建了分布式的ZooKeeper，但分布式ZooKeeper启动运行比较耗时，我在这采用前面 提到的复制模式下的ZooKeeper来进行测试。
+
+首先我们得启动ZooKeeper，启动以后将上面的源程序放到Linux目录中并进行编译，我将其放到了"/usr/code"目录下，并在该目录下创建一个classes文件夹，用于存放生成字节码文件：
+
+复制代码
+[root@hadoop ~]# cd /usr/code
+[root@hadoop code]# ls
+ConnectionWatcher.java  DeleteGroup.java  ListGroup.java
+classes  CreateGroup.java  JoinGroup.java  PackageTest.java
+[root@hadoop code]# javac -d ./classes ConnectionWatcher.java
+[root@hadoop code]# javac -d ./classes *.java
+复制代码
+由于目前我们还没有在组中添加任何成员，因此zoo是空的：
+
+[root@hadoop code]# java org.zk.ListGroup  localhost zoo
+2014-10-30 01:52:19,703 [myid:] - INFO  [main:Environment@100] - Client environment:……
+……
+No memebers in group zoo
+我们可以使用JoinGroup来向组中添加成员。在sleep语句的作用下，这些作为组成员的znode不会自己终止，所以我们可以，以后台进程的方式来启动他们：
+
+复制代码
+[root@hadoop code]# java org.zk.JoinGroup localhost zoo duck &
+2014-10-30 02:06:05,018 [myid:] - INFO  [main:Environment@100] - Client environment:……
+……
+Created:/zoo/duck
+[root@hadoop code]# java org.zk.JoinGroup localhost zoo cow &
+2014-10-30 02:06:05,018 [myid:] - INFO  [main:Environment@100] - Client environment:……
+……
+Created:/zoo/cow
+[root@hadoop code]# java org.zk.JoinGroup localhost zoo goat &
+2014-10-30 02:06:05,018 [myid:] - INFO  [main:Environment@100] - Client environment:……
+……
+Created:/zoo/goat
+复制代码
+最后一行命令保存了将goat添加到组中的java进程的ID。我们需要保存这个进程的ID，以便能够在查看组成员之后杀死进程。
+
+复制代码
+[root@hadoop code]#
+2014-10-30 03:15:30,619 [myid:] - INFO  [main:Environment@100] - Client environment:……
+……
+duck
+cow
+goat
+复制代码
+为了从组中删除一个成员，我们杀死了goat所对应的进程：
+
+复制代码
+[root@hadoop code]# kill $goat_pid
+几秒钟之后，由于进程的ZooKeeper会话已经结束（超时为5秒），所以goat会从组成员列表消失，并且对应的短暂znode也已经被删除。
+[root@hadoop code]# java org.zk.ListGroup localhost zoo
+2014-10-30 03:23:41,120 [myid:] - INFO  [main:Environment@100] - Client environment:……
+……
+duck
+cow
+复制代码
+对于参与到一个分布式系统中的节点，这样就有了一个建立节点列表的方法。这些节点也许彼此并不了解。例如，一个想使用列表中节点来完成某些工作的客 户端，能够在这些节点不知道客户端的情况下发现它们。最后，注意，组成员关系管理并不能解决与节点通信过程中出现的网络问题。即使一个节点是一个组中的成 员，在与其通信的过程中仍然会出现故障，这种故障必须以一种合适的方式解决（重试、使用组中另外一个成员等）。☆☆☆
+
+3.4 ZooKeeper命令行工具
+ZooKeeper提供了一个命令行工具用于在其命名空间内进行交互。我们可以使用这个命令工具列出/zoo节点之下的znode列表，如下所示
+
+复制代码
+[root@hadoop code]# zkCli.sh -server localhost ls /zoo
+Connecting to localhost
+……
+WATCHER::
+WatchedEvent state:SyncConnected type:None path:null
+[duck, cow]
+[root@hadoop code]#
+复制代码
+3.5 删除组
+下面来看如何删除一个组。ZooKeeper类提供了一个delete()方法，该方法有两个参数：
+
+1. 路径
+
+2. 版本号
+
+如果所提供的版本号与znode的版本号一致，ZooKeeper会删除这个znode。这是一种乐观的加锁机制，使客户端能够检测出对znode的修改冲突。通过将版本号设置为-1，可以绕过这个版本检测机制，不管znode的版本号是什么而直接将其删除。ZooKeeper不支持递归的删除操作，因此在删除父节点之前必须先删除子节点。
+
+在代码3.5中，DeleteGroup类用于删除一个组及其所有成员。
+代码3.5用于删除一个组及其所有成员的程序
+
+复制代码
+package org.zk;
+
+import java.io.IOException;
+import java.util.List;
+
+import org.apache.zookeeper.KeeperException;
+
+public class DeleteGroup extends ConnectionWatcher{
+    public void delete(String groupName) throws InterruptedException, KeeperException{
+        String path="/"+groupName;
+        List<String> children;
+        try {
+            children = zk.getChildren(path, false);
+            for(String child:children){
+                zk.delete(path+"/"+child, -1);            
+            }
+            zk.delete(path, -1);
+        } catch (KeeperException.NoNodeException e) {
+            System.out.printf("Group %s does not exist\n", groupName);
+            System.exit(1);
+        }    
+    }
+    public static void main(String[] args) throws InterruptedException, IOException, KeeperException {
+        DeleteGroup deleteGroup = new DeleteGroup();
+        deleteGroup.connect(args[0]);
+        deleteGroup.delete(args[1]);
+        deleteGroup.close();
+    }
+}
+复制代码
+最后，我们可以删除之前所创建的zoo组：
+
+复制代码
+[root@hadoop code]# java org.zk.DeleteGroup localhost zoo
+……
+[root@hadoop code]# java org.zk.ListGroup localhost zoo
+2014-10-30 05:39:41,974 [myid:] - INFO  [main:Environment@100] - Client environment:……
+Group zoo does not exist
+[root@hadoop code]#
