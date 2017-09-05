@@ -1,0 +1,38 @@
+//string 转 byte[]
+
+String str = "Hello";
+
+byte[] srtbyte = str.getBytes();
+
+// byte[] 转 string
+
+String res = new String(srtbyte);
+
+System.out.println(res);
+
+Byte.toString(b)
+
+System.out.println(b + "");
+
+//当然还有可以设定编码方式
+的
+
+String str = "hello";
+
+byte[] srtbyte = null;
+
+try {
+
+	srtbyte = str.getBytes("UTF-8");
+
+	String res = new String(srtbyte,"UTF-8");
+
+	System.out.println(res);
+
+    } catch (UnsupportedEncodingException e) {
+
+	// TODO Auto-generated catch block
+
+	e.printStackTrace();
+
+    }
