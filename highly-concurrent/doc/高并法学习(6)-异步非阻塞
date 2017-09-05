@@ -1,0 +1,246 @@
+作者：孙伟，目前负责京东商品详情页统一服务系统，写过java，写过ngx_lua，还写过storm等，喜欢学习研究新事物。
+
+在做电商系统时，流量入口如首页、活动页、商品详情页等系统承载了网站的大部分流量，而这些系统的主要职责包括聚合数据拼装模板、热点统计、缓存、下游功能降级开关、托底数据等等。其中聚合数据需要调用其它多个系统服务获取数据、拼装数据/模板然后返回给前端，聚合数据来源主要有依赖系统/服务、缓存、数据库等；而系统之间的调用可以通过如http接口调用（如HttpClient）、SOA服务调用（如dubbo、thrift）等等。
+ 
+在Java中，如使用Tomcat，一个请求会分配一个线程进行请求处理，该线程负责获取数据、拼装数据或模板然后返回给前端；在同步调用获取数据接口的情况下（等待依赖系统返回数据），整个线程是一直被占用并阻塞的。如果有大量的这种请求，每个请求占用一个线程，但线程一直处于阻塞，降低了系统的吞吐量，这将导致应用的吞吐量下降；我们希望在调用依赖的服务响应比较慢，此时应该让出线程和CPU来处理下一个请求，当依赖的服务返回了再分配相应的线程来继续处理。而这应该有更好的解决方案：异步/协程。而Java是不支持协程的（虽然有些Java框架说支持，但还是高层API的封装），因此在Java中我们还可以使用异步来提升吞吐量。目前java一些开源框架（HttpClient\HttpAsyncClient、dubbo、thrift等等）大部分都支持。
+ 
+几种调用方式
+同步阻塞调用
+即串行调用，响应时间为所有服务的响应时间总和；
+ 
+半异步(异步Future)
+线程池，异步Future，使用场景：并发请求多服务，总耗时为最长响应时间；提升总响应时间，但是阻塞主请求线程，高并发时依然会造成线程数过多，CPU上下文切换；
+ 
+全异步(Callback)
+Callback方式调用，使用场景：不考虑回调时间且只能对结果做简单处理，如果依赖服务是两个或两个以上服务，则不能合并两个服务的处理结果；不阻塞主请求线程，但使用场景有限。
+ 
+异步回调链式编排
+异步回调链式编排（JDK8 CompletableFuture），使用场景：其实不是异步调用方式，只是对依赖多服务的Callback调用结果处理做结果编排，来弥补Callback的不足，从而实现全异步链式调用。
+ 
+接下来看看如何设计利用全异步Callback调用和异步回调链式编排处理结果来实现全异步系统设计。
+ 
+同步阻塞调用
+public class Test {
+   public static void main(String[] args) throws Exception {
+       RpcService rpcService = new RpcService();
+       HttpService httpService = new HttpService();
+       //耗时10ms
+       Map<String, String> result1 = rpcService.getRpcResult();
+       //耗时20ms
+       Integer result2 = httpService.getHttpResult();
+       //总耗时30ms
+    }
+   static class RpcService {
+       Map<String, String> getRpcResult() throws Exception {
+           //调用远程方法（远程方法耗时约10ms，可以使用Thread.sleep模拟）
+       }
+    }
+   static class HttpService {
+       Integer getHttpResult() throws Exception {
+           //调用远程方法（远程方法耗时约20ms，可以使用Thread.sleep模拟）
+           Thread.sleep(20);
+           return 0;
+       }
+    }
+}
+ 
+半异步(异步Future)
+public class Test {
+   final static ExecutorService executor = Executors.newFixedThreadPool(2);
+   public static void main(String[] args) {
+       RpcService rpcService = new RpcService();
+       HttpService httpService = new HttpService();
+       Future<Map<String, String>> future1 = null;
+       Future<Integer> future2 = null;
+       try {
+           future1 = executor.submit(() -> rpcService.getRpcResult());
+           future2 = executor.submit(() -> httpService.getHttpResult());
+           //耗时10ms
+           Map<String, String> result1 = future1.get(300, TimeUnit.MILLISECONDS);
+           //耗时20ms
+           Integer result2 = future2.get(300, TimeUnit.MILLISECONDS);
+           //总耗时20ms
+       } catch (Exception e) {
+           if (future1 != null) {
+                future1.cancel(true);
+           }
+           if (future2 != null) {
+                future2.cancel(true);
+           }
+           throw new RuntimeException(e);
+       }
+    }
+   static class RpcService {
+       Map<String, String> getRpcResult() throws Exception {
+           //调用远程方法（远程方法耗时约10ms，可以使用Thread.sleep模拟）
+       }
+    }
+   static class HttpService {
+       Integer getHttpResult() throws Exception {
+           //调用远程方法（远程方法耗时约20ms，可以使用Thread.sleep模拟）
+       }
+    }
+}
+ 
+全异步(Callback)
+public class AsyncTest {
+public staticHttpAsyncClient httpAsyncClient;
+   public static CompletableFuture<String> getHttpData(String url) {
+       CompletableFuture asyncFuture = new CompletableFuture();
+       HttpPost post = new HttpPost(url);
+       HttpAsyncRequestProducer producer = HttpAsyncMethods.create(post);
+       AsyncCharConsumer<HttpResponse> consumer = newAsyncCharConsumer<HttpResponse>() {
+            HttpResponse response;
+           protected HttpResponse buildResult(final HttpContext context) {
+                return response;
+           }
+…...
+       };
+       FutureCallback callback = new FutureCallback<HttpResponse>() {
+           public void completed(HttpResponse response) {
+               asyncFuture.complete(EntityUtils.toString(response.getEntity()));
+           }
+…...
+       };
+       httpAsyncClient.execute(producer, consumer, callback);
+       return asyncFuture;
+    }
+ 
+   public static void main(String[] args) throws Exception {
+       AsyncTest.getHttpData("http://www.jd.com");
+       Thread.sleep(1000000);
+    }
+}
+
+本示例使用HttpAsyncClient演示。
+ 
+异步回调链式编排
+CompletableFuture提供了50多个API，可以满足所需的各种场景的异步处理的编排，在此列举三个场景：
+ 
+场景1：三个服务并发异步调用，返回CompletableFuture，不阻塞主线程；
+
+方法test1：
+   public static void test1() throws Exception {
+       HelloClientDemoTest service = new HelloClientDemoTest();
+       /**
+        * 场景1 两个以上服务并发异步调用，返回CompletableFuture,不阻塞主线程
+        * 并且两个服务也是异步非阻塞调用
+        */
+       CompletableFuture future1 = service.getHttpData("http://www.jd.com");
+       CompletableFuture future2 = service.getHttpData("http://www.jd.com");
+       CompletableFuture future3 =service.getHttpData("http://www.jd.com");
+       List<CompletableFuture> futureList = Lists.newArrayList(future1,future2, future3);
+       CompletableFuture<Void> allDoneFuture =CompletableFuture.allOf(futureList.toArray(newCompletableFuture[futureList.size()]));
+       CompletableFuture<String> future4 =allDoneFuture.thenApply(v -> {
+            List<Object> result =futureList.stream().map(CompletableFuture::join)
+                   .collect(Collectors.toList());
+            //注意顺序
+            String result1 = (String)result.get(0);
+            String result2 = (String)result.get(1);
+            String result3 = (String)result.get(2);
+            //处理业务....
+            return result1 + result2 + result3;
+        }).exceptionally(e -> {
+            //e.printStackTrace();
+            return "";
+        });
+       //返回
+    }
+
+场景2、两个服务并发异步调用，返回CompletableFuture，不阻塞主线程；
+
+方法test2：
+   public void test2() throws Exception {
+       HelloClientDemoTest service = new HelloClientDemoTest();
+       /**
+        * 场景2 两个接口并发异步调用，返回CompletableFuture,不阻塞主线程
+        * 并且两个服务也是异步非阻塞调用
+        */
+       CompletableFuture future1 = service.getHttpData("http://www.jd.com");
+       CompletableFuture future2 =service.getHttpData("http://www.jd.com");
+       CompletableFuture future3 =future1.thenCombine(future2, (f1, f2) -> {
+            //处理业务....
+            return f1 + "," + f2;
+        }).exceptionally(e -> {
+            return "";
+        });
+       //返回
+    }
+ 
+场景3、两个服务，并发异步调用两个服务，并且一个服务的结果返回后再次调用另一服务，然后将三个结果后并处理，返回CompletableFuture，整个处理过程中不阻塞任何线程；
+方法test3：
+    publicvoid test3() throws Exception {
+       HelloClientDemoTest service = new HelloClientDemoTest();
+       /**
+        * 场景3 两请求依赖调用，然后与另一服务结果组合处理，返回CompletableFuture,不阻塞主线程
+        * 并且两个服务也是异步非阻塞调用
+        */
+        CompletableFuture future1 = service.getHttpData("http://www.jd.com");
+        CompletableFuture future2 = service.getHttpData("http://www.jd.com");
+        CompletableFuture<String> future3= future1.thenApply((param) -> {
+            CompletableFuture future4 =service.getHttpData("http://www.jd.com");
+            return future4;
+        });
+        CompletableFuture future5 =future2.thenCombine(future3, (f2, f3) -> {
+            //....处理业务
+            return f2 + "," + f3;
+        }).exceptionally(e -> {
+            return "";
+        });
+        //返回future5
+    }
+
+全异步Web系统设计
+主要技术：servlet3，JDK8 CompletableFuture，支持异步Callback调用的RPC框架。
+ 
+先看一下处理流程图：
+
+servlet3：Servlet 接收到请求之后，可能首先需要对请求携带的数据进行一些预处理；接着，Servlet 线程将请求转交给一个异步线程来执行业务处理，线程本身返回至容器。针对业务处理较耗时的情况，这将大大减少服务器资源的占用，并且提高并发处理速度。servlet3可参考商品详情页系统的Servlet3异步化实践，结合其中讲解的servlet3整合：
+public void submitFuture(finalHttpServletRequest req, final Callable<CompletableFuture> task) throwsException{
+       final String uri = req.getRequestURI();
+       final Map<String, String[]> params = req.getParameterMap();
+       final AsyncContext asyncContext = req.startAsync();
+       asyncContext.getRequest().setAttribute("uri", uri);
+       asyncContext.getRequest().setAttribute("params", params);
+       asyncContext.setTimeout(asyncTimeoutInSeconds * 1000);
+       if(asyncListener != null) {
+           asyncContext.addListener(asyncListener);
+       }
+       CompletableFuture future = task.call();
+       future.thenAccept(result -> {
+           HttpServletResponse resp = (HttpServletResponse)asyncContext.getResponse();
+           try {
+                if(result instanceof String) {
+                    byte[] bytes = new byte[0];
+                    if (StringUtils.isBlank(result)){
+                       resp.setContentType("text/html;charset=gbk");
+                       resp.setContentLength(0);
+                    } else {
+                        bytes =result.getBytes("GBK");
+                    }
+                   //resp.setBufferSize(bytes.length);
+                   resp.setContentType("text/html;charset=gbk");
+                   if(StringUtils.isNotBlank(localIp)) {
+                       resp.setHeader("t.ser", localIp);
+                    }
+                   resp.setContentLength(bytes.length);
+                   resp.getOutputStream().write(bytes);
+                } else {
+                    write(resp,JSONUtils.toJSON(result));
+                }
+           } catch (Throwable e) {
+               resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR); //程序内部错误
+                try {
+                    LOG.error("get infoerror, uri : {},  params : {}", uri,JSONUtils.toJSON(params), e);
+                } catch (Exception ex) {
+                }
+           } finally {
+                asyncContext.complete();
+           }
+       }).exceptionally(e -> {
+           asyncContext.complete();
+           return null;
+       });
+}
+
+另外还有Java中协程库Quasar，可参考《Java的纤程库 - Quasar》，目前没有在应用中使用并在测试FiberHttpServlet的时候遇到很多坑，日后把Quasar自如运用后形成日记，希望能结实更多的朋友一起研究，踩坑。

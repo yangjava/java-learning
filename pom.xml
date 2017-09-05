@@ -24,5 +24,7 @@
   	<module>InternetFinance-learning</module>
   	<module>dom4j-learning</module>
   	<module>freemarker-learning</module>
+  	<module>distributed-learning</module>
+  	<module>highly-concurrent</module>
   </modules>
 </project>

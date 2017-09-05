@@ -1,0 +1,114 @@
+写个简单的例子，相信看了下面的例子，就会了解什么是fluent风格。
+
+一.我们先写一个通常的，即不使用fluent风格
+
+1.实体类
+
+复制代码
+package com.xbq.demo.stu;
+
+/**
+ * @ClassName: Student 
+ */
+public class Student {
+
+    private String name;
+    private String address;
+    
+    public String getName() {
+        return name;
+    }
+    public void setName(String name) {
+        this.name = name;
+    }
+    public String getAddress() {
+        return address;
+    }
+    public void setAddress(String address) {
+        this.address = address;
+    }
+    
+    @Override
+    public String toString() {
+        return "Student [name=" + name + ", address=" + address + "]";
+    }
+}
+复制代码
+2.测试类
+
+复制代码
+package com.xbq.demo.stu;
+
+/**
+ * @ClassName: Test 
+ */
+public class Test {
+
+    public static void main(String[] args) {
+        Student student = new Student();
+        student.setName("张三");
+        student.setAddress("广东深圳");
+        System.out.println(student);
+    }
+}
+复制代码
+ 二.再写一个使用fluent风格的
+
+1.实体类
+
+复制代码
+package com.xbq.demo;
+
+/**
+ * @ClassName: Student  
+ */
+public class Student {
+
+    private String name;
+    private String address;
+    
+    // 设置name的值，并且返回实体
+    public Student setName(String name){
+        this.name = name;
+        return this;
+    }
+    
+    // 设置address的值，并且返回实体
+    public Student setAddress(String address){
+        this.address = address;
+        return this;
+    }
+    
+    public String getName() {
+        return name;
+    }
+    public String getAddress() {
+        return address;
+    }
+    
+    // 返回学生实体，可以做成单例
+    public static Student build(){
+        return new Student();
+    }
+    
+    @Override
+    public String toString() {
+        return "Student [name=" + name + ", address=" + address + "]";
+    }
+}
+复制代码
+2.测试类
+
+复制代码
+package com.xbq.demo;
+
+/**
+ * @ClassName: Test 
+ */
+public class Test {
+
+    public static void main(String[] args) {
+        Student student = Student.build().setName("李四").setAddress("广东广州");
+        System.out.println(student.getName());
+    }
+}
