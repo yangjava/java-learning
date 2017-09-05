@@ -26,5 +26,7 @@
   	<module>freemarker-learning</module>
   	<module>distributed-learning</module>
   	<module>highly-concurrent</module>
+  	<module>Operating-System</module>
+  	<module>c-learning</module>
   </modules>
 </project>
