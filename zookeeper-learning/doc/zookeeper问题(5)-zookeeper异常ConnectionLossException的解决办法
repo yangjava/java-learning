@@ -1,0 +1,71 @@
+Exception in thread "main" org.apache.zookeeper.KeeperException$ConnectionLossException: KeeperErrorCode = ConnectionLoss for /
+	at org.apache.zookeeper.KeeperException.create(KeeperException.java:99)
+	at org.apache.zookeeper.KeeperException.create(KeeperException.java:51)
+	at org.apache.zookeeper.ZooKeeper.getChildren(ZooKeeper.java:1472)
+	at org.apache.zookeeper.ZooKeeper.getChildren(ZooKeeper.java:1500)
+	at com.zookeeper.test.ZookeeperTest.main(ZookeeperTest.java:41)
+ 
+ 
+ 	public static void main(String[] args) throws Exception {
+		ZooKeeper zk = new ZooKeeper("127.0.0.1:2180", 60000, new Watcher() { // 监控所有被触发的事件
+																				// //
+				// 当对目录节点监控状态打开时，一旦目录节点的状态发生变化，Watcher 对象的 process 方法就会被调用。
+			public void  process(WatchedEvent event) {
+						System.out.println("EVENT:" + event.getType());
+					}
+
+				});
+		System.out.println(zk);
+		System.out.println("ls / => " + zk.getChildren("/", true));
+	}
+ 
+ 解决办法:
+ CountDownLatch connectedLatch = new CountDownLatch(1);
+        if (States.CONNECTING == zk.getState()) {  
+            try {  
+                connectedLatch.await();  
+            } catch (InterruptedException e) {  
+                throw new IllegalStateException(e);  
+            }  
+        }
+ 
+ 
+ 相关代码
+ 
+ 	 public static void main(String[] args) throws Exception {
+		 ZooKeeper  zk=new ZooKeeper("127.0.0.1:2180", 5000, new Watcher() {  
+	            CountDownLatch down=new CountDownLatch(1);//同步阻塞状态  
+	            @Override  
+	            public void process(WatchedEvent event) {  
+	             if(event.getState()==Event.KeeperState.SyncConnected){  
+	                 down.countDown();//连接上之后，释放计数器  
+	             }  
+	                  
+	            }  
+	        });  
+	          
+	        System.out.println("连接成功："+zk.toString());  
+	        zk.close();//关闭连接  
+	    }  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+最后研究了下，有两方面的原因：
+ 
+1、Linux上的防火墙没关
+CentOS关闭防火墙命令：
+CentOS Linux开启和关闭防火墙命令有两种，一种是临时的，重启即复原；另外一种是永久性的，重启不会复原。
+1） 临时生效，重启后复原
+开启： service iptables start
+关闭： service iptables stop
+2） 永久性生效，重启后不会复原
+开启： chkconfig iptables on
+关闭： chkconfig iptables off
+ 
+2、也是最主要的原因，确实是zookeeper的链接注册过程没完成然后就去获取zk客户端的链接状态了，只需将注册zookeeper的超时时间加大就好了。
+把这两个的超时时间加大一点就好了。 
+ 
