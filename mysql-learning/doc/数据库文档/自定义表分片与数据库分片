@@ -1,0 +1,622 @@
+结合spring jdbc 实现分表分库的数据库访问构思
+
+数据库的分库分表访问，原理上很简单。对于一条sql来说，就是确定表名称，对于操作来说，就是要确定数据源。因此，我要对数据源与表名进行分析。
+
+在spring中对于单数据源的配置，非常简单，相信大家也都会配置。那么对于多数据源来说有两种方式：
+1，静态数据源选择方式，只需要在dao中注入对应数据源。这种也没什么好说的，但是如果存在事物的话，需要注意，一旦在 service的方法中操作不同数据源的dao应该如何处理。
+
+2，动态数据源选择方式。动态的方式一般会在程序中通过一定的条件来选择数据源。所以对于在spring中配置数据源就有了小小改变。目前我使用的方式是实现自己的一个数据源，这个数据源的特点就是有一个map，保存了真正需要配置的数据员，然后给每个数据源分配一个key
+示例配置
+Xml代码
+<bean id="dataSource" class="halo.dao.sql.HaloDataSourceWrapper">
+<property name="dataSourceMap">
+<map>
+<entry key="mysql_test0">
+<bean class="com.mchange.v2.c3p0.ComboPooledDataSource">
+....
+</bean>
+</entry>
+<entry key="mysql_test1">
+<bean class="com.mchange.v2.c3p0.ComboPooledDataSource">
+.....
+</bean>
+</entry>
+</map>
+</property>
+</bean>
+通过这种配置方式，程序就有机会根据条件来选择相应的数据源。那么，在程序的什么位置进行数据源选择才合适呢。个人认为这属于数据访问层的职责，因此，决定数据源的选择问题交给dao来处理。对dao注入自定的数据源。然后在所有的dao的方法中，肯定会多一个参数，这个参数就为了选择数据源所使用。
+
+示例代码
+Java代码
+public int count(Object key, String where, Object[] params)
+现在选择数据源的条件有了，下面要做的就是如何根据条件选择数据源，这时，我们可以专门写一个类，来做数据源的选择以及真实表名的确定。
+
+示例代码
+Java代码
+/**
+* 数据库表的基本信息，包括数据库真是名称与表真是名称
+*
+* @author akwei
+*/
+public class PartitionTableInfo {
+/**
+* 数据源key
+*/
+private String dsKey;
+/**
+* 表真是名称
+*/
+private String tableName;
+/**
+* 表的别名
+*/
+private String aliasName;
+public PartitionTableInfo() {
+}
+public PartitionTableInfo(String dsKey, String tableName) {
+this.dsKey = dsKey;
+this.tableName = tableName;
+}
+public String getDsKey() {
+return dsKey;
+}
+/**
+* 设置数据库真实key
+*
+* @param dsKey
+*/
+public void setDsKey(String dsKey) {
+this.dsKey = dsKey;
+}
+public String getTableName() {
+return tableName;
+}
+/**
+* 设置表真实名称
+*
+* @param tableName
+*/
+public void setTableName(String tableName) {
+this.tableName = tableName;
+}
+/**
+* 设置表别名
+*
+* @param aliasName
+*/
+public void setAliasName(String aliasName) {
+this.aliasName = aliasName;
+}
+public String getAliasName() {
+return aliasName;
+}
+}
+数据源表名分析的抽象类
+
+示例代码
+Java代码
+/**
+* 数据分区分析器，通过此分析器可以分析表所在的具体的数据库与数据表名称
+*
+* @author akwei
+*/
+public abstract class DbPartitionHelper {
+/**
+* 根据内容进行分析，创建表的分区信息
+*
+* @param tableLogicName
+* 逻辑表名称，也将会成为表的别名
+* @param ctxMap
+* 上下文信息存储,用来存储分区关键值
+* @return
+*/
+public abstract PartitionTableInfo parse(String tableLogicName,
+Map<String, Object> ctxMap);
+}
+数据源的选择实现类
+示例代码
+Java代码
+public class TestUserDbPartitionHelper extends DbPartitionHelper {
+@Override
+public PartitionTableInfo parse(String tableLogicName,
+Map<String, Object> ctxMap) {
+// 取出在程序中传递的分表分库关键字
+long userid = (Long) ctxMap.get("userid");
+// 对关键字进行分析，最终要获得真实操作的数据源key,表名称
+String lastChar = this.get01(userid);
+PartitionTableInfo partitionTableInfo = new PartitionTableInfo();
+// 设置表的逻辑表名称，也是表的别名
+partitionTableInfo.setAliasName(tableLogicName);
+// 设置通过分析后获得的真实表名称
+partitionTableInfo.setTableName("testuser" + lastChar);
+// 设置通过分析后获得的真实数据源key(此key在配置数据源时指定)
+partitionTableInfo.setDsKey("mysql_test" + lastChar);
+return partitionTableInfo;
+}
+}
+这样dao的方法就获得了真正的数据源key和真实的表名称
+调用举例代码
+Java代码
+// 例如：我们需要根据useri的值来作为获取数据源以及分表的条件
+TestUserDbPartitionHelper dbPartitionHelper = new TestUserDbPartitionHelper();
+Map<String, Object> ctxMap = new HashMap<String, Object>();
+ctxMap.put("userid", 123);
+PartitionTableInfo info = dbPartitionHelper.parse("testuser", ctxMap);
+String dsKey = info.getDsKey();// 数据源的key
+String realTableName = info.getTableName();// 表的真实名称
+通过这种调用，我么获得了数据源的key以及表的真实名称
+这样dao里面的方法就可以拼装sql了。
+那么数据源的key如何使用呢？
+由于我们对dao都注入了自定义的datasource，这个key我们需要在datasource中通过map.get(String name)获得真实的datasource，一个简单的方式就是我们吧数据源key放到threadlocal中，让datasource在获得connection的方法中调用
+保存数据源key的代码示例
+Java代码
+/**
+* 保存当前使用的数据库key
+*
+* @author akwei
+*/
+public class DataSourceStatus {
+private static final ThreadLocal<String> currentDsKey = new ThreadLocal<String>();
+public static void setCurrentDsKey(String dsKey) {
+currentDsKey.set(dsKey);
+}
+public static String getCurrentDsKey() {
+return currentDsKey.get();
+}
+}
+自定义的datasource代码示例
+Java代码
+/**
+* DataSource的包装类
+*
+* @author akwei
+*/
+public class MyDataSourceWrapper implements DataSource {
+private Map<String, DataSource> dataSourceMap;
+private PrintWriter logWriter;
+private int loginTimeout = 3;
+public DataSource getCurrentDataSource() {
+DataSource ds = this.dataSourceMap.get(DataSourceStatus
+.getCurrentDsKey());
+if (ds == null) {
+throw new RuntimeException("no datasource [ "
++ DataSourceStatus.getCurrentDsKey() + " ]");
+}
+return ds;
+}
+public void setDataSourceMap(Map<String, DataSource> dataSourceMap) {
+this.dataSourceMap = dataSourceMap;
+}
+@Override
+public Connection getConnection() throws SQLException {
+return this.getCurrentDataSource().getConnection();
+}
+@Override
+public Connection getConnection(String username, String password)
+throws SQLException {
+throw new SQLException("only support getConnection()");
+}
+@Override
+public PrintWriter getLogWriter() throws SQLException {
+return this.logWriter;
+}
+@Override
+public int getLoginTimeout() throws SQLException {
+return this.loginTimeout;
+}
+@Override
+public void setLogWriter(PrintWriter out) throws SQLException {
+this.logWriter = out;
+}
+@Override
+public void setLoginTimeout(int seconds) throws SQLException {
+this.loginTimeout = seconds;
+}
+@Override
+public boolean isWrapperFor(Class<?> iface) throws SQLException {
+return this.getCurrentDataSource().isWrapperFor(iface);
+}
+@Override
+public <T> T unwrap(Class<T> iface) throws SQLException {
+return this.getCurrentDataSource().unwrap(iface);
+}
+}
+到目前为止，我们就可以使用spring jdbcTemplate来进行分库分表的sql操作了。
+
+在上述的示例代码中很多的部分可以，进行数据库路由的分析写了不少的代码，其实这些代码可以通过配置的方式来解决，不需要通过手写代码来解决。我的一个思路就是对于与数据表对应的一个实体class配置一个路由规则的标示和表的别名，然后写一段程序来对这个配置进行解析，来实现上面分库分表选择的功能
+
+上述方法解决了分库分表功能，但是没有解决单库的事务问题。由于数据库的选择是在dao层决定，那么对于一个service的方法就无法获得数据库，并开启事务。为了解决这种情况，我们可以对connection进行改造，然后再对自定义的datasource再次改造。我们在使用spring数据库事务的使用，大多情况都是在service的方法上加上事务，这样对于这个方法里面的dao调用都具有了事务操作。这样就必须在service方法运行之前就决定数据源是什么。
+
+其实spring的事务方法只需要一个数据源，并获得connection然后进行connection.setAutoCommit等操作。spring并不关心你的connection是什么，是哪个数据源的。所以我们就可以写一个与数据源没有直接关系的自定义connection，让他来沉承担选择数据源之前对connection的所有操作。
+自定义数据源示例代码
+接口
+Java代码
+/**
+* Connection代理,不产生实际的connection资源
+*
+* @author yuanwei
+*/
+public interface ConnectionProxy extends Connection {
+/**
+* 获得当前使用的Connection
+*
+* @return
+* @see Connection
+*/
+Connection getCurrentConnection();
+}
+实现
+Java代码
+public class ConnectionProxyImpl implements ConnectionProxy {
+/**
+* 保存了真正的Connection
+*/
+private final Map<String, Connection> conMap = new HashMap<String, Connection>();
+private boolean autoCommit;
+private int transactionIsolation;
+private int holdability;
+private boolean readOnly;
+/**
+* 自定义的数据源
+*/
+private HkDataSourceWrapper cloudDataSourceWrapper;
+public ConnectionProxyImpl(HkDataSourceWrapper cloudDataSourceWrapper)
+throws SQLException {
+this.cloudDataSourceWrapper = cloudDataSourceWrapper;
+this.setAutoCommit(true);
+}
+@Override
+public void clearWarnings() throws SQLException {
+this.getCurrentConnection().clearWarnings();
+}
+@Override
+public void close() throws SQLException {
+Collection<Connection> c = this.conMap.values();
+for (Connection con : c) {
+con.close();
+}
+DataSourceStatus.setCurrentDsKey(null);
+}
+@Override
+public void commit() throws SQLException {
+Collection<Connection> c = this.conMap.values();
+for (Connection con : c) {
+con.commit();
+}
+}
+@Override
+public Statement createStatement() throws SQLException {
+return this.getCurrentConnection().createStatement();
+}
+@Override
+public Connection getCurrentConnection() {
+String name = DataSourceStatus.getCurrentDsKey();
+Connection con = this.conMap.get(name);
+if (con == null) {
+try {
+con = this.cloudDataSourceWrapper.getCurrentDataSource()
+.getConnection();
+this.initCurrentConnection(con);
+this.conMap.put(name, con);
+}
+catch (SQLException e) {
+throw new RuntimeException(e);
+}
+}
+return con;
+}
+private void initCurrentConnection(Connection con) throws SQLException {
+con.setAutoCommit(this.getAutoCommit());
+if (this.getTransactionIsolation() != 0) {
+con.setTransactionIsolation(this.getTransactionIsolation());
+}
+con.setHoldability(this.getHoldability());
+con.setReadOnly(this.isReadOnly());
+}
+@Override
+public Statement createStatement(int resultSetType, int resultSetConcurrency)
+throws SQLException {
+return this.getCurrentConnection().createStatement(resultSetType,
+resultSetConcurrency);
+}
+@Override
+public Statement createStatement(int resultSetType,
+int resultSetConcurrency, int resultSetHoldability)
+throws SQLException {
+return this.getCurrentConnection().createStatement(resultSetType,
+resultSetConcurrency, resultSetHoldability);
+}
+@Override
+public boolean getAutoCommit() throws SQLException {
+return this.autoCommit;
+}
+@Override
+public int getHoldability() throws SQLException {
+return this.holdability;
+}
+@Override
+public DatabaseMetaData getMetaData() throws SQLException {
+return this.getCurrentConnection().getMetaData();
+}
+@Override
+public int getTransactionIsolation() throws SQLException {
+return this.transactionIsolation;
+}
+@Override
+public Map<String, Class<?>> getTypeMap() throws SQLException {
+return this.getCurrentConnection().getTypeMap();
+}
+@Override
+public SQLWarning getWarnings() throws SQLException {
+return this.getCurrentConnection().getWarnings();
+}
+@Override
+public boolean isClosed() throws SQLException {
+return this.getCurrentConnection().isClosed();
+}
+@Override
+public boolean isReadOnly() throws SQLException {
+return this.readOnly;
+}
+@Override
+public String nativeSQL(String sql) throws SQLException {
+return this.getCurrentConnection().nativeSQL(sql);
+}
+@Override
+public CallableStatement prepareCall(String sql) throws SQLException {
+return this.getCurrentConnection().prepareCall(sql);
+}
+@Override
+public CallableStatement prepareCall(String sql, int resultSetType,
+int resultSetConcurrency) throws SQLException {
+return this.getCurrentConnection().prepareCall(sql, resultSetType,
+resultSetConcurrency);
+}
+@Override
+public CallableStatement prepareCall(String sql, int resultSetType,
+int resultSetConcurrency, int resultSetHoldability)
+throws SQLException {
+return this.getCurrentConnection().prepareCall(sql, resultSetType,
+resultSetConcurrency, resultSetHoldability);
+}
+@Override
+public PreparedStatement prepareStatement(String sql) throws SQLException {
+return this.getCurrentConnection().prepareStatement(sql);
+}
+@Override
+public PreparedStatement prepareStatement(String sql, int autoGeneratedKeys)
+throws SQLException {
+return this.getCurrentConnection().prepareStatement(sql,
+autoGeneratedKeys);
+}
+@Override
+public PreparedStatement prepareStatement(String sql, int[] columnIndexes)
+throws SQLException {
+return this.getCurrentConnection().prepareStatement(sql, columnIndexes);
+}
+@Override
+public PreparedStatement prepareStatement(String sql, String[] columnNames)
+throws SQLException {
+return this.getCurrentConnection().prepareStatement(sql, columnNames);
+}
+@Override
+public PreparedStatement prepareStatement(String sql, int resultSetType,
+int resultSetConcurrency) throws SQLException {
+return this.getCurrentConnection().prepareStatement(sql, resultSetType,
+resultSetConcurrency);
+}
+@Override
+public PreparedStatement prepareStatement(String sql, int resultSetType,
+int resultSetConcurrency, int resultSetHoldability)
+throws SQLException {
+return this.getCurrentConnection().prepareStatement(sql, resultSetType,
+resultSetConcurrency, resultSetHoldability);
+}
+@Override
+public void rollback() throws SQLException {
+Collection<Connection> c = conMap.values();
+for (Connection con : c) {
+con.rollback();
+}
+}
+@Override
+public void setAutoCommit(boolean autoCommit) throws SQLException {
+this.autoCommit = autoCommit;
+Collection<Connection> c = conMap.values();
+for (Connection con : c) {
+con.setAutoCommit(autoCommit);
+}
+}
+@Override
+public void setCatalog(String catalog) throws SQLException {
+this.getCurrentConnection().setCatalog(catalog);
+}
+@Override
+public String getCatalog() throws SQLException {
+return this.getCurrentConnection().getCatalog();
+}
+@Override
+public void setHoldability(int holdability) throws SQLException {
+this.holdability = holdability;
+}
+@Override
+public void setReadOnly(boolean readOnly) throws SQLException {
+this.readOnly = readOnly;
+}
+@Override
+public void setTransactionIsolation(int level) throws SQLException {
+this.transactionIsolation = level;
+Collection<Connection> c = conMap.values();
+for (Connection con : c) {
+con.setTransactionIsolation(level);
+}
+}
+@Override
+public void setTypeMap(Map<String, Class<?>> map) throws SQLException {
+this.getCurrentConnection().setTypeMap(map);
+}
+@Override
+public void releaseSavepoint(Savepoint savepoint) throws SQLException {
+throw new SQLException("do not support savepoint");
+}
+@Override
+public void rollback(Savepoint savepoint) throws SQLException {
+throw new SQLException("do not support savepoint");
+}
+@Override
+public Savepoint setSavepoint() throws SQLException {
+throw new SQLException("do not support savepoint");
+}
+@Override
+public Savepoint setSavepoint(String name) throws SQLException {
+throw new SQLException("do not support savepoint");
+}
+@Override
+public Array createArrayOf(String typeName, Object[] elements)
+throws SQLException {
+return this.getCurrentConnection().createArrayOf(typeName, elements);
+}
+@Override
+public Blob createBlob() throws SQLException {
+return this.getCurrentConnection().createBlob();
+}
+@Override
+public Clob createClob() throws SQLException {
+return this.getCurrentConnection().createClob();
+}
+@Override
+public NClob createNClob() throws SQLException {
+return this.getCurrentConnection().createNClob();
+}
+@Override
+public SQLXML createSQLXML() throws SQLException {
+return this.getCurrentConnection().createSQLXML();
+}
+@Override
+public Struct createStruct(String typeName, Object[] attributes)
+throws SQLException {
+return this.getCurrentConnection().createStruct(typeName, attributes);
+}
+@Override
+public Properties getClientInfo() throws SQLException {
+return this.getCurrentConnection().getClientInfo();
+}
+@Override
+public String getClientInfo(String name) throws SQLException {
+Connection con = this.getCurrentConnection();
+return con.getClientInfo(name);
+}
+@Override
+public boolean isValid(int timeout) throws SQLException {
+return this.getCurrentConnection().isValid(timeout);
+}
+@Override
+public void setClientInfo(Properties properties)
+throws SQLClientInfoException {
+this.getCurrentConnection().setClientInfo(properties);
+}
+@Override
+public void setClientInfo(String name, String value)
+throws SQLClientInfoException {
+this.getCurrentConnection().setClientInfo(name, value);
+}
+@Override
+public boolean isWrapperFor(Class<?> iface) throws SQLException {
+return this.getCurrentConnection().isWrapperFor(iface);
+}
+@Override
+public <T> T unwrap(Class<T> iface) throws SQLException {
+return this.getCurrentConnection().unwrap(iface);
+}
+}
+然后我们对自定义的datasource再次进行改造，新的datasource代码如下
+Java代码
+/**
+* DataSource的包装类
+*
+* @author akwei
+*/
+public class HkDataSourceWrapper implements DataSource, InitializingBean {
+public static final String DEFAULT_DBKEY = "defaultdbkey";
+private Map<String, DataSource> dataSourceMap;
+private PrintWriter logWriter;
+private int loginTimeout = 3;
+private boolean debugConnection;
+public void setDebugConnection(boolean debugConnection) {
+this.debugConnection = debugConnection;
+}
+public boolean isDebugConnection() {
+return debugConnection;
+}
+public DataSource getCurrentDataSource() {
+DataSource ds = this.dataSourceMap.get(DataSourceStatus
+.getCurrentDsKey());
+if (ds == null) {
+throw new RuntimeException("no datasource");
+}
+return ds;
+}
+public void setDataSourceMap(Map<String, DataSource> dataSourceMap) {
+this.dataSourceMap = dataSourceMap;
+}
+@Override
+public Connection getConnection() throws SQLException {
+return new ConnectionProxyImpl(this);
+}
+@Override
+public Connection getConnection(String username, String password)
+throws SQLException {
+throw new SQLException("only support getConnection()");
+}
+@Override
+public PrintWriter getLogWriter() throws SQLException {
+return this.logWriter;
+}
+@Override
+public int getLoginTimeout() throws SQLException {
+return this.loginTimeout;
+}
+@Override
+public void setLogWriter(PrintWriter out) throws SQLException {
+this.logWriter = out;
+}
+@Override
+public void setLoginTimeout(int seconds) throws SQLException {
+this.loginTimeout = seconds;
+}
+@Override
+public boolean isWrapperFor(Class<?> iface) throws SQLException {
+return this.getCurrentDataSource().isWrapperFor(iface);
+}
+@Override
+public <T> T unwrap(Class<T> iface) throws SQLException {
+return this.getCurrentDataSource().unwrap(iface);
+}
+@Override
+public void afterPropertiesSet() throws Exception {
+if (this.dataSourceMap.size() == 1) {
+this.dataSourceMap.put(DEFAULT_DBKEY, this.dataSourceMap.values()
+.iterator().next());
+}
+}
+}
+其中最主要的部分就是
+Java代码
+@Override
+public Connection getConnection() throws SQLException {
+return new ConnectionProxyImpl(this);
+}
+就是这部分返回了一个虚假的connection让spring进行事务开启等操作，那么既然spring进行了事务等设置，如何反应到真实的connection上呢，最住院哦的代码部分就是
+Java代码
+private void initCurrentConnection(Connection con) throws SQLException {
+con.setAutoCommit(this.getAutoCommit());
+if (this.getTransactionIsolation() != 0) {
+con.setTransactionIsolation(this.getTransactionIsolation());
+}
+con.setHoldability(this.getHoldability());
+con.setReadOnly(this.isReadOnly());
+}
+这部分代码会在获得真正的connection的时候进行对connection的初始化。这样就解决了事务问题。
+
+1 楼 rain2005 2012-05-16
+哈哈，原来原型在这么早就有啦，一直在找这方面的东西，就是自己没有想到，看到的一些东西都是基于服务器端proxy的，感觉还是太复杂了，简单实用的小框架才适合我们，容易维护。淘宝，阿里开源的那些还是太复杂了，不敢碰，呵呵

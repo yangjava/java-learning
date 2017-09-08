@@ -1,0 +1,290 @@
+队列的定义：
+队列（Queue）是只允许在一端进行插入，而在另一端进行删除的运算受限的线性表。
+
+（1）允许删除的一端称为队头（Front）。
+（2）允许插入的一端称为队尾（Rear）。
+（3）当队列中没有元素时称为空队列。
+（4）队列亦称作先进先出（First In First Out）的线性表，简称为FIFO表。
+   队列的修改是依先进先出的原则进行的。新来的成员总是加入队尾，每次离开的成员总是队列头上的（不允许中途离队）。
+队列的存储结构及实现
+队列的顺序存储结构
+（1） 顺序队列的定义：
+ 队列的顺序存储结构称为顺序队列，顺序队列实际上是运算受限的顺序表。
+（2）顺序队列的表示：
+和顺序表一样，顺序队列利用内存中一段连续的存储空间来存放当前队列中的元素。
+由于队列的队头和队尾的位置是变化的，设置两个指针front和rear分别指示队头元素和队尾元素，它们的初值在队列初始化时均应置为0。
+ 
+（3）顺序队列的基本操作
+
+入队时：将新元素插入rear所指的位置的后一位。
+出队时：删去front所指的元素，然后将front加1并返回被删元素。
+（4）顺序表的溢出现象
+ ①“下溢”现象
+ 当队列为空时，做出队运算产生的溢出现象。“下溢”是正常现象，常用作程序控制转移的条件。
+② "真上溢"现象
+当队列满时，做进栈运算产生空间溢出的现象。“真上溢”是一种出错状态，应设法避免。
+③ "假上溢"现象
+由于入队和出队操作中，头尾指针只增加不减小，致使被删元素的空间永远无法重新利用。当队列中实际的元素个数远远小于内存中本分配的空间时，也可能由于尾指针已超越向量空间的上界而不能做入队操作。该现象称为"假上溢"现象。如下图
+
+ 循环队列：
+ 如上图所示，这种头尾相接的顺序存储结构称为循环队列（circular queue）。
+循环队列中需要注意的几个重要问题：
+①队空的判定条件，队空的条件是front=rear；
+②队满的判定条件，（rear+1）%QueueSize=front。QueueSize为队列初始空间大小。
+循环队列的java实现代码
+[java] view plain copy
+package study_02.datastructure.queue;  
+  
+/** 
+ * 循环队列 
+ * @author WWX 
+ */  
+public class CirQueue<E> {  
+    //对象数组，队列最多存储a.length-1个对象  
+    E[] a;  
+    //默认初始化大小  
+    private static final int DEFAULT_SIZE=10;  
+    //对首下标  
+    int front;  
+    //队尾下标  
+    int rear;  
+      
+    public CirQueue(){  
+        this(DEFAULT_SIZE);  
+    }  
+    /** 
+     * 初始化指定长度的队列 
+     * @param size 
+     */  
+    @SuppressWarnings("unchecked")  
+    public CirQueue(int size){  
+        a=(E[])(new Object[size]);  
+        front=0;  
+        rear=0;  
+    }  
+      
+    /** 
+     * 将一个对象追加到队列尾部 
+     * @param obj 
+     * @return 队列满时返回false,否则返回true 
+     * @author WWX 
+     */  
+    public boolean enqueue(E obj){  
+        if((rear+1)%a.length==front){  
+            return false;  
+        }else{  
+            a[rear]=obj;  
+            rear=(rear+1)%a.length;  
+            return true;  
+        }  
+    }  
+      
+    /** 
+     * 队列头部出队 
+     * @return 
+     * @author WWX 
+     */  
+    public E dequeue(){  
+        if(rear==front)  
+            return null;  
+        else{  
+            E obj =a[front];  
+            front=(front+1)%a.length;  
+            return obj;  
+        }  
+    }  
+      
+    /** 
+     * 队列长度 
+     * @return 
+     * @author WWX 
+     */  
+    public  int size(){  
+        return (rear-front)&(a.length-1);  
+    }  
+    //队列长度（另一种方法）  
+    public int length(){  
+        if(rear>front){  
+            return rear-front;  
+        }else  
+            return a.length-1;  
+    }  
+      
+    /** 
+     * 判断是否为空  
+     * @return 
+     * @author WWX 
+     */  
+    public boolean isEmpty(){  
+        return rear==front;  
+    }  
+      
+  
+  
+    public static void main(String[] args) {  
+        CirQueue<String> queue=new CirQueue<String>(4);  
+        queue.enqueue("1");  
+        queue.enqueue("2");  
+        queue.enqueue("3");  
+        System.out.println("size="+queue.size());  
+        int size=queue.size();  
+        System.out.println("*******出栈操作*******");  
+        for(int i=0; i<size;i++){  
+            System.out.print(queue.dequeue()+" ");  
+        }  
+          
+    }  
+      
+}  
+
+
+在上一篇博文中通过Java实现了队列的连续存储，下面来讨论队列的链式存储，即链队列。
+链队列的定义：
+队列的链式存储结构简称为链队列。它是限制仅在表头删除和表尾插入的单链表。
+链队列的数据存储形式：
+
+ 链队列基本运算的实现：
+[java] view plain copy
+package study_02.datastructure.queue;  
+  
+  
+/** 
+ * 链队列 
+ * @author WWX 
+ */  
+public class LinkQueue<T> {  
+      
+    //链的数据结构  
+    private class Node{  
+        public  T data;  
+        public  Node next;  
+        //无参构造函数  
+        public Node(){}  
+          
+        public Node(T data,Node next){  
+            this.data=data;  
+            this.next=next;  
+        }  
+    }  
+    //队列头指针  
+    private Node front;  
+    //队列尾指针  
+    private Node rear;  
+    //队列长度  
+    private int size=0;  
+      
+    public LinkQueue(){  
+        Node n=new Node(null,null);  
+        n.next=null;  
+        front=rear=n;  
+    }  
+      
+    /** 
+     * 队列入队算法 
+     * @param data 
+     * @author WWX 
+     */  
+    public void enqueue(T data){  
+        //创建一个节点  
+        Node s=new Node(data,null);  
+        //将队尾指针指向新加入的节点，将s节点插入队尾  
+        rear.next=s;  
+        rear=s;  
+        size++;  
+    }  
+      
+    /** 
+     * 队列出队算法 
+     * @return 
+     * @author WWX 
+     */  
+    public  T dequeue(){  
+        if(rear==front){  
+            try {  
+                throw new Exception("堆栈为空");  
+            } catch (Exception e) {  
+                e.printStackTrace();  
+            }  
+            return null;  
+        }else{  
+            //暂存队头元素  
+            Node p=front.next;  
+            T x=p.data;  
+            //将队头元素所在节点摘链  
+            front.next=p.next;  
+            //判断出队列长度是否为1  
+            if(p.next==null)  
+                rear=front;  
+            //删除节点  
+            p=null;  
+            size--;  
+            return  x;  
+        }  
+    }  
+      
+    /** 
+     * 队列长队 
+     * @return 
+     * @author WWX 
+     */  
+    public int size(){  
+        return size;  
+    }  
+      
+    /** 
+     * 判断队列是否为空 
+     * @return 
+     * @author WWX 
+     */  
+    public  boolean isEmpty(){  
+        return  size==0;  
+          
+    }  
+      
+      
+    public String toString() {  
+        if(isEmpty()){  
+            return "[]";  
+        }else{  
+            StringBuilder sb = new StringBuilder("[");  
+            for(Node current=front.next;current!=null;current=current.next){  
+                sb.append(current.data.toString() + ", ");  
+            }  
+            int len = sb.length();  
+            return sb.delete(len - 2, len).append("]").toString();  
+        }  
+    }  
+      
+    //测试  
+    public static void main(String[] args) {  
+        LinkQueue<Integer> queue=new LinkQueue<Integer>();  
+        queue.enqueue(1);  
+        queue.enqueue(2);  
+        queue.enqueue(3);  
+        queue.enqueue(4);  
+        queue.enqueue(5);  
+        queue.enqueue(6);  
+        System.out.println(queue);  
+        System.out.println("出队："+queue.dequeue());  
+        System.out.println("队列长度="+queue.size());  
+        System.out.println(queue);  
+        System.out.println("出队："+queue.dequeue());  
+        System.out.println("队列长度="+queue.size());  
+        System.out.println(queue);  
+        System.out.println("出队："+queue.dequeue());  
+        System.out.println("队列长度="+queue.size());  
+        System.out.println(queue);  
+    }  
+}  
+ 
+输出结果：
+[1, 2, 3, 4, 5, 6]
+出队：1
+队列长度=5
+[2, 3, 4, 5, 6]
+出队：2
+队列长度=4
+[3, 4, 5, 6]
+出队：3
+队列长度=3
+[4, 5, 6]

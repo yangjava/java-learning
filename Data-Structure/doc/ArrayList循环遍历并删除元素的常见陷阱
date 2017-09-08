@@ -1,0 +1,268 @@
+在工作和学习中，经常碰到删除ArrayList里面的某个元素，看似一个很简单的问题，却很容易出bug。不妨把这个问题当做一道面试题目，我想一定能难道不少的人。今天就给大家说一下在ArrayList循环遍历并删除元素的问题。首先请看下面的例子：
+
+import java.util.ArrayList;
+public class ArrayListRemove 
+{
+	public static void main(String[] args)
+	{
+		ArrayList<String> list = new ArrayList<String>();
+		list.add("a");
+		list.add("b");
+		list.add("b");
+		list.add("c");
+		list.add("c");
+		list.add("c");
+		remove(list);
+ 
+		for (String s : list) 
+		{
+			System.out.println("element : " + s);
+		}
+	}
+	public static void remove(ArrayList<String> list) 
+	{
+		// TODO:
+	}
+}
+如果要想删除list的b字符，有下面两种常见的错误例子：
+
+错误写法实例一：
+
+	public static void remove(ArrayList<String> list) 
+	{
+		for (int i = 0; i < list.size(); i++) 
+		{
+			String s = list.get(i);
+			if (s.equals("b")) 
+			{
+				list.remove(s);
+			}
+		}
+	}
+错误的原因：这种最普通的循环写法执行后会发现第二个“b”的字符串没有删掉。
+
+错误写法实例二：
+
+	public static void remove(ArrayList<String> list) 
+	{
+		for (String s : list)
+		{
+			if (s.equals("b")) 
+			{
+				list.remove(s);
+			}
+		}
+	}
+错误的原因：这种for-each写法会报出著名的并发修改异常：java.util.ConcurrentModificationException。
+
+先解释一下实例一的错误原因。翻开JDK的ArrayList源码，先看下ArrayList中的remove方法（注意ArrayList中的remove有两个同名方法，只是入参不同，这里看的是入参为Object的remove方法）是怎么实现的：
+
+	public boolean remove(Object o) {
+		if (o == null) {
+			for (int index = 0; index < size; index++)
+				if (elementData[index] == null) {
+					fastRemove(index);
+					return true;
+				}
+		} else {
+			for (int index = 0; index < size; index++)
+				if (o.equals(elementData[index])) {
+					fastRemove(index);
+					return true;
+				}
+		}
+		return false;
+	}
+一般情况下程序的执行路径会走到else路径下最终调用faseRemove方法：
+
+	private void fastRemove(int index) {
+        modCount++;
+        int numMoved = size - index - 1;
+        if (numMoved > 0)
+            System.arraycopy(elementData, index+1, elementData, index,numMoved);
+        elementData[--size] = null; // Let gc do its work
+    }
+可以看到会执行System.arraycopy方法，导致删除元素时涉及到数组元素的移动。针对错误写法一，在遍历第一个字符串b时因为符合删除条件，所以将该元素从数组中删除，并且将后一个元素移动（也就是第二个字符串b）至当前位置，导致下一次循环遍历时后一个字符串b并没有遍历到，所以无法删除。针对这种情况可以倒序删除的方式来避免：
+
+	public static void remove(ArrayList<String> list) 
+	{
+		for (int i = list.size() - 1; i >= 0; i--) 
+		{
+			String s = list.get(i);
+			if (s.equals("b")) 
+			{
+				list.remove(s);
+			}
+		}
+	}
+因为数组倒序遍历时即使发生元素删除也不影响后序元素遍历。
+
+接着解释一下实例二的错误原因。错误二产生的原因却是foreach写法是对实际的Iterable、hasNext、next方法的简写，问题同样处在上文的fastRemove方法中，可以看到第一行把modCount变量的值加一，但在ArrayList返回的迭代器（该代码在其父类AbstractList中）：
+
+	public Iterator<E> iterator() {
+		return new Itr();
+	}
+这里返回的是AbstractList类内部的迭代器实现private class Itr implements Iterator，看这个类的next方法：
+
+	public E next() {
+		checkForComodification();
+		try {
+			E next = get(cursor);
+			lastRet = cursor++;
+			return next;
+		} catch (IndexOutOfBoundsException e) {
+			checkForComodification();
+			throw new NoSuchElementException();
+		}
+	}
+第一行checkForComodification方法：
+
+		final void checkForComodification() {
+		if (modCount != expectedModCount)
+			throw new ConcurrentModificationException();
+	}
+这里会做迭代器内部修改次数检查，因为上面的remove(Object)方法修改了modCount的值，所以才会报出并发修改异常。要避免这种情况的出现则在使用迭代器迭代时（显示或for-each的隐式）不要使用ArrayList的remove，改为用Iterator的remove即可。
+
+		public static void remove(ArrayList<String> list) 
+		{
+		Iterator<String> it = list.iterator();
+		while (it.hasNext()) 
+		{
+			String s = it.next();
+			if (s.equals("b")) 
+			{
+				it.remove();
+			}
+		}
+	}
+
+	
+	
+	
+	
+	
+	
+List集合的遍历有三种方式：增强for循环，普通for循环，Iterator迭代器遍历
+
+如果只是对集合进行遍历，以上三种循环都可正常遍历：
+(1)增强For循环遍历List集合
+
+List<Student> stuList = new ArrayList<Student>();
+for(Student stu : stuList){
+    System.out.println(stu.getName());
+}
+ 
+
+(2)普通For循环遍历List集合
+
+1 List<Student> stuList = new ArrayList<Student>();
+2 for(int i = 0;i<stuList.size();i++){
+3      System.out.println(stuList.get(i).getName());       
+4 }   
+ 
+
+(3)迭代器遍历List集合
+
+List<Student> stuList = new ArrayList<Student>();
+Iterator iterator = stuList.iterator();
+while(iterator.hasNext()){
+    System.out.println(iterator.next().getName());
+}
+ 
+
+ 
+
+然而，如果我们要遍历List集合，并删除符合条件的多个元素，则只能使用Iterator迭代器，其他两种都会报错，看下面的例子
+
+(1)增强For循环遍历List集合,并删除另外一个数组中name相同的元素
+
+复制代码
+List<Student> stuList = new ArrayList<Student>();
+String[] names = ["aaa","bbb","ccc"];//此处为举例子
+for(Student stu : stuList){
+　　for(String name : names){
+　　　　  if(stu.getName() == name){
+　　　　　　　　stuList.remove(stu);//第一次删除没有问题，当删除第二个元素的时候，会报ConCurrentModificationException异常
+    　　  }     
+　　　}
+  
+}
+复制代码
+(2)普通For循环遍历List集合,并删除另外一个数组中name相同的元素
+
+复制代码
+ List<Student> stuList = new ArrayList<Student>();
+String[] names = ["aaa","bbb","ccc"];//此处为举例子
+ for(int i = 0;i<stuList.size();i++){
+　　　for(String name : names){
+　　　　  if(stuList.get(i).getName() == name){
+　　　　　　stuList.remove(i);//第一次删除没有问题，当多个删除的时候，会出现跳过个别元素的情况，不能完全遍历
+    　　  }     
+　　　} }   
+复制代码
+(3)迭代器遍历List集合,并删除另外一个数组中name相同的元素
+
+List<Student> stuList = new ArrayList<Student>();
+String[] names = ["aaa","bbb","ccc"];//此处为举例子
+Iterator iterator = stuList.iterator(); while(iterator.hasNext()){
+　　Student stu = itreator.next();
+　　for(String name : names){
+　　　　  if(stuList.get(i).getName() == name){
+　　　　　　iterator.remove();//此处采用iterator本身的remove方法，可以完美解决上述问题
+    　　  }     
+　　　}
+}
+原因：增强for循环也是利用内部的iterator来遍历集合的，Iterator工作在一个独立的线程中，iterator被创建后，会建立一个单链索引表，当原来的对象数量发生变化时，这个索引表的内容不会同步改变，所以当索引指针往后移动时，找不到迭代对象，当iterator工作时，是不允许被迭代的对象改变的，但可以被自身改变，利用Iterator的remove方法进行删除。
+
+
+
+
+
+
+
+我们知道ArrayList的底层是用数组实现的，如果你删除了其中一个元素，那么后边的元素都会向前移动。所以在遍历时如果删除元素，就要小心了。
+
+第一种方法，用数组下标进行遍历，如果需要删除元素，我们从后向前遍历，这样不论有没有元素删除，我们都不会遗漏未被遍历的元素。
+
+第二种方法，我们使用迭代器。
+Iterator itr = list.iterator();
+while(itr.hasNext()) {
+      if(...) {
+        itr.remove();
+      }
+}
+
+总之，如果你的删除操作比较多的话，建议使用LinkedList。
+
+
+
+
+
+
+
+
+
+
+我们知道ArrayList的底层是用数组实现的，如果你删除了其中一个元素，那么后边的元素都会向前移动。所以在遍历时如果删除元素，就要小心了。
+
+第一种方法，用数组下标进行遍历，如果需要删除元素，我们从后向前遍历，这样不论有没有元素删除，我们都不会遗漏未被遍历的元素。
+
+第二种方法，我们使用迭代器。
+Iterator itr = list.iterator();
+while(itr.hasNext()) {
+      if(...) {
+        itr.remove();
+      }
+}
+
+总之，如果你的删除操作比较多的话，建议使用LinkedList。
+
+
+
+
+
+
+
+	
+	
+	

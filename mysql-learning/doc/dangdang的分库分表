@@ -1,0 +1,1621 @@
+前一段时间研究阿里的分库框架cobar-client，cobar-client是基于ibatis的SqlMapClientTemplate进行了一层薄薄的封装，分装成CobarSqlMapClientTemplate，在用户在CRUD的时候可以透明的进行操作，算是现在大多公司分库的一个成熟解决方案，不过现在面临的一些问题：
+   ①不支持分表
+   ②基于ibatis而且2013年后基本维护了，没有进行升级，所以大多公司都基于该思想进行了自己的重写
+
+来看下当当开源的sharding-jdbc，官方网址：https://github.com/dangdangdotcom/sharding-jdbc
+
+先允许我盗一波图：
+
+
+
+
+好了，看了这么多的介绍，感觉还是很高大上的，注意点有：
+①对JDBC API进行了原生态的分装，这是与cobar-client不一样的地方，这就是他可以支持多个第三方ORM框架的关键
+②可支持=，BETWEEN，IN等操作，说明，JDBC返回结果后，sharding进行了合并操作，这里面肯定会有性能损耗
+③支持分表，这也是cobar-client不支持的地方
+
+好了，先简单的按照官方网址的demo实践一发：
+
+先在MySQL中建2个库
+
+分别在这2个库中运行：
+[sql] view plain copy
+CREATE TABLE IF NOT EXISTS `t_order_0` (  
+  `order_id` INT NOT NULL,  
+  `user_id`  INT NOT NULL,  
+  PRIMARY KEY (`order_id`)  
+);  
+CREATE TABLE IF NOT EXISTS `t_order_item_0` (  
+  `item_id`  INT NOT NULL,  
+  `order_id` INT NOT NULL,  
+  `user_id`  INT NOT NULL,  
+  PRIMARY KEY (`item_id`)  
+);  
+CREATE TABLE IF NOT EXISTS `t_order_1` (  
+  `order_id` INT NOT NULL,  
+  `user_id`  INT NOT NULL,  
+  PRIMARY KEY (`order_id`)  
+);  
+CREATE TABLE IF NOT EXISTS `t_order_item_1` (  
+  `item_id`  INT NOT NULL,  
+  `order_id` INT NOT NULL,  
+  `user_id`  INT NOT NULL,  
+  PRIMARY KEY (`item_id`)  
+);  
+新建maven项目
+
+
+Maven依赖的pom.xml
+[html] view plain copy
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"  
+    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">  
+    <modelVersion>4.0.0</modelVersion>  
+  
+    <groupId>org.study</groupId>  
+    <artifactId>sharding-jdbc</artifactId>  
+    <version>0.0.1-SNAPSHOT</version>  
+    <packaging>jar</packaging>  
+  
+    <name>sharding-jdbc</name>  
+    <url>http://maven.apache.org</url>  
+  
+    <properties>  
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>  
+        <spring.version>3.2.5.RELEASE</spring.version>  
+        <mybatis.version>3.2.4</mybatis.version>  
+    </properties>  
+  
+    <dependencies>  
+        <dependency>  
+            <groupId>junit</groupId>  
+            <artifactId>junit</artifactId>  
+            <version>4.10</version>  
+        </dependency>  
+        <dependency>  
+            <groupId>com.dangdang</groupId>  
+            <artifactId>sharding-jdbc-core</artifactId>  
+            <version>1.0.0</version>  
+        </dependency>  
+        <dependency>  
+            <groupId>org.springframework</groupId>  
+            <artifactId>spring-orm</artifactId>  
+            <version>${spring.version}</version>  
+        </dependency>  
+        <dependency>  
+            <groupId>commons-dbcp</groupId>  
+            <artifactId>commons-dbcp</artifactId>  
+            <version>1.4</version>  
+        </dependency>  
+        <dependency>  
+            <groupId>org.mybatis</groupId>  
+            <artifactId>mybatis-spring</artifactId>  
+            <version>1.2.2</version>  
+        </dependency>  
+        <dependency>  
+            <groupId>org.mybatis</groupId>  
+            <artifactId>mybatis</artifactId>  
+            <version>${mybatis.version}</version>  
+        </dependency>  
+  
+        <dependency>  
+            <groupId>org.springframework</groupId>  
+            <artifactId>spring-expression</artifactId>  
+            <version>${spring.version}</version>  
+        </dependency>  
+        <dependency>  
+            <groupId>org.springframework</groupId>  
+            <artifactId>spring-aop</artifactId>  
+            <version>${spring.version}</version>  
+        </dependency>  
+        <dependency>  
+            <groupId>org.springframework</groupId>  
+            <artifactId>spring-beans</artifactId>  
+            <version>${spring.version}</version>  
+        </dependency>  
+        <dependency>  
+            <groupId>org.springframework</groupId>  
+            <artifactId>spring-context</artifactId>  
+            <version>${spring.version}</version>  
+        </dependency>  
+        <dependency>  
+            <groupId>org.springframework</groupId>  
+            <artifactId>spring-context-support</artifactId>  
+            <version>${spring.version}</version>  
+        </dependency>  
+        <dependency>  
+            <groupId>org.springframework</groupId>  
+            <artifactId>spring-test</artifactId>  
+            <version>${spring.version}</version>  
+        </dependency>  
+        <dependency>  
+            <groupId>org.springframework</groupId>  
+            <artifactId>spring-tx</artifactId>  
+            <version>${spring.version}</version>  
+        </dependency>  
+        <dependency>  
+            <groupId>mysql</groupId>  
+            <artifactId>mysql-connector-java</artifactId>  
+            <version>5.1.28</version>  
+        </dependency>  
+        <dependency>  
+            <groupId>log4j</groupId>  
+            <artifactId>log4j</artifactId>  
+            <version>1.2.16</version>  
+        </dependency>  
+        <dependency>  
+            <groupId>org.slf4j</groupId>  
+            <artifactId>slf4j-log4j12</artifactId>  
+            <version>1.7.5</version>  
+        </dependency>  
+    </dependencies>  
+</project>  
+
+ShardingJdbc
+[java] view plain copy
+package com.study.base;  
+  
+import java.sql.Connection;  
+import java.sql.PreparedStatement;  
+import java.sql.ResultSet;  
+import java.sql.SQLException;  
+import java.util.Arrays;  
+import java.util.HashMap;  
+import java.util.Map;  
+  
+import javax.sql.DataSource;  
+  
+import org.apache.commons.dbcp.BasicDataSource;  
+  
+import com.dangdang.ddframe.rdb.sharding.api.ShardingDataSource;  
+import com.dangdang.ddframe.rdb.sharding.api.rule.BindingTableRule;  
+import com.dangdang.ddframe.rdb.sharding.api.rule.DataSourceRule;  
+import com.dangdang.ddframe.rdb.sharding.api.rule.ShardingRule;  
+import com.dangdang.ddframe.rdb.sharding.api.rule.TableRule;  
+import com.dangdang.ddframe.rdb.sharding.api.strategy.database.DatabaseShardingStrategy;  
+import com.dangdang.ddframe.rdb.sharding.api.strategy.table.TableShardingStrategy;  
+  
+public class ShardingJdbc {  
+      
+    public static void main(String[] args) throws SQLException {  
+          
+        //数据源  
+        Map<String, DataSource> dataSourceMap = new HashMap<>(2);  
+        dataSourceMap.put("sharding_0", createDataSource("sharding_0"));  
+        dataSourceMap.put("sharding_1", createDataSource("sharding_1"));  
+          
+        DataSourceRule dataSourceRule = new DataSourceRule(dataSourceMap);  
+          
+        //分表分库的表，第一个参数是逻辑表名，第二个是实际表名，第三个是实际库  
+        TableRule orderTableRule = new TableRule("t_order", Arrays.asList("t_order_0", "t_order_1"), dataSourceRule);  
+        TableRule orderItemTableRule = new TableRule("t_order_item", Arrays.asList("t_order_item_0", "t_order_item_1"), dataSourceRule);  
+          
+          
+          
+        /** 
+         * DatabaseShardingStrategy 分库策略 
+         * 参数一：根据哪个字段分库 
+         * 参数二：分库路由函数 
+         * TableShardingStrategy 分表策略 
+         * 参数一：根据哪个字段分表 
+         * 参数二：分表路由函数 
+         *  
+         */  
+        ShardingRule shardingRule = new ShardingRule(dataSourceRule, Arrays.asList(orderTableRule, orderItemTableRule),  
+                Arrays.asList(new BindingTableRule(Arrays.asList(orderTableRule, orderItemTableRule))),  
+                new DatabaseShardingStrategy("user_id", new ModuloDatabaseShardingAlgorithm()),  
+                new TableShardingStrategy("order_id", new ModuloTableShardingAlgorithm()));  
+          
+          
+        DataSource dataSource = new ShardingDataSource(shardingRule);  
+        String sql = "SELECT i.* FROM t_order o JOIN t_order_item i ON o.order_id=i.order_id WHERE o.user_id=? AND o.order_id=?";  
+        try (  
+                Connection conn = dataSource.getConnection();  
+                PreparedStatement pstmt = conn.prepareStatement(sql)) {  
+                pstmt.setInt(1, 10);  
+                pstmt.setInt(2, 1001);  
+            try (ResultSet rs = pstmt.executeQuery()) {  
+                while(rs.next()) {  
+                    System.out.println(rs.getInt(1));  
+                    System.out.println(rs.getInt(2));  
+                    System.out.println(rs.getInt(3));  
+                }  
+            }  
+        }  
+    }  
+  
+    /** 
+     * 创建数据源 
+     * @param dataSourceName 
+     * @return 
+     */  
+    private static DataSource createDataSource(String dataSourceName) {  
+        BasicDataSource result = new BasicDataSource();  
+        result.setDriverClassName(com.mysql.jdbc.Driver.class.getName());  
+        result.setUrl(String.format("jdbc:mysql://localhost:3306/%s", dataSourceName));  
+        result.setUsername("root");  
+        result.setPassword("");  
+        return result;  
+    }  
+  
+}  
+
+ModuloDatabaseShardingAlgorithm
+[java] view plain copy
+package com.study.base;  
+  
+import java.util.Collection;  
+import java.util.LinkedHashSet;  
+  
+import com.dangdang.ddframe.rdb.sharding.api.ShardingValue;  
+import com.dangdang.ddframe.rdb.sharding.api.strategy.database.SingleKeyDatabaseShardingAlgorithm;  
+import com.google.common.collect.Range;  
+  
+/** 
+ *  
+ * @author lyncc 
+ * 
+ */  
+public class ModuloDatabaseShardingAlgorithm implements SingleKeyDatabaseShardingAlgorithm<Integer>{  
+  
+    @Override  
+    public String doEqualSharding(Collection<String> availableTargetNames, ShardingValue<Integer> shardingValue) {  
+        for (String each : availableTargetNames) {  
+            if (each.endsWith(shardingValue.getValue() % 2 + "")) {  
+                return each;  
+            }  
+        }  
+        throw new IllegalArgumentException();  
+    }  
+  
+    @Override  
+    public Collection<String> doInSharding(Collection<String> availableTargetNames, ShardingValue<Integer> shardingValue) {  
+        Collection<String> result = new LinkedHashSet<>(availableTargetNames.size());  
+        for (Integer value : shardingValue.getValues()) {  
+            for (String tableName : availableTargetNames) {  
+                if (tableName.endsWith(value % 2 + "")) {  
+                    result.add(tableName);  
+                }  
+            }  
+        }  
+        return result;  
+    }  
+  
+    @Override  
+    public Collection<String> doBetweenSharding(Collection<String> availableTargetNames,  
+            ShardingValue<Integer> shardingValue) {  
+        Collection<String> result = new LinkedHashSet<>(availableTargetNames.size());  
+        Range<Integer> range = (Range<Integer>) shardingValue.getValueRange();  
+        for (Integer i = range.lowerEndpoint(); i <= range.upperEndpoint(); i++) {  
+            for (String each : availableTargetNames) {  
+                if (each.endsWith(i % 2 + "")) {  
+                    result.add(each);  
+                }  
+            }  
+        }  
+        return result;  
+    }  
+  
+}  
+ModuloTableShardingAlgorithm.java
+[java] view plain copy
+package com.study.base;  
+import java.util.Collection;  
+import java.util.LinkedHashSet;  
+  
+import com.dangdang.ddframe.rdb.sharding.api.ShardingValue;  
+import com.dangdang.ddframe.rdb.sharding.api.strategy.table.SingleKeyTableShardingAlgorithm;  
+import com.google.common.collect.Range;  
+  
+public final class ModuloTableShardingAlgorithm implements SingleKeyTableShardingAlgorithm<Integer> {  
+      
+    /** 
+    *  select * from t_order from t_order where order_id = 11  
+    *          └── SELECT *  FROM t_order_1 WHERE order_id = 11 
+    *  select * from t_order from t_order where order_id = 44 
+    *          └── SELECT *  FROM t_order_0 WHERE order_id = 44 
+    */  
+    public String doEqualSharding(final Collection<String> tableNames, final ShardingValue<Integer> shardingValue) {  
+        for (String each : tableNames) {  
+            if (each.endsWith(shardingValue.getValue() % 2 + "")) {  
+                return each;  
+            }  
+        }  
+        throw new IllegalArgumentException();  
+    }  
+      
+    /** 
+    *  select * from t_order from t_order where order_id in (11,44)   
+    *          ├── SELECT *  FROM t_order_0 WHERE order_id IN (11,44)  
+    *          └── SELECT *  FROM t_order_1 WHERE order_id IN (11,44)  
+    *  select * from t_order from t_order where order_id in (11,13,15)   
+    *          └── SELECT *  FROM t_order_1 WHERE order_id IN (11,13,15)   
+    *  select * from t_order from t_order where order_id in (22,24,26)   
+    *          └──SELECT *  FROM t_order_0 WHERE order_id IN (22,24,26)  
+    */  
+    public Collection<String> doInSharding(final Collection<String> tableNames, final ShardingValue<Integer> shardingValue) {  
+        Collection<String> result = new LinkedHashSet<>(tableNames.size());  
+        for (Integer value : shardingValue.getValues()) {  
+            for (String tableName : tableNames) {  
+                if (tableName.endsWith(value % 2 + "")) {  
+                    result.add(tableName);  
+                }  
+            }  
+        }  
+        return result;  
+    }  
+      
+    /** 
+    *  select * from t_order from t_order where order_id between 10 and 20  
+    *          ├── SELECT *  FROM t_order_0 WHERE order_id BETWEEN 10 AND 20  
+    *          └── SELECT *  FROM t_order_1 WHERE order_id BETWEEN 10 AND 20  
+    */  
+    public Collection<String> doBetweenSharding(final Collection<String> tableNames, final ShardingValue<Integer> shardingValue) {  
+        Collection<String> result = new LinkedHashSet<>(tableNames.size());  
+        Range<Integer> range = (Range<Integer>) shardingValue.getValueRange();  
+        for (Integer i = range.lowerEndpoint(); i <= range.upperEndpoint(); i++) {  
+            for (String each : tableNames) {  
+                if (each.endsWith(i % 2 + "")) {  
+                    result.add(each);  
+                }  
+            }  
+        }  
+        return result;  
+    }  
+}  
+log4j.xml
+[html] view plain copy
+<?xml version="1.0" encoding="UTF-8"?>      
+<!DOCTYPE log4j:configuration PUBLIC "-//APACHE//DTD LOG4J 1.2//EN" "log4j.dtd">    
+<log4j:configuration xmlns:log4j="http://jakarta.apache.org/log4j/">    
+  <!-- [控制台STDOUT] -->    
+  <appender name="console" class="org.apache.log4j.ConsoleAppender">    
+     <param name="encoding" value="GBK" />    
+     <param name="target" value="System.out" />    
+     <layout class="org.apache.log4j.PatternLayout">    
+       <param name="ConversionPattern" value="%-5p %c{2} - %m%n" />    
+     </layout>    
+  </appender>    
+    
+  <!-- [公共Appender] -->    
+  <appender name="DEFAULT-APPENDER" class="org.apache.log4j.DailyRollingFileAppender">    
+     <param name="File" value="${webapp.root}/logs/common-default.log" />    
+     <param name="Append" value="true" />    
+     <param name="encoding" value="GBK" />    
+     <param name="DatePattern" value="'.'yyyy-MM-dd'.log'" />    
+     <layout class="org.apache.log4j.PatternLayout">    
+    <param name="ConversionPattern" value="%d %-5p %c{2} - %m%n" />    
+     </layout>    
+   </appender>    
+    
+   <!-- [错误日志APPENDER] -->    
+   <appender name="ERROR-APPENDER" class="org.apache.log4j.DailyRollingFileAppender">    
+     <param name="File" value="${webapp.root}/logs/common-error.log" />    
+     <param name="Append" value="true" />    
+     <param name="encoding" value="GBK" />    
+     <param name="threshold" value="error" />    
+     <param name="DatePattern" value="'.'yyyy-MM-dd'.log'" />    
+     <layout class="org.apache.log4j.PatternLayout">    
+        <param name="ConversionPattern" value="%d %-5p %c{2} - %m%n" />    
+     </layout>    
+   </appender>    
+    
+   <!-- [组件日志APPENDER] -->    
+   <appender name="COMPONENT-APPENDER"    
+class="org.apache.log4j.DailyRollingFileAppender">    
+     <param name="File" value="${webapp.root}/logs/logistics-component.log" />    
+     <param name="Append" value="true" />    
+     <param name="encoding" value="GBK" />    
+     <param name="DatePattern" value="'.'yyyy-MM-dd'.log'" />    
+     <layout class="org.apache.log4j.PatternLayout">    
+    <param name="ConversionPattern" value="%d %-5p %c{2} - %m%n" />    
+     </layout>    
+   </appender>    
+    
+   <!-- [组件日志] -->    
+   <logger name="LOGISTICS-COMPONENT">    
+      <level value="${loggingLevel}" />    
+      <appender-ref ref="COMPONENT-APPENDER" />    
+      <appender-ref ref="ERROR-APPENDER" />    
+   </logger>    
+    
+   <!-- Root Logger -->    
+   <root>    
+       <level value="${rootLevel}"></level>    
+       <appender-ref ref="DEFAULT-APPENDER" />    
+       <appender-ref ref="ERROR-APPENDER" />    
+       <appender-ref ref="console" />   
+       <appender-ref ref="COMPONENT-APPENDER" />   
+   </root>    
+</log4j:configuration>    
+
+好了，按照官方教程说明：
+
+我们现在user_id是10，order_id是1001
+我们应该在sharding0库中的t_order_1和t_order_item_1中新建数据：
+[java] view plain copy
+INSERT INTO `t_order_1` VALUES ('1001', '10');  
+  
+INSERT INTO `t_order_item_1` VALUES ('4', '1001', '2');  
+
+好了，准备工作做完了，我们运行main函数，运行结果为：
+
+好了，sharding-jdbc正常工作了
+
+
+官网说sharding-jdbc是支持与orm框架整合的，下一节我们整合一下mybatis    END~
+
+
+
+新建Maven项目
+
+
+pom.xml
+[html] view plain copy
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"  
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">  
+  <modelVersion>4.0.0</modelVersion>  
+  
+  <groupId>org.study</groupId>  
+  <artifactId>sharding-jdbc-mybatis</artifactId>  
+  <version>0.0.1-SNAPSHOT</version>  
+  <packaging>jar</packaging>  
+  
+  <name>sharding-jdbc-mybatis</name>  
+  <url>http://maven.apache.org</url>  
+  
+ <properties>  
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>  
+        <spring.version>3.2.5.RELEASE</spring.version>  
+        <mybatis.version>3.2.4</mybatis.version>  
+    </properties>  
+  
+    <dependencies>  
+        <dependency>  
+            <groupId>junit</groupId>  
+            <artifactId>junit</artifactId>  
+            <version>4.10</version>  
+        </dependency>  
+        <dependency>  
+            <groupId>com.dangdang</groupId>  
+            <artifactId>sharding-jdbc-core</artifactId>  
+            <version>1.0.0</version>  
+        </dependency>  
+        <dependency>  
+            <groupId>org.springframework</groupId>  
+            <artifactId>spring-orm</artifactId>  
+            <version>${spring.version}</version>  
+        </dependency>  
+        <dependency>  
+            <groupId>commons-dbcp</groupId>  
+            <artifactId>commons-dbcp</artifactId>  
+            <version>1.4</version>  
+        </dependency>  
+        <dependency>  
+            <groupId>org.mybatis</groupId>  
+            <artifactId>mybatis-spring</artifactId>  
+            <version>1.2.2</version>  
+        </dependency>  
+        <dependency>  
+            <groupId>org.mybatis</groupId>  
+            <artifactId>mybatis</artifactId>  
+            <version>${mybatis.version}</version>  
+        </dependency>  
+  
+        <dependency>  
+            <groupId>org.springframework</groupId>  
+            <artifactId>spring-expression</artifactId>  
+            <version>${spring.version}</version>  
+        </dependency>  
+        <dependency>  
+            <groupId>org.springframework</groupId>  
+            <artifactId>spring-aop</artifactId>  
+            <version>${spring.version}</version>  
+        </dependency>  
+        <dependency>  
+            <groupId>org.springframework</groupId>  
+            <artifactId>spring-beans</artifactId>  
+            <version>${spring.version}</version>  
+        </dependency>  
+        <dependency>  
+            <groupId>org.springframework</groupId>  
+            <artifactId>spring-context</artifactId>  
+            <version>${spring.version}</version>  
+        </dependency>  
+        <dependency>  
+            <groupId>org.springframework</groupId>  
+            <artifactId>spring-context-support</artifactId>  
+            <version>${spring.version}</version>  
+        </dependency>  
+        <dependency>  
+            <groupId>org.springframework</groupId>  
+            <artifactId>spring-test</artifactId>  
+            <version>${spring.version}</version>  
+        </dependency>  
+        <dependency>  
+            <groupId>org.springframework</groupId>  
+            <artifactId>spring-tx</artifactId>  
+            <version>${spring.version}</version>  
+        </dependency>  
+        <dependency>  
+            <groupId>mysql</groupId>  
+            <artifactId>mysql-connector-java</artifactId>  
+            <version>5.1.28</version>  
+        </dependency>  
+        <dependency>  
+            <groupId>log4j</groupId>  
+            <artifactId>log4j</artifactId>  
+            <version>1.2.16</version>  
+        </dependency>  
+        <dependency>  
+            <groupId>org.slf4j</groupId>  
+            <artifactId>slf4j-log4j12</artifactId>  
+            <version>1.7.5</version>  
+        </dependency>  
+    </dependencies>  
+</project>  
+
+新建2个库，sharding_0和sharding_1
+
+
+分别在这2个库运行sql：
+[java] view plain copy
+/* 
+Navicat MySQL Data Transfer 
+ 
+Source Server         : PMS 
+Source Server Version : 50624 
+Source Host           : localhost:3306 
+Source Database       : sharding_0 
+ 
+Target Server Type    : MYSQL 
+Target Server Version : 50624 
+File Encoding         : 65001 
+ 
+Date: 2016-03-19 14:18:22 
+*/  
+  
+SET FOREIGN_KEY_CHECKS=0;  
+  
+-- ----------------------------  
+-- Table structure for t_student_0  
+-- ----------------------------  
+DROP TABLE IF EXISTS `t_student_0`;  
+CREATE TABLE `t_student_0` (  
+  `id` int(11) NOT NULL AUTO_INCREMENT,  
+  `student_id` int(11) NOT NULL,  
+  `name` varchar(255) NOT NULL,  
+  `age` int(11) NOT NULL,  
+  PRIMARY KEY (`id`)  
+) ENGINE=InnoDB  DEFAULT CHARSET=utf8;  
+  
+DROP TABLE IF EXISTS `t_student_1`;  
+CREATE TABLE `t_student_1` (  
+  `id` int(11) NOT NULL AUTO_INCREMENT,  
+  `student_id` int(11) NOT NULL,  
+  `name` varchar(255) NOT NULL,  
+  `age` int(11) NOT NULL,  
+  PRIMARY KEY (`id`)  
+) ENGINE=InnoDB  DEFAULT CHARSET=utf8;  
+  
+DROP TABLE IF EXISTS `t_user_0`;  
+CREATE TABLE `t_user_0` (  
+  `id` int(11) NOT NULL AUTO_INCREMENT,  
+  `user_id` int(11) NOT NULL,  
+  `name` varchar(255) NOT NULL,  
+  `age` int(11) NOT NULL,  
+  PRIMARY KEY (`id`)  
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;  
+  
+DROP TABLE IF EXISTS `t_user_1`;  
+CREATE TABLE `t_user_1` (  
+  `id` int(11) NOT NULL AUTO_INCREMENT,  
+  `user_id` int(11) NOT NULL,  
+  `name` varchar(255) NOT NULL,  
+  `age` int(11) NOT NULL,  
+  PRIMARY KEY (`id`)  
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;  
+  
+DROP TABLE IF EXISTS `t_user_2`;  
+CREATE TABLE `t_user_2` (  
+  `id` int(11) NOT NULL AUTO_INCREMENT,  
+  `user_id` int(11) NOT NULL,  
+  `name` varchar(255) NOT NULL,  
+  `age` int(11) NOT NULL,  
+  PRIMARY KEY (`id`)  
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;  
+Student.Java
+[java] view plain copy
+package com.study.dangdang.sharding.jdbc.entity;  
+  
+import java.io.Serializable;  
+  
+public class Student implements Serializable{  
+      
+    /** 
+     *  
+     */  
+    private static final long serialVersionUID = 8920597824668331209L;  
+  
+    private Integer id;  
+      
+    private Integer studentId;  
+      
+    private String name;  
+      
+    private Integer age;  
+  
+    public Integer getId() {  
+        return id;  
+    }  
+  
+    public void setId(Integer id) {  
+        this.id = id;  
+    }  
+  
+    public Integer getStudentId() {  
+        return studentId;  
+    }  
+  
+    public void setStudentId(Integer studentId) {  
+        this.studentId = studentId;  
+    }  
+  
+    public String getName() {  
+        return name;  
+    }  
+  
+    public void setName(String name) {  
+        this.name = name;  
+    }  
+  
+    public Integer getAge() {  
+        return age;  
+    }  
+  
+    public void setAge(Integer age) {  
+        this.age = age;  
+    }  
+      
+}  
+User.java
+[java] view plain copy
+package com.study.dangdang.sharding.jdbc.entity;  
+  
+import java.io.Serializable;  
+  
+public class User implements Serializable{  
+      
+    /** 
+     *  
+     */  
+    private static final long serialVersionUID = 1L;  
+      
+  
+    private Integer id;  
+      
+    private Integer userId;  
+      
+    private String name;  
+      
+    private Integer age;  
+  
+    public Integer getId() {  
+        return id;  
+    }  
+  
+    public void setId(Integer id) {  
+        this.id = id;  
+    }  
+  
+    public Integer getUserId() {  
+        return userId;  
+    }  
+  
+    public void setUserId(Integer userId) {  
+        this.userId = userId;  
+    }  
+  
+    public String getName() {  
+        return name;  
+    }  
+  
+    public void setName(String name) {  
+        this.name = name;  
+    }  
+  
+    public Integer getAge() {  
+        return age;  
+    }  
+  
+    public void setAge(Integer age) {  
+        this.age = age;  
+    }  
+  
+    @Override  
+    public String toString() {  
+        return "User [id=" + id + ", userId=" + userId + ", name=" + name + ", age=" + age + "]";  
+    }  
+      
+}  
+
+StudentMapper.java
+[java] view plain copy
+package com.study.dangdang.sharding.jdbc.mapper;  
+  
+import java.util.List;  
+  
+import com.study.dangdang.sharding.jdbc.entity.Student;  
+  
+public interface StudentMapper {  
+      
+    Integer insert(Student s);  
+      
+    List<Student> findAll();  
+      
+    List<Student> findByStudentIds(List<Integer> studentIds);  
+  
+}  
+
+UserMapper.java
+[java] view plain copy
+package com.study.dangdang.sharding.jdbc.mapper;  
+  
+import java.util.List;  
+  
+import com.study.dangdang.sharding.jdbc.entity.User;  
+  
+public interface UserMapper {  
+      
+    Integer insert(User u);  
+      
+    List<User> findAll();  
+      
+    List<User> findByUserIds(List<Integer> userIds);  
+      
+  
+}  
+
+StudentMapper.xml
+[html] view plain copy
+<?xml version="1.0" encoding="UTF-8" ?>  
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >  
+<mapper namespace="com.study.dangdang.sharding.jdbc.mapper.StudentMapper" >  
+  <resultMap id="resultMap" type="com.study.dangdang.sharding.jdbc.entity.Student" >  
+    <id column="id" property="id" jdbcType="INTEGER" />  
+    <result column="student_id" property="studentId" jdbcType="INTEGER" />  
+    <result column="name" property="name" jdbcType="VARCHAR" />  
+    <result column="age" property="age" jdbcType="INTEGER" />  
+  </resultMap>  
+    
+  <insert id="insert">  
+    insert into t_student (student_id,name,age) values (#{studentId},#{name},#{age})  
+  </insert>  
+    
+  <select id="findAll" resultMap="resultMap">  
+   select <include refid="columnsName"/> from t_student  
+  </select>  
+    
+  <select id="findByStudentIds" resultMap="resultMap">  
+    select <include refid="columnsName"/> from t_student where student_id in (  
+     <foreach collection="list" item="item" separator=",">  
+        #{item}  
+     </foreach>  
+    )  
+      
+  </select>  
+    
+  <sql id="columnsName">  
+     id,student_id,name,age  
+  </sql>  
+    
+     
+    
+</mapper>  
+
+UserMapper.xml
+[html] view plain copy
+<?xml version="1.0" encoding="UTF-8" ?>  
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >  
+<mapper namespace="com.study.dangdang.sharding.jdbc.mapper.UserMapper" >  
+  <resultMap id="resultMap" type="com.study.dangdang.sharding.jdbc.entity.User" >  
+    <id column="id" property="id" jdbcType="INTEGER" />  
+    <result column="user_id" property="userId" jdbcType="INTEGER" />  
+    <result column="name" property="name" jdbcType="VARCHAR" />  
+    <result column="age" property="age" jdbcType="INTEGER" />  
+  </resultMap>  
+    
+  <insert id="insert">  
+    insert into t_user (user_id,name,age) values (#{userId},#{name},#{age})  
+  </insert>  
+    
+  <select id="findAll" resultMap="resultMap">  
+   select <include refid="columnsName"/> from t_user   
+  </select>  
+    
+  <select id="findByUserIds" resultMap="resultMap">  
+    select <include refid="columnsName"/> from t_user where user_id in (  
+     <foreach collection="list" item="item" separator=",">  
+        #{item}  
+     </foreach>  
+    )  
+      
+  </select>  
+    
+  <sql id="columnsName">  
+     id,user_id,name,age  
+  </sql>  
+    
+     
+    
+</mapper>  
+
+StudentService.java
+[java] view plain copy
+package com.study.dangdang.sharding.jdbc.service;  
+  
+import com.study.dangdang.sharding.jdbc.entity.Student;  
+  
+public interface StudentService {  
+  
+    boolean insert(Student student);  
+  
+}  
+
+UserService.java
+[java] view plain copy
+package com.study.dangdang.sharding.jdbc.service;  
+  
+import java.util.List;  
+  
+import com.study.dangdang.sharding.jdbc.entity.User;  
+  
+public interface UserService {  
+      
+    public boolean insert(User u);  
+      
+    public List<User> findAll();  
+      
+    public List<User> findByUserIds(List<Integer> ids);  
+      
+    public void transactionTestSucess();  
+      
+    public void transactionTestFailure() throws IllegalAccessException;  
+  
+}  
+
+StudentServiceImpl.java
+[java] view plain copy
+package com.study.dangdang.sharding.jdbc.service.impl;  
+  
+import javax.annotation.Resource;  
+  
+import org.springframework.stereotype.Service;  
+  
+import com.study.dangdang.sharding.jdbc.entity.Student;  
+import com.study.dangdang.sharding.jdbc.mapper.StudentMapper;  
+import com.study.dangdang.sharding.jdbc.service.StudentService;  
+  
+@Service  
+public class StudentServiceImpl implements StudentService{  
+      
+    @Resource  
+    public StudentMapper studentMapper;  
+  
+    public boolean insert(Student student) {  
+        return studentMapper.insert(student) > 0 ? true : false;  
+    }  
+  
+}  
+
+UserServiceImpl.java
+[java] view plain copy
+package com.study.dangdang.sharding.jdbc.service.impl;  
+  
+import java.util.List;  
+  
+import javax.annotation.Resource;  
+  
+import org.springframework.stereotype.Service;  
+import org.springframework.transaction.annotation.Propagation;  
+import org.springframework.transaction.annotation.Transactional;  
+  
+import com.study.dangdang.sharding.jdbc.entity.Student;  
+import com.study.dangdang.sharding.jdbc.entity.User;  
+import com.study.dangdang.sharding.jdbc.mapper.StudentMapper;  
+import com.study.dangdang.sharding.jdbc.mapper.UserMapper;  
+import com.study.dangdang.sharding.jdbc.service.UserService;  
+  
+@Service  
+@Transactional  
+public class UserServiceImpl implements UserService {  
+  
+    @Resource  
+    public UserMapper userMapper;  
+      
+    @Resource  
+    public StudentMapper studentMapper;  
+  
+    public boolean insert(User u) {  
+        return userMapper.insert(u) > 0 ? true :false;  
+    }  
+  
+    public List<User> findAll() {  
+        return userMapper.findAll();  
+    }  
+  
+    public List<User> findByUserIds(List<Integer> ids) {  
+        return userMapper.findByUserIds(ids);  
+    }  
+  
+    @Transactional(propagation=Propagation.REQUIRED)  
+    public void transactionTestSucess() {  
+        User u = new User();  
+        u.setUserId(13);  
+        u.setAge(25);  
+        u.setName("war3 1.27");  
+        userMapper.insert(u);  
+          
+        Student student = new Student();  
+        student.setStudentId(21);  
+        student.setAge(21);  
+        student.setName("hehe");  
+        studentMapper.insert(student);  
+    }  
+  
+    @Transactional(propagation=Propagation.REQUIRED)  
+    public void transactionTestFailure() throws IllegalAccessException {  
+        User u = new User();  
+        u.setUserId(13);  
+        u.setAge(25);  
+        u.setName("war3 1.27 good");  
+        userMapper.insert(u);  
+          
+        Student student = new Student();  
+        student.setStudentId(21);  
+        student.setAge(21);  
+        student.setName("hehe1");  
+        studentMapper.insert(student);  
+        throw new IllegalAccessException();  
+    }  
+      
+}  
+
+StudentSingleKeyDatabaseShardingAlgorithm.java
+[java] view plain copy
+package com.study.dangdang.sharding.jdbc.algorithm;  
+  
+import java.util.Collection;  
+import java.util.LinkedHashSet;  
+  
+import com.dangdang.ddframe.rdb.sharding.api.ShardingValue;  
+import com.dangdang.ddframe.rdb.sharding.api.strategy.database.SingleKeyDatabaseShardingAlgorithm;  
+import com.google.common.collect.Range;  
+  
+/** 
+ * user表分库的逻辑函数 
+ * @author lyncc 
+ * 
+ */  
+public class StudentSingleKeyDatabaseShardingAlgorithm implements SingleKeyDatabaseShardingAlgorithm<Integer>{  
+  
+    /** 
+     * sql 中关键字 匹配符为 =的时候，表的路由函数 
+     */  
+    public String doEqualSharding(Collection<String> availableTargetNames, ShardingValue<Integer> shardingValue) {  
+        for (String each : availableTargetNames) {  
+            if (each.endsWith(shardingValue.getValue() % 2 + "")) {  
+                return each;  
+            }  
+        }  
+        throw new IllegalArgumentException();  
+    }  
+  
+    /** 
+     * sql 中关键字 匹配符为 in 的时候，表的路由函数 
+     */  
+    public Collection<String> doInSharding(Collection<String> availableTargetNames, ShardingValue<Integer> shardingValue) {  
+        Collection<String> result = new LinkedHashSet<String>(availableTargetNames.size());  
+        for (Integer value : shardingValue.getValues()) {  
+            for (String tableName : availableTargetNames) {  
+                if (tableName.endsWith(value % 2 + "")) {  
+                    result.add(tableName);  
+                }  
+            }  
+        }  
+        return result;  
+    }  
+  
+    /** 
+     * sql 中关键字 匹配符为 between的时候，表的路由函数 
+     */  
+    public Collection<String> doBetweenSharding(Collection<String> availableTargetNames,  
+            ShardingValue<Integer> shardingValue) {  
+        Collection<String> result = new LinkedHashSet<String>(availableTargetNames.size());  
+        Range<Integer> range = (Range<Integer>) shardingValue.getValueRange();  
+        for (Integer i = range.lowerEndpoint(); i <= range.upperEndpoint(); i++) {  
+            for (String each : availableTargetNames) {  
+                if (each.endsWith(i % 2 + "")) {  
+                    result.add(each);  
+                }  
+            }  
+        }  
+        return result;  
+    }  
+  
+}  
+StudentSingleKeyTableShardingAlgorithm.java
+[java] view plain copy
+package com.study.dangdang.sharding.jdbc.algorithm;  
+  
+import java.util.Collection;  
+import java.util.LinkedHashSet;  
+  
+import com.dangdang.ddframe.rdb.sharding.api.ShardingValue;  
+import com.dangdang.ddframe.rdb.sharding.api.strategy.table.SingleKeyTableShardingAlgorithm;  
+import com.google.common.collect.Range;  
+  
+/** 
+ * 因为t_student实际表在每个库中只有2个，所以 %2 
+ * @author lyncc 
+ * 
+ */  
+public class StudentSingleKeyTableShardingAlgorithm implements SingleKeyTableShardingAlgorithm<Integer>{  
+  
+    /** 
+     * sql 中 = 操作时，table的映射 
+     */  
+    public String doEqualSharding(Collection<String> tableNames, ShardingValue<Integer> shardingValue) {  
+        for (String each : tableNames) {  
+            if (each.endsWith(shardingValue.getValue() % 2 + "")) {  
+                return each;  
+            }  
+        }  
+        throw new IllegalArgumentException();  
+    }  
+  
+    /** 
+     * sql 中 in 操作时，table的映射 
+     */  
+    public Collection<String> doInSharding(Collection<String> tableNames, ShardingValue<Integer> shardingValue) {  
+        Collection<String> result = new LinkedHashSet<String>(tableNames.size());  
+        for (Integer value : shardingValue.getValues()) {  
+            for (String tableName : tableNames) {  
+                if (tableName.endsWith(value % 2 + "")) {  
+                    result.add(tableName);  
+                }  
+            }  
+        }  
+        return result;  
+    }  
+  
+    /** 
+     * sql 中 between 操作时，table的映射 
+     */  
+    public Collection<String> doBetweenSharding(Collection<String> tableNames,  
+            ShardingValue<Integer> shardingValue) {  
+        Collection<String> result = new LinkedHashSet<String>(tableNames.size());  
+        Range<Integer> range = (Range<Integer>) shardingValue.getValueRange();  
+        for (Integer i = range.lowerEndpoint(); i <= range.upperEndpoint(); i++) {  
+            for (String each : tableNames) {  
+                if (each.endsWith(i % 2 + "")) {  
+                    result.add(each);  
+                }  
+            }  
+        }  
+        return result;  
+    }  
+  
+}  
+UserSingleKeyDatabaseShardingAlgorithm.java
+[java] view plain copy
+package com.study.dangdang.sharding.jdbc.algorithm;  
+  
+import java.util.Collection;  
+import java.util.LinkedHashSet;  
+  
+import com.dangdang.ddframe.rdb.sharding.api.ShardingValue;  
+import com.dangdang.ddframe.rdb.sharding.api.strategy.database.SingleKeyDatabaseShardingAlgorithm;  
+import com.google.common.collect.Range;  
+  
+/** 
+ * user表分库的逻辑函数 
+ * @author lyncc 
+ * 
+ */  
+public class UserSingleKeyDatabaseShardingAlgorithm implements SingleKeyDatabaseShardingAlgorithm<Integer>{  
+  
+    /** 
+     * sql 中关键字 匹配符为 =的时候，表的路由函数 
+     */  
+    public String doEqualSharding(Collection<String> availableTargetNames, ShardingValue<Integer> shardingValue) {  
+        for (String each : availableTargetNames) {  
+            if (each.endsWith(shardingValue.getValue() % 2 + "")) {  
+                return each;  
+            }  
+        }  
+        throw new IllegalArgumentException();  
+    }  
+  
+    /** 
+     * sql 中关键字 匹配符为 in 的时候，表的路由函数 
+     */  
+    public Collection<String> doInSharding(Collection<String> availableTargetNames, ShardingValue<Integer> shardingValue) {  
+        Collection<String> result = new LinkedHashSet<String>(availableTargetNames.size());  
+        for (Integer value : shardingValue.getValues()) {  
+            for (String tableName : availableTargetNames) {  
+                if (tableName.endsWith(value % 2 + "")) {  
+                    result.add(tableName);  
+                }  
+            }  
+        }  
+        return result;  
+    }  
+  
+    /** 
+     * sql 中关键字 匹配符为 between的时候，表的路由函数 
+     */  
+    public Collection<String> doBetweenSharding(Collection<String> availableTargetNames,  
+            ShardingValue<Integer> shardingValue) {  
+        Collection<String> result = new LinkedHashSet<String>(availableTargetNames.size());  
+        Range<Integer> range = (Range<Integer>) shardingValue.getValueRange();  
+        for (Integer i = range.lowerEndpoint(); i <= range.upperEndpoint(); i++) {  
+            for (String each : availableTargetNames) {  
+                if (each.endsWith(i % 2 + "")) {  
+                    result.add(each);  
+                }  
+            }  
+        }  
+        return result;  
+    }  
+  
+}  
+UserSingleKeyTableShardingAlgorithm.java
+[java] view plain copy
+package com.study.dangdang.sharding.jdbc.algorithm;  
+  
+import java.util.Collection;  
+import java.util.LinkedHashSet;  
+  
+import com.dangdang.ddframe.rdb.sharding.api.ShardingValue;  
+import com.dangdang.ddframe.rdb.sharding.api.strategy.table.SingleKeyTableShardingAlgorithm;  
+import com.google.common.collect.Range;  
+  
+public class UserSingleKeyTableShardingAlgorithm implements SingleKeyTableShardingAlgorithm<Integer>{  
+  
+    /** 
+     * sql 中 = 操作时，table的映射 
+     */  
+    public String doEqualSharding(Collection<String> tableNames, ShardingValue<Integer> shardingValue) {  
+        for (String each : tableNames) {  
+            if (each.endsWith(shardingValue.getValue() % 3 + "")) {  
+                return each;  
+            }  
+        }  
+        throw new IllegalArgumentException();  
+    }  
+  
+    /** 
+     * sql 中 in 操作时，table的映射 
+     */  
+    public Collection<String> doInSharding(Collection<String> tableNames, ShardingValue<Integer> shardingValue) {  
+        Collection<String> result = new LinkedHashSet<String>(tableNames.size());  
+        for (Integer value : shardingValue.getValues()) {  
+            for (String tableName : tableNames) {  
+                if (tableName.endsWith(value % 3 + "")) {  
+                    result.add(tableName);  
+                }  
+            }  
+        }  
+        return result;  
+    }  
+  
+    /** 
+     * sql 中 between 操作时，table的映射 
+     */  
+    public Collection<String> doBetweenSharding(Collection<String> tableNames,  
+            ShardingValue<Integer> shardingValue) {  
+        Collection<String> result = new LinkedHashSet<String>(tableNames.size());  
+        Range<Integer> range = (Range<Integer>) shardingValue.getValueRange();  
+        for (Integer i = range.lowerEndpoint(); i <= range.upperEndpoint(); i++) {  
+            for (String each : tableNames) {  
+                if (each.endsWith(i % 3 + "")) {  
+                    result.add(each);  
+                }  
+            }  
+        }  
+        return result;  
+    }  
+  
+}  
+
+spring-database.xml
+[html] view plain copy
+<?xml version="1.0" encoding="UTF-8"?>  
+<beans xmlns="http://www.springframework.org/schema/beans"  
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:context="http://www.springframework.org/schema/context"  
+    xmlns:mybatis-spring="http://mybatis.org/schema/mybatis-spring"  
+    xmlns:tx="http://www.springframework.org/schema/tx"  
+    xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-3.2.xsd  
+        http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-3.2.xsd  
+        http://mybatis.org/schema/mybatis-spring http://mybatis.org/schema/mybatis-spring-1.2.xsd  
+        http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx-3.2.xsd">  
+          
+    <bean class="org.springframework.beans.factory.config.PropertyPlaceholderConfigurer">  
+        <property name="locations">  
+            <list>  
+                <value>classpath:config/resource/jdbc_dev.properties</value>  
+            </list>  
+        </property>  
+    </bean>  
+          
+    <bean name="sharding_0" class="com.alibaba.druid.pool.DruidDataSource" init-method="init" destroy-method="close">  
+        <property name="url" value="${jdbc_url0}" />  
+        <property name="username" value="${jdbc_username0}" />  
+        <property name="password" value="${jdbc_password0}" />  
+<!--         <property name="driverClass" value="${jdbc_driver0}" /> -->  
+        <!-- 初始化连接大小 -->  
+        <property name="initialSize" value="0" />  
+        <!-- 连接池最大使用连接数量 -->  
+        <property name="maxActive" value="20" />  
+        <!-- 连接池最小空闲 -->  
+        <property name="minIdle" value="0" />  
+        <!-- 获取连接最大等待时间 -->  
+        <property name="maxWait" value="60000" />  
+        <property name="validationQuery" value="${validationQuery}" />  
+        <property name="testOnBorrow" value="false" />  
+        <property name="testOnReturn" value="false" />  
+        <property name="testWhileIdle" value="true" />  
+        <!-- 配置间隔多久才进行一次检测，检测需要关闭的空闲连接，单位是毫秒 -->  
+        <property name="timeBetweenEvictionRunsMillis" value="60000" />  
+        <!-- 配置一个连接在池中最小生存的时间，单位是毫秒 -->  
+        <property name="minEvictableIdleTimeMillis" value="25200000" />  
+        <!-- 打开removeAbandoned功能 -->  
+        <property name="removeAbandoned" value="true" />  
+        <!-- 1800秒，也就是30分钟 -->  
+        <property name="removeAbandonedTimeout" value="1800" />  
+        <!-- 关闭abanded连接时输出错误日志 -->  
+        <property name="logAbandoned" value="true" />  
+        <property name="filters" value="stat" />  
+    </bean>  
+      
+    <bean name="sharding_1" class="com.alibaba.druid.pool.DruidDataSource" init-method="init" destroy-method="close">  
+        <property name="url" value="${jdbc_url1}" />  
+        <property name="username" value="${jdbc_username1}" />  
+        <property name="password" value="${jdbc_password1}" />  
+<!--         <property name="driverClass" value="${jdbc_driver1}" /> -->  
+        <!-- 初始化连接大小 -->  
+        <property name="initialSize" value="0" />  
+        <!-- 连接池最大使用连接数量 -->  
+        <property name="maxActive" value="20" />  
+        <!-- 连接池最小空闲 -->  
+        <property name="minIdle" value="0" />  
+        <!-- 获取连接最大等待时间 -->  
+        <property name="maxWait" value="60000" />  
+        <property name="validationQuery" value="${validationQuery}" />  
+        <property name="testOnBorrow" value="false" />  
+        <property name="testOnReturn" value="false" />  
+        <property name="testWhileIdle" value="true" />  
+        <!-- 配置间隔多久才进行一次检测，检测需要关闭的空闲连接，单位是毫秒 -->  
+        <property name="timeBetweenEvictionRunsMillis" value="60000" />  
+        <!-- 配置一个连接在池中最小生存的时间，单位是毫秒 -->  
+        <property name="minEvictableIdleTimeMillis" value="25200000" />  
+        <!-- 打开removeAbandoned功能 -->  
+        <property name="removeAbandoned" value="true" />  
+        <!-- 1800秒，也就是30分钟 -->  
+        <property name="removeAbandonedTimeout" value="1800" />  
+        <!-- 关闭abanded连接时输出错误日志 -->  
+        <property name="logAbandoned" value="true" />  
+        <property name="filters" value="stat" />  
+    </bean>  
+      
+  
+</beans>  
+
+spring-sharding.xml
+[html] view plain copy
+<?xml version="1.0" encoding="UTF-8"?>  
+<beans xmlns="http://www.springframework.org/schema/beans"  
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:context="http://www.springframework.org/schema/context"  
+    xmlns:mybatis-spring="http://mybatis.org/schema/mybatis-spring"  
+    xmlns:tx="http://www.springframework.org/schema/tx"  
+    xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-3.2.xsd  
+        http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-3.2.xsd  
+        http://mybatis.org/schema/mybatis-spring http://mybatis.org/schema/mybatis-spring-1.2.xsd  
+        http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx-3.2.xsd">  
+          
+    <context:component-scan base-package="com.study.dangdang.sharding.jdbc" />  
+      
+      
+      
+    <bean class="org.mybatis.spring.mapper.MapperScannerConfigurer">  
+        <property name="basePackage" value="com.study.dangdang.sharding.jdbc.mapper"/>  
+        <property name="sqlSessionFactoryBeanName" value="sqlSessionFactory"/>  
+    </bean>  
+      
+    <!-- 配置sqlSessionFactory -->  
+     <bean id="sqlSessionFactory" class="org.mybatis.spring.SqlSessionFactoryBean">  
+        <property name="dataSource" ref="shardingDataSource"/>  
+        <property name="mapperLocations" value="classpath*:config/mapper/*Mapper.xml"/>  
+    </bean>  
+      
+      
+    <!-- 配置好dataSourceRulue,即对数据源进行管理 -->  
+    <bean id="dataSourceRule" class="com.dangdang.ddframe.rdb.sharding.api.rule.DataSourceRule">  
+        <constructor-arg>  
+            <map>  
+                <entry key="sharding_0" value-ref="sharding_0"/>  
+                <entry key="sharding_1" value-ref="sharding_1"/>  
+            </map>  
+        </constructor-arg>  
+    </bean>  
+      
+    <!-- 对t_user表的配置，进行分库配置，逻辑表名为t_user，每个库有实际的三张表 -->  
+    <bean id="userTableRule" class="com.dangdang.ddframe.rdb.sharding.api.rule.TableRule">  
+        <constructor-arg value="t_user" index="0"/>  
+        <constructor-arg index="1">  
+            <list>  
+                <value>t_user_0</value>  
+                <value>t_user_1</value>  
+                <value>t_user_2</value>  
+            </list>  
+        </constructor-arg>  
+        <constructor-arg index="2" ref="dataSourceRule"/>  
+        <constructor-arg index="3" ref="userDatabaseShardingStrategy"/>  
+        <constructor-arg index="4" ref="userTableShardingStrategy"/>  
+    </bean>  
+      
+    <!-- t_user分库策略 -->  
+    <bean id="userDatabaseShardingStrategy" class="com.dangdang.ddframe.rdb.sharding.api.strategy.database.DatabaseShardingStrategy">  
+        <constructor-arg index="0" value="user_id"/>  
+        <constructor-arg index="1">  
+            <bean class="com.study.dangdang.sharding.jdbc.algorithm.UserSingleKeyDatabaseShardingAlgorithm" />  
+        </constructor-arg>  
+    </bean>  
+      
+    <!-- t_user 分表策略 -->  
+    <bean id="userTableShardingStrategy" class="com.dangdang.ddframe.rdb.sharding.api.strategy.table.TableShardingStrategy">  
+        <constructor-arg index="0" value="user_id"/>  
+        <constructor-arg index="1">  
+            <bean class="com.study.dangdang.sharding.jdbc.algorithm.UserSingleKeyTableShardingAlgorithm" />  
+        </constructor-arg>  
+    </bean>  
+      
+      
+      
+      <!-- 对t_student表的配置，进行分库配置，逻辑表名为t_user，每个库有实际的三张表 -->  
+    <bean id="studentTableRule" class="com.dangdang.ddframe.rdb.sharding.api.rule.TableRule">  
+        <constructor-arg value="t_student" index="0"/>  
+        <constructor-arg index="1">  
+            <list>  
+                <value>t_student_0</value>  
+                <value>t_student_1</value>  
+            </list>  
+        </constructor-arg>  
+        <constructor-arg index="2" ref="dataSourceRule"/>  
+        <constructor-arg index="3" ref="studentDatabaseShardingStrategy"/>  
+        <constructor-arg index="4" ref="studentTableShardingStrategy"/>  
+    </bean>  
+      
+     <!-- t_student分库策略 -->  
+    <bean id="studentDatabaseShardingStrategy" class="com.dangdang.ddframe.rdb.sharding.api.strategy.database.DatabaseShardingStrategy">  
+        <constructor-arg index="0" value="student_id"/>  
+        <constructor-arg index="1">  
+            <bean class="com.study.dangdang.sharding.jdbc.algorithm.StudentSingleKeyDatabaseShardingAlgorithm" />  
+        </constructor-arg>  
+    </bean>  
+      
+    <!-- t_student 分表策略 -->  
+    <bean id="studentTableShardingStrategy" class="com.dangdang.ddframe.rdb.sharding.api.strategy.table.TableShardingStrategy">  
+        <constructor-arg index="0" value="student_id"/>  
+        <constructor-arg index="1">  
+            <bean class="com.study.dangdang.sharding.jdbc.algorithm.StudentSingleKeyTableShardingAlgorithm" />  
+        </constructor-arg>  
+    </bean>  
+      
+      
+    <!-- 构成分库分表的规则 传入数据源集合和每个表的分库分表的具体规则 -->  
+    <bean id="shardingRule" class="com.dangdang.ddframe.rdb.sharding.api.rule.ShardingRule">  
+        <constructor-arg index="0" ref="dataSourceRule"/>  
+        <constructor-arg index="1">  
+            <list>  
+                <ref bean="userTableRule"/>  
+                <ref bean="studentTableRule"/>  
+            </list>  
+        </constructor-arg>  
+    </bean>  
+      
+    <!-- 对datasource进行封装 -->  
+    <bean id="shardingDataSource" class="com.dangdang.ddframe.rdb.sharding.api.ShardingDataSource">  
+        <constructor-arg ref="shardingRule"/>  
+    </bean>  
+  
+    <!-- 事务 -->  
+    <bean id="transactionManager"  
+          class="org.springframework.jdbc.datasource.DataSourceTransactionManager">  
+        <property name="dataSource" ref="shardingDataSource" />  
+    </bean>  
+  
+    <tx:annotation-driven transaction-manager="transactionManager" />  
+          
+  
+</beans>  
+jdbc_dev.properties
+[plain] view plain copy
+jdbc_driver0   = com.mysql.jdbc.Driver  
+jdbc_url0      = jdbc:mysql://localhost:3306/sharding_0?useUnicode=true&characterEncoding=UTF-8&allowMultiQueries=true  
+jdbc_username0 = root  
+jdbc_password0 =   
+  
+jdbc_driver1   = com.mysql.jdbc.Driver  
+jdbc_url1      = jdbc:mysql://localhost:3306/sharding_1?useUnicode=true&characterEncoding=UTF-8&allowMultiQueries=true  
+jdbc_username1 = root  
+jdbc_password1 =   
+  
+  
+validationQuery=SELECT 1  
+
+log4j.xml
+[html] view plain copy
+<?xml version="1.0" encoding="UTF-8"?>      
+<!DOCTYPE log4j:configuration PUBLIC "-//APACHE//DTD LOG4J 1.2//EN" "log4j.dtd">    
+<log4j:configuration xmlns:log4j="http://jakarta.apache.org/log4j/">    
+  <!-- [控制台STDOUT] -->    
+  <appender name="console" class="org.apache.log4j.ConsoleAppender">    
+     <param name="encoding" value="GBK" />    
+     <param name="target" value="System.out" />    
+     <layout class="org.apache.log4j.PatternLayout">    
+       <param name="ConversionPattern" value="%-5p %c{2} - %m%n" />    
+     </layout>    
+  </appender>    
+    
+  <!-- [公共Appender] -->    
+  <appender name="DEFAULT-APPENDER" class="org.apache.log4j.DailyRollingFileAppender">    
+     <param name="File" value="${webapp.root}/logs/common-default.log" />    
+     <param name="Append" value="true" />    
+     <param name="encoding" value="GBK" />    
+     <param name="DatePattern" value="'.'yyyy-MM-dd'.log'" />    
+     <layout class="org.apache.log4j.PatternLayout">    
+    <param name="ConversionPattern" value="%d %-5p %c{2} - %m%n" />    
+     </layout>    
+   </appender>    
+    
+   <!-- [错误日志APPENDER] -->    
+   <appender name="ERROR-APPENDER" class="org.apache.log4j.DailyRollingFileAppender">    
+     <param name="File" value="${webapp.root}/logs/common-error.log" />    
+     <param name="Append" value="true" />    
+     <param name="encoding" value="GBK" />    
+     <param name="threshold" value="error" />    
+     <param name="DatePattern" value="'.'yyyy-MM-dd'.log'" />    
+     <layout class="org.apache.log4j.PatternLayout">    
+        <param name="ConversionPattern" value="%d %-5p %c{2} - %m%n" />    
+     </layout>    
+   </appender>    
+    
+   <!-- [组件日志APPENDER] -->    
+   <appender name="COMPONENT-APPENDER"    
+class="org.apache.log4j.DailyRollingFileAppender">    
+     <param name="File" value="${webapp.root}/logs/logistics-component.log" />    
+     <param name="Append" value="true" />    
+     <param name="encoding" value="GBK" />    
+     <param name="DatePattern" value="'.'yyyy-MM-dd'.log'" />    
+     <layout class="org.apache.log4j.PatternLayout">    
+    <param name="ConversionPattern" value="%d %-5p %c{2} - %m%n" />    
+     </layout>    
+   </appender>    
+    
+   <!-- [组件日志] -->    
+   <logger name="LOGISTICS-COMPONENT">    
+      <level value="${loggingLevel}" />    
+      <appender-ref ref="COMPONENT-APPENDER" />    
+      <appender-ref ref="ERROR-APPENDER" />    
+   </logger>    
+    
+   <!-- Root Logger -->    
+   <root>    
+       <level value="${rootLevel}"></level>    
+       <appender-ref ref="DEFAULT-APPENDER" />    
+       <appender-ref ref="ERROR-APPENDER" />    
+       <appender-ref ref="console" />   
+       <appender-ref ref="COMPONENT-APPENDER" />   
+   </root>    
+</log4j:configuration>    
+
+好了，到此为止，所有代码都贴出来了，我们开始测试：
+ShardingJdbcMybatisTest.java
+[java] view plain copy
+package com.study.dangdang.sharding.jdbc;  
+  
+import java.util.Arrays;  
+import java.util.List;  
+  
+import javax.annotation.Resource;  
+  
+import org.junit.Assert;  
+import org.junit.Test;  
+import org.junit.runner.RunWith;  
+import org.springframework.test.context.ContextConfiguration;  
+import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;  
+  
+import com.study.dangdang.sharding.jdbc.entity.Student;  
+import com.study.dangdang.sharding.jdbc.entity.User;  
+import com.study.dangdang.sharding.jdbc.service.StudentService;  
+import com.study.dangdang.sharding.jdbc.service.UserService;  
+  
+@RunWith(SpringJUnit4ClassRunner.class)  
+@ContextConfiguration(locations = { "classpath*:config/spring/spring-database.xml",  
+        "classpath*:config/spring/spring-sharding.xml" })  
+public class ShardingJdbcMybatisTest {  
+  
+    @Resource  
+    public UserService userService;  
+      
+    @Resource  
+    public StudentService studentService;  
+  
+    @Test  
+    public void testUserInsert() {  
+        User u = new User();  
+        u.setUserId(11);  
+        u.setAge(25);  
+        u.setName("github");  
+        Assert.assertEquals(userService.insert(u), true);  
+    }  
+      
+    @Test  
+    public void testStudentInsert() {  
+        Student student = new Student();  
+        student.setStudentId(21);  
+        student.setAge(21);  
+        student.setName("hehe");  
+        Assert.assertEquals(studentService.insert(student), true);  
+    }  
+  
+    @Test  
+    public void testFindAll(){  
+        List<User> users = userService.findAll();  
+        if(null != users && !users.isEmpty()){  
+            for(User u :users){  
+                System.out.println(u);  
+            }  
+        }  
+    }  
+      
+    @Test  
+    public void testSQLIN(){  
+        List<User> users = userService.findByUserIds(Arrays.asList(2,10,1));  
+        if(null != users && !users.isEmpty()){  
+            for(User u :users){  
+                System.out.println(u);  
+            }  
+        }  
+    }  
+      
+    @Test  
+    public void testTransactionTestSucess(){  
+        userService.transactionTestSucess();  
+    }  
+      
+    @Test(expected = IllegalAccessException.class)  
+    public void testTransactionTestFailure() throws IllegalAccessException{  
+        userService.transactionTestFailure();  
+    }  
+      
+      
+}  
+testUserInsert的运行结果是：
+
+替换了我们sql中的数据源和表名
+
+testFindAll的运行结果是：
+
+注意：看日记，一共发出了6条sql，也就是说每个库的每个表都发出一条sql，在平常开发中，这种sql还是少执行，会很大程度上降低性能
+
+testSQLIN的运行结果是：
+
+注意：根据id的路由规则，定位到表后，其实此时已经知道该表中的id了，没必要用3个参数的in了，sharding-jdbc这边还不是很智能的，虽然IN也是支持索引的~有待更进一步的优化
+
+
+最后事务测试也是没有问题的~
+大家自己动手来一遍吧~
+
+代码下载地址：http://download.csdn.NET/detail/linuu/9466514

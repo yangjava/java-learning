@@ -1,0 +1,77 @@
+由于泛型类型在运行时被消除，因此，对于如何使用泛型类型是有一些限制的。
+
+限制1：不能使用new E()
+
+　　不能使用泛型类型参数创建实例。例如，下面的语句是错误的：
+
+　　E object = new E();
+
+　　出错的原因是运行时执行的是new E()，但是运行时泛型类型E是不可用的。
+
+限制2：不能使用new E() 
+
+　　不能使用泛型类型参数创建数组。例如，下面的语句是错误的。
+
+　　E[] elements = new E[capacity];
+
+　　可以通过创建一个Object类型的数组，然后将它的类型转换为E[]来规避这个限制，如下所示：
+
+　　E[] elements = (E[]) new Object[capacity];
+
+　　但是，类型转换到(E())会导致一个免检的便已警告。该警告会出现是因为编译器无法确保在运行时类型转换能成功。例如，如果E是String，而new Object[]是Integer对象的数组，那么(String[])(new Object[])将会导致ClassCastException异常。这种类型的编译警告是对Java泛型的限制，也是无法避免的。
+
+ 
+
+　　不能使用泛型类创建泛型数组。例如，下面的代码是错误的：
+
+　　ArrayList<String> list = new ArrayList<String>[10];
+
+　　可以使用下面的代码来规避这个限制：
+
+　　ArrayList<String> list = (ArrayList<String>[]) new ArrayList[10];
+
+　　你将会得到一个编译警告。
+
+限制3：在静态环境下不允许类的参数是泛型类型
+
+　　由于泛型类的所有实例都有相同的运行时类，所以泛型类的静态变量和方法是被它的所有实例所共享的。因此，在静态方法、数据域或者初始化语句中，为了类而引用泛型类型参数是非法的。例如，下面的代码是非法的：
+
+　　public class Test<E> {
+
+　　　　public static void m(E o1) {　　// Illegal
+
+　　　　}
+
+　　　　public static E o1;　　// Illegal
+
+　　　　static {
+
+　　　　　　E o2;　　// Illegal
+
+　　　　}
+
+　　}
+
+限制4：异常类不能是泛型的
+
+　　泛型类不能扩展java.lang.Throwable，因此，下面的类声明是非法的：
+
+　　为什么？如果允许这么做，就应为MyException<T>添加一个catch子句，如下所示：
+
+　　public class MyException<T> extends Exception {
+
+　　}
+
+　　JVM必须检查这个从try子句中抛出的异常以确定它是否与catch子句中指定的类型匹配。但这是不可能的，因为在运行时类型信息是不出现的。
+
+　　try {
+
+　　...
+
+　　}
+
+　　catch (MyException<T> ex) {
+
+　　...
+
+　　}

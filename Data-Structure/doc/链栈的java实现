@@ -1,0 +1,104 @@
+前言
+最近参加一些校招，博主被问了很多数据结构的问题，其中很多问题面试官需要的答案不仅仅是需要你了解这些概念，而是需要你通过某种语言（C、C++、Java）把这种结构实现，同时还能根据公司的具体需求进一步优化。对于博主这样，数据结构功底薄弱的选手，最终结果只能“被面”。痛定思痛，现在痛苦狂补中。正如江湖中有句话“欠下的债终究要还的”。
+链栈
+栈的链式存储结构称为链栈。
+在算法中要用到多个栈时，最好用链表作为栈的存储结构，即用指针来实现栈。用这种方式实现的栈也称为链栈。由于栈的插人和删除操作只在表头进行，因此用指针实现栈时没有必要像单链表那样设置一个表头单元。
+一、链栈结构及数据类型
+栈的链式存贮结构,也称为链栈，它是一种限制运算的链表，即规定链表中的插入和删除运算只能在链表开头进行。链栈结构见图。
+ 
+
+链栈的java实现：
+[java] view plain copy
+package study_02.test;  
+  
+  
+/** 
+ * 链栈的实现 
+ * @author WWX 
+ * @param <T> 
+ */  
+public class LinkStack<T> {  
+    //定义节点数据结构  
+    private class Node{  
+        public T data;  
+        public Node next;  
+        //无参构造函数  
+        public Node(){}  
+          
+        public Node(T data,Node next){  
+            this.next=next;  
+            this.data=data;  
+        }  
+    }  
+    //栈顶元素  
+    private Node top;  
+    //元素个数  
+    private  int size;  
+    //插入数据  
+    public void  push(T element){  
+        top=new Node(element, top);  
+        size++;  
+    }  
+      
+    //出栈操作  
+    public  T pop(){  
+        Node  oldNode=top;  
+        top=top.next;  
+        //释放引用  
+        oldNode.next=null;  
+        size--;  
+        return oldNode.data;  
+    }  
+    //返回栈顶的元素，但不出栈  
+    public T peek(){  
+        return top.data;  
+          
+    }  
+    //堆栈长度  
+    public int length(){  
+        return  size;  
+    }  
+    // 判断链栈是否为空栈  
+    public boolean empty() {  
+        return size == 0;  
+    }  
+      
+    public String toString() {  
+        // 链栈为空链栈时  
+        if(empty())  
+            return "[]";  
+        else{  
+            StringBuilder sb = new StringBuilder("[");  
+            for (Node current = top; current != null; current = current.next) {  
+                sb.append(current.data.toString() + ", ");  
+            }  
+            int len = sb.length();  
+            return sb.delete(len - 2, len).append("]").toString();  
+  
+        }  
+    }  
+      
+    public static void main(String[] args) {  
+        LinkStack<String> stack = new LinkStack<String>();  
+        // 不断地入栈  
+        stack.push("aaaa");  
+        stack.push("bbbb");  
+        stack.push("cccc");  
+        stack.push("dddd");  
+        System.out.println(stack);  
+        // 访问栈顶元素  
+        System.out.println("访问栈顶元素：" + stack.peek());  
+        // 弹出一个元素  
+        System.out.println("第一次弹出栈顶元素：" + stack.pop());  
+        // 再次弹出一个元素  
+        System.out.println("第二次弹出栈顶元素：" + stack.pop());  
+        System.out.println("两次pop之后的栈：" + stack);  
+    }  
+}  
+
+输出结果：
+[dddd, cccc, bbbb, aaaa]
+访问栈顶元素：dddd
+第一次弹出栈顶元素：dddd
+第二次弹出栈顶元素：cccc
+两次pop之后的栈：[bbbb, aaaa]

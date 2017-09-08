@@ -1,0 +1,110 @@
+今天在跑压力测试的过程中，一个看似不可能出错的地方居然报错了，起因在于我们定义的DateUtil工具类，用于将日期进行合理的format以及parse，出现了多线程问题（在单线程时不会出错，只有压测过程中会出现错误）。
+ 
+代码上分析，原来编写的DateUtil简直是漏洞百出，首先将SimpleDateFormat定义为static变量，这表明在JVM中仅存在一份：
+ 
+[java] view plain copy
+private final static SimpleDateFormat DATE_FORMAT = new SimpleDateFormat(YMD_HYPHEN_PATTERN);  
+ 
+ 
+在该工具类方法中，有多个方法可能会修改该引用的pattern：
+ 
+[java] view plain copy
+public static String format(Date date) {  
+      if (date == null) {  
+        return "";  
+      }  
+      DATE_FORMAT.applyPattern(YMD_HYPHEN_PATTERN);  
+      return DATE_FORMAT.format(date);  
+  }  
+ 
+ 
+在不同方法中，都会对该静态变量引用进行修改，这样即使SimpleDateFormat为线程安全的，都会产生多线程问题，更何况SimpleDateFormat根本不是线程安全的！
+ 
+SimpleDateFormat 是 Java 中一个非常常用的类，该类用来对日期字符串进行解析和格式化输出，但如果使用不小心会导致非常微妙和难以调试的问题，因为 DateFormat 和 SimpleDateFormat 类不都是线程安全的，在多线程环境下调用 format() 和 parse() 方法应该使用同步代码来避免问题。
+ 
+如果将DateUtil写成下面这样：
+ 
+[java] view plain copy
+public class DateUtil {  
+    private static final  SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");  
+     
+    public static  String formatDate(Date date)throws ParseException{  
+        return sdf.format(date);  
+    }  
+     
+    public static Date parse(String strDate) throws ParseException{  
+        return sdf.parse(strDate);  
+    }  
+}  
+ 
+ 
+表面上看是不会产生任何问题的，但是由于SimpleDateFormat的线程不安全性，一旦负载上来了，这个问题就出来了，会出现各种不同的情况，比如转换的时间不正确，线程被挂死，出现NumberFormatException等。
+ 
+正是由于SimpleDateFormat对象的创建比较耗费资源，开发人员才会想要通过共享变量的方式来节省资源，但这种危险的使用方式是不提倡的，除非确定你的代码不会被多线程调用（例如单机应用或Map/Reduce这种基于进程的方式）。
+ 
+解决该问题有下面几种方法：
+ 
+1.方法内部创建SimpleDateFormat，不管是什么时候，将有线程安全的对象由共享变为私有局部变量都可以避免多线程问题，不过也加重了创建对象的负担，虽然随时创建SimpleDateFormat会造成一定的性能影响，而且会对GC产生一定的压力，但这并不是核心问题，只要能产生正确的结果：
+ 
+[java] view plain copy
+public static String format(Date date) {  
+        if (date == null) {  
+            return "";  
+        }  
+        return new SimpleDateFormat(YMD_HYPHEN_PATTERN).format(date);  
+    }  
+ 
+ 
+ 
+2.将SimpleDateFormat进行同步使用，在每次执行时都对其加锁，这样也会影响性能，想要调用此方法的线程就需要block，当多线程并发量比较大时会对性能产生一定影响；
+ 
+[java] view plain copy
+public static String formatDate(Date date)throws ParseException{  
+        synchronized(sdf){  
+            return sdf.format(date);  
+        }   
+    }  
+  
+在任何公共的地方使用该类时，都需要对SimpleDateFormat进行加锁。
+ 
+3.使用ThreadLocal变量，用空间换时间，这样每个线程就会独立享有一个本地的SimpleDateFormat变量；
+ 
+ 
+[java] view plain copy
+private static ThreadLocal<DateFormat> threadLocal = new ThreadLocal<DateFormat>() {  
+        @Override  
+        protected DateFormat initialValue() {  
+            return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");  
+        }  
+    };  
+  
+    public static Date parse(String dateStr) throws ParseException {  
+        return threadLocal.get().parse(dateStr);  
+    }  
+  
+这样就可以保证每个线程的本地变量都是安全的，不同线程之间并不共享相同的SimpleDateFormat，从而避免了线程安全问题。
+ 
+如果需要对性能比较敏感，可以采用这种方式，至少比前两种的速度要快，但是占用内存也会大一点（但也不会多么夸张）。
+ 
+4.众所周知，JDK的日期API是非常逆天难用的（至少在Java8之前），可以考虑使用优秀的第三方库，例如joda-time。
+ 
+对于JDK中的日期API，有很多值得吐槽的地方，例如Date中的年份是从1900年开始，月份都是从0开始...
+ 
+Joda-time是一个面向Java应用程序的日期/时间库的替代选择，它可以令时间和日期值变得易于管理、操作和理解。
+ 
+ 
+[java] view plain copy
+//获取当前时间  
+DateTime now = new DateTime()  
+//获取今天的00：00：00  
+DateTime dateTime = new DateTime().withHourOfDay(0).withMinuteOfHour(0).withSecondOfMinute(0);  
+//向后移动1天  
+DateTime tommorrow = dateTime.plusDays(1);  
+//转换到Date  
+Date tommorrowDate = tommorrow.toDate();  
+ 
+ 
+更加方便的是，直接将格式化操作内置在toString（带参数）方法中，可以传入”yyyyMMdd”将其转换至对应的字符串时间。
+ 
+此外joda-time中还提供了诸如Interval，Duration这些用于计算时间范围相关的工具类。 
+ 
